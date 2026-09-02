@@ -1,12 +1,33 @@
 Use case: logo-brand
 Asset type: macOS application icon, 1024×1024 master artwork
-Primary request: Create an original premium app icon for Storybird, a local macOS app that turns a sequence of captured product screens and mouse clicks into an interactive story.
-Subject: A single simplified bird in flight constructed from three overlapping rounded rectangular screen cards. Its wing and tail form a smooth curved click path that ends in one small circular waypoint. The bird must read as both "story" and "guided product flow" without becoming a literal screenshot.
-Style/medium: polished vector-friendly 3D icon with restrained soft depth, clean geometric forms, strong silhouette, and macOS-quality finish
-Composition/framing: centered symbol, large and bold, generous safe margin, readable at 16px, no separate border, no device mockup
-Scene/backdrop: full square app-icon canvas with a softly rounded-square indigo background and subtle dimensional lighting
-Color palette: deep indigo and violet base, periwinkle highlights, warm white bird/path, one tiny coral accent at the waypoint
-Materials/textures: smooth matte-glass surfaces with subtle bevels; crisp edges; no grain
-Text (verbatim): none
-Constraints: one centered icon only; original design; clear silhouette; balanced negative space; preserve visual clarity when downscaled; no text; no letters; no word "Storybird"; no watermark; no Apple logo; no third-party logos; no realistic feathers; no detailed user interface; no screenshot content; no extra birds; no background scene
-Avoid: generic social-media bird logos, Twitter/X-like silhouettes, origami crane clichés, mascots, photorealism, excessive gradients, neon glow, tiny details, busy patterns
+
+Input images:
+- Image 1: the sole character identity and visual-style reference. Use the character from this image exactly; ignore the reference background and original composition.
+
+Primary request:
+Create a premium, original macOS app icon for Storybird using the exact character from Image 1 as the central subject. Storybird turns captured product screens and mouse clicks into an interactive story. Express that idea with two or three simplified rounded screen cards and one smooth click path with small circular waypoints around or behind the character.
+
+Character identity invariants:
+- Preserve the character's species or type, face shape, eyes, mouth or beak, hairstyle or fur, body proportions, silhouette, colors, outfit, accessories, and distinctive markings.
+- Preserve the reference image's native illustration/rendering style.
+- Do not redesign, age, humanize, simplify beyond recognition, recolor, or replace the character.
+- If the reference character is not a bird, do not transform it into a bird and do not add wings.
+- Show exactly one character.
+
+Pose and storytelling:
+Place the character in a confident forward-moving or guiding pose that suits its existing anatomy and personality. The character should appear to guide a story across the screen cards. A clean curved path should connect the cards and end at one small warm coral waypoint. The cards and path are supporting symbols; the reference character remains the clear focal point.
+
+Composition:
+Centered, bold silhouette with generous safe margins. The character occupies roughly 55–65% of the canvas. Use a full rounded-square app-icon composition, readable at 16px and balanced at 1024px. Avoid cropped facial features and avoid elements touching the outer edge.
+
+Style and finish:
+Match the reference character's visual style while giving the whole icon a polished macOS-quality finish: crisp edges, restrained soft depth, subtle bevel or dimensional lighting only when compatible with the reference style, and clean separation between foreground and background.
+
+Background and palette:
+Deep indigo-to-violet rounded-square background with restrained periwinkle highlights. Keep the character's original colors unchanged. Use warm white for the click path and a single coral accent for the final waypoint.
+
+Text:
+None.
+
+Constraints:
+No text, no letters, no word "Storybird", no watermark, no Apple logo, no third-party logos, no extra characters, no realistic screenshot content, no detailed UI controls, no busy background scene, no generic social-media bird logo, no Twitter/X-like silhouette, no unrelated props. Strong silhouette, minimal small details, original composition, and clear recognition when downscaled.
