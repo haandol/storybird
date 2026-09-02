@@ -14,6 +14,21 @@
     <string>AppIcon</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Storybird Agent Recording</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>com.storybird.recording</string>
+            </array>
+            <key>LSTypeIsPackage</key>
+            <true/>
+        </dict>
+    </array>
     <key>CFBundleName</key>
     <string>Storybird</string>
     <key>CFBundlePackageType</key>
@@ -32,5 +47,26 @@
     <string>Storybird observes mouse clicks during a recording session to create interactive hotspots. Keyboard input is never recorded.</string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>com.apple.package</string>
+                <string>public.data</string>
+            </array>
+            <key>UTTypeDescription</key>
+            <string>Storybird Agent Recording</string>
+            <key>UTTypeIdentifier</key>
+            <string>com.storybird.recording</string>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>storybirdrecording</string>
+                </array>
+            </dict>
+        </dict>
+    </array>
 </dict>
 </plist>

@@ -39,5 +39,13 @@ let package = Package(
                 .swiftLanguageMode(.v6),
             ]
         ),
+        .testTarget(
+            name: "StorybirdTests",
+            dependencies: ["Storybird", "StorybirdCore"],
+            path: "Tests/StorybirdTests",
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+            ]
+        ),
     ]
 )

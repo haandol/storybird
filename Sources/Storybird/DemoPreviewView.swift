@@ -64,11 +64,6 @@ struct DemoPreviewView: View {
                     )
 
                     HStack(spacing: 14) {
-                        Text(step.caption)
-                            .font(.callout)
-                            .foregroundStyle(.white.opacity(0.68))
-                            .lineLimit(2)
-
                         Spacer()
 
                         Button("Back") {
@@ -267,6 +262,20 @@ private struct PreviewStage: View {
                         .frame(width: imageFrame.width, height: imageFrame.height)
                         .position(x: imageFrame.midX, y: imageFrame.midY)
                         .clipShape(RoundedRectangle(cornerRadius: 14))
+                }
+
+                ScreenSubtitleOverlay(
+                    text: step.caption,
+                    position: step.subtitlePosition,
+                    style: step.subtitleStyle,
+                    imageFrame: imageFrame
+                )
+
+                ForEach(step.hotspots) { hotspot in
+                    HotspotCaptionOverlay(
+                        hotspot: hotspot,
+                        imageFrame: imageFrame
+                    )
                 }
 
                 ForEach(Array(step.hotspots.enumerated()), id: \.element.id) { index, hotspot in

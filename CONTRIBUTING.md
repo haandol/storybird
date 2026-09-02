@@ -65,10 +65,16 @@ functions, or schemas already obvious from code.
 Tests live in `Tests/StorybirdCoreTests/` and run with `swift test`. Name them
 `test_<behavior>_<expectedResult>()`.
 
+The agent recording builder has a separate standard-library test:
+
+```bash
+python3 .agents/skills/record-storybird-flow/scripts/test_build_recording_bundle.py
+```
+
 - Do not use real screens, windows, click monitors, user projects, or network.
 - Redirect filesystem work to a unique temporary directory.
 - Test coordinate boundaries, click linkage, persistence, migration, analytics,
-  export escaping, and bundle metadata.
+  export escaping, agent recording package validation, and bundle metadata.
 - Match actor isolation in tests; never weaken production annotations.
 - Deliberately break a guarded behavior once to prove its regression test fails.
 
@@ -89,6 +95,10 @@ ScreenCaptureKit and TCC behavior require a real signed bundle:
 9. Rebuild and confirm the same signing identity keeps permissions.
 10. On first launch after renaming, confirm an OpenLane library is copied while
    the original remains untouched.
+11. Build a synthetic `.storybirdrecording` package with the repository skill,
+    open it in Storybird, and confirm ordered screens and hotspot targets.
+12. Try an invalid coordinate or symbolic-link asset and confirm the existing
+    project library is unchanged.
 
 Use synthetic content. Never put customer dashboards, messages, credentials, or
 other private captures in issues, commits, or pull request attachments.

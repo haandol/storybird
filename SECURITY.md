@@ -27,6 +27,8 @@ captured product content locally. Important failures include:
 - another process borrowing Storybird's permissions or recording session;
 - path traversal, asset collisions, or writes outside the Storybird library or
   an explicitly selected export folder;
+- agent recording packages containing unexpected files or fields, symbolic
+  links, non-PNG assets, or hidden browser/session data;
 - stored or exported script injection through project or hotspot text;
 - accidental inclusion of Storybird's editor or HUD in captures;
 - unstable signing that disconnects the app from an existing TCC grant.
@@ -38,6 +40,8 @@ captured product content locally. Important failures include:
 - Releases not being notarized is a distribution limitation, not by itself a
   vulnerability.
 - Captures intentionally included in a user-triggered static export.
+- Visible screenshots and normalized click positions intentionally included in
+  a user-triggered agent recording package import.
 - Data surviving app deletion under Application Support.
 - Issues requiring an attacker who already has local code execution as the
   logged-in user.

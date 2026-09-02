@@ -114,8 +114,23 @@ final class AppStore: ObservableObject {
         }
     }
 
+    func importAgentRecording(at packageURL: URL) {
+        do {
+            let result = try AgentRecordingLibraryImporter(
+                repository: repository
+            ).importBundle(at: packageURL, into: projects)
+            projects = result.projects
+            selectedProjectID = result.project.id
+        } catch {
+            errorMessage = "The agent recording could not be imported: \(error.localizedDescription)"
+        }
+    }
+
     func replaceProject(_ project: DemoProject) {
         guard let index = projects.firstIndex(where: { $0.id == project.id }) else {
+            return
+        }
+        guard projects[index] != project else {
             return
         }
         var updated = project

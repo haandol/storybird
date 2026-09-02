@@ -61,6 +61,27 @@ Storybird removes the click monitor first and waits for the queued click writes
 before stopping the stream. If a step is still missing, include the number and
 timing of clicks in a bug report; do not attach private captures.
 
+## An agent recording package does not import
+
+Confirm the package ends in `.storybirdrecording` and contains only
+`manifest.json` plus an `assets/` directory of PNG files. The first screen must
+have no preceding click; every later screen needs finite normalized `x` and `y`
+coordinates between `0` and `1`.
+
+Storybird rejects extra manifest fields, extra files, nested or absolute asset
+paths, symbolic links, unsupported versions, and unreadable images. Rebuild the
+package with:
+
+```bash
+.agents/skills/record-storybird-flow/scripts/build_recording_bundle.py \
+  --spec /absolute/path/spec.json \
+  --output /absolute/path/demo.storybirdrecording
+```
+
+Agent import does not require Screen Recording or Input Monitoring. If the
+package opens in another app, install and launch the newest signed Storybird
+bundle so macOS registers the file type.
+
 ## Existing OpenLane projects are missing
 
 Storybird copies the OpenLane Application Support directory only when the

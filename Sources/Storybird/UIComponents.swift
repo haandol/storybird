@@ -6,33 +6,12 @@ struct StorybirdMark: View {
     let size: CGFloat
 
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: size * 0.27)
-                .fill(
-                    LinearGradient(
-                        colors: [Color(hex: "#7273F4"), Color(hex: "#4546C7")],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-
-            Path { path in
-                path.move(to: CGPoint(x: size * 0.28, y: size * 0.77))
-                path.addCurve(
-                    to: CGPoint(x: size * 0.72, y: size * 0.23),
-                    control1: CGPoint(x: size * 0.43, y: size * 0.61),
-                    control2: CGPoint(x: size * 0.57, y: size * 0.39)
-                )
-            }
-            .stroke(.white, style: StrokeStyle(lineWidth: size * 0.105, lineCap: .round))
-
-            Circle()
-                .fill(.white)
-                .frame(width: size * 0.15, height: size * 0.15)
-                .offset(x: size * 0.22, y: -size * 0.27)
-        }
+        Image(nsImage: NSApplication.shared.applicationIconImage)
+            .resizable()
+            .interpolation(.high)
+            .scaledToFit()
         .frame(width: size, height: size)
-        .shadow(color: Color(hex: "#4546C7").opacity(0.24), radius: size * 0.16, y: size * 0.08)
+        .accessibilityHidden(true)
     }
 }
 
@@ -53,6 +32,116 @@ struct AssetImageView: View {
                     .foregroundStyle(.tertiary)
             }
         }
+    }
+}
+
+struct ScreenSubtitleOverlay: View {
+    let text: String
+    let position: SubtitlePosition
+    let style: TextOverlayStyle
+    let imageFrame: CGRect
+
+    private var trimmedText: String {
+        text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var body: some View {
+        if !trimmedText.isEmpty,
+           imageFrame.width > 32,
+           imageFrame.height > 32 {
+            VStack {
+                if position == .bottom {
+                    Spacer(minLength: 0)
+                }
+
+                TextOverlayLabel(
+                    text: trimmedText,
+                    style: style,
+                    font: .callout.weight(.semibold),
+                    lineLimit: 3
+                )
+                .frame(maxWidth: min(680, imageFrame.width - 32))
+
+                if position == .top {
+                    Spacer(minLength: 0)
+                }
+            }
+            .frame(
+                width: imageFrame.width - 32,
+                height: imageFrame.height - 32
+            )
+            .position(x: imageFrame.midX, y: imageFrame.midY)
+            .allowsHitTesting(false)
+        }
+    }
+}
+
+struct HotspotCaptionOverlay: View {
+    let hotspot: Hotspot
+    let imageFrame: CGRect
+
+    private var trimmedText: String {
+        hotspot.caption.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var body: some View {
+        if !trimmedText.isEmpty,
+           imageFrame.width > 32,
+           imageFrame.height > 32 {
+            let point = CGPoint(
+                x: imageFrame.minX + CGFloat(hotspot.x) * imageFrame.width,
+                y: imageFrame.minY + CGFloat(hotspot.y) * imageFrame.height
+            )
+            let targetWidth = min(190, max(96, imageFrame.width * 0.36))
+            let width = min(targetWidth, imageFrame.width - 16)
+            let gap = min(30, imageFrame.width * 0.08)
+            let desiredX = hotspot.x <= 0.5
+                ? point.x + gap + width / 2
+                : point.x - gap - width / 2
+            let centerX = min(
+                max(desiredX, imageFrame.minX + width / 2 + 8),
+                imageFrame.maxX - width / 2 - 8
+            )
+            let verticalMargin = min(38, imageFrame.height / 2)
+            let centerY = min(
+                max(point.y, imageFrame.minY + verticalMargin),
+                imageFrame.maxY - verticalMargin
+            )
+
+            TextOverlayLabel(
+                text: trimmedText,
+                style: hotspot.captionStyle,
+                font: .caption.weight(.semibold),
+                lineLimit: 3
+            )
+            .frame(width: width)
+            .position(x: centerX, y: centerY)
+            .allowsHitTesting(false)
+        }
+    }
+}
+
+private struct TextOverlayLabel: View {
+    let text: String
+    let style: TextOverlayStyle
+    let font: Font
+    let lineLimit: Int
+
+    var body: some View {
+        Text(text)
+            .font(font)
+            .foregroundStyle(.white)
+            .multilineTextAlignment(.center)
+            .lineLimit(lineLimit)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 11)
+            .padding(.vertical, 7)
+            .background(
+                Color(hex: style.backgroundHex)
+                    .opacity(style.backgroundOpacity),
+                in: RoundedRectangle(cornerRadius: 8)
+            )
+            .shadow(color: .black.opacity(0.36), radius: 4, y: 2)
     }
 }
 

@@ -2,7 +2,8 @@
 
 Storybird is a local-first macOS recorder that turns a real product walkthrough
 into an interactive demo. Select a display or window from live thumbnails,
-click through the product, then edit, preview, and export the generated flow.
+click through the product or let an agent execute a software-controlled flow,
+then edit, preview, and export the generated demo.
 
 [![macOS 14+](https://img.shields.io/badge/macOS-14%2B-black)](#requirements)
 [![Swift 6](https://img.shields.io/badge/Swift-6-F05138)](Package.swift)
@@ -20,8 +21,9 @@ keeping every capture on your Mac:
 
 ```mermaid
 flowchart LR
-    Pick["Choose a display or window"] --> Record["Click through the product"]
-    Record --> Build["Screens + click hotspots"]
+    Human["Choose a display or window"] --> Record["Click through the product"]
+    Agent["Agent screenshots + click coordinates"] --> Build["Import local recording package"]
+    Record --> Build
     Build --> Edit["Edit and preview"]
     Edit --> Export["Standalone HTML demo"]
 ```
@@ -30,6 +32,7 @@ flowchart LR
 
 - Live thumbnail gallery for displays and unfocused windows.
 - Click-driven capture: every click links the previous screen to its result.
+- Agent recording import from local screenshots and normalized click points.
 - Visual screen and hotspot editor with branching targets.
 - Responsive editor for compact and wide windows.
 - Interactive native preview with local-only analytics.
@@ -38,7 +41,7 @@ flowchart LR
 - Stable Apple Development signing support for repeatable macOS permissions.
 
 Storybird does **not** record keyboard input and has no account, cloud upload,
-telemetry, CRM integration, video output, or HTML/DOM capture.
+telemetry, CRM integration, video output, or HTML/DOM/cookie capture.
 
 ## Requirements
 
@@ -46,6 +49,9 @@ telemetry, CRM integration, video output, or HTML/DOM capture.
 - Xcode 26 or a Swift 6.2 toolchain
 - Screen Recording permission
 - Input Monitoring permission for mouse clicks only
+
+The two permissions are required only for human-driven live recording. Agent
+recording packages can be imported without either permission.
 
 ## Installation
 
@@ -108,6 +114,32 @@ Permission loops and signing diagnostics are covered in
 Clicks outside the selected source are ignored. The Storybird editor is hidden
 during capture, and the floating recording HUD is excluded from shared content.
 
+## Record a Flow with an Agent
+
+The repository includes the `record-storybird-flow` agent skill. It executes a
+user-approved browser or desktop workflow, captures the visible initial screen
+and each post-click screen, and records normalized click coordinates without
+trying to synthesize macOS mouse input.
+
+The skill builds a local `.storybirdrecording` package:
+
+```text
+example.storybirdrecording/
+├── manifest.json
+└── assets/
+    ├── step-0001.png
+    └── step-0002.png
+```
+
+Open the package with Storybird. Storybird validates the whole package, copies
+its PNG assets, and creates a new project.
+It rejects unsupported fields, extra files, path traversal, symbolic links,
+missing transitions, and coordinates outside `0...1`.
+
+Agent packages remain local and contain no DOM, cookies, keyboard input,
+credentials, or payment information. Recording a workflow does not authorize
+the agent to complete purchases or other external side effects.
+
 ## Project and Export Layout
 
 Projects are stored locally:
@@ -136,7 +168,8 @@ A static export contains:
 
 The export is self-contained and can be opened locally or placed on a static
 web host. It contains the selected demo's screenshots, so review it before
-sharing.
+sharing. Hotspot captions and top/bottom subtitles keep their selected
+background colors and opacity in the exported player.
 
 ## Privacy and Security
 
@@ -185,7 +218,7 @@ Sources/StorybirdCore/      Models, persistence, geometry, analytics, export
 Tests/StorybirdCoreTests/   Deterministic XCTest suite
 Resources/                  Info.plist, entitlements, editable app icon
 docs/adr/                   Architecture Decision Records
-.agents/skills/             Release preparation harness
+.agents/skills/             Agent recording and release preparation skills
 ```
 
 ## Support

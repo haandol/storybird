@@ -51,6 +51,9 @@ struct ContentView: View {
             isCompactWindow = compact
             columnVisibility = compact ? .detailOnly : .all
         }
+        .onOpenURL { url in
+            store.importAgentRecording(at: url)
+        }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 Button {

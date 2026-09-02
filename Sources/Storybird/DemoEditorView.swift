@@ -349,6 +349,20 @@ private struct DemoCanvas: View {
                             }
                     )
 
+                ScreenSubtitleOverlay(
+                    text: step.caption,
+                    position: step.subtitlePosition,
+                    style: step.subtitleStyle,
+                    imageFrame: imageFrame
+                )
+
+                ForEach(step.hotspots) { hotspot in
+                    HotspotCaptionOverlay(
+                        hotspot: hotspot,
+                        imageFrame: imageFrame
+                    )
+                }
+
                 ForEach(Array(step.hotspots.indices), id: \.self) { hotspotIndex in
                     let hotspot = step.hotspots[hotspotIndex]
                     HotspotMarker(
@@ -416,7 +430,7 @@ private struct DemoInspector: View {
                     }
 
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("Caption")
+                        Text("Subtitle")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         TextEditor(text: $project.steps[stepIndex].caption)
@@ -433,6 +447,21 @@ private struct DemoInspector: View {
                                     .stroke(Color.secondary.opacity(0.2))
                             )
                     }
+
+                    Picker(
+                        "Subtitle position",
+                        selection: $project.steps[stepIndex].subtitlePosition
+                    ) {
+                        ForEach(SubtitlePosition.allCases) { position in
+                            Text(position.displayName).tag(position)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    OverlayStyleEditor(
+                        title: "Subtitle background",
+                        style: $project.steps[stepIndex].subtitleStyle
+                    )
 
                     HStack {
                         Button {
@@ -523,6 +552,19 @@ private struct HotspotInspector: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
+                Text("Caption")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                TextField("Text shown beside the click point", text: $hotspot.caption)
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            OverlayStyleEditor(
+                title: "Caption background",
+                style: $hotspot.captionStyle
+            )
+
+            VStack(alignment: .leading, spacing: 6) {
                 Text("Description")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -562,6 +604,38 @@ private struct HotspotInspector: View {
                 Spacer()
 
                 Button("Delete Hotspot", role: .destructive, action: onDelete)
+            }
+        }
+    }
+}
+
+private struct OverlayStyleEditor: View {
+    let title: String
+    @Binding var style: TextOverlayStyle
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            ColorPicker(
+                "Color",
+                selection: Binding(
+                    get: { Color(hex: style.backgroundHex) },
+                    set: { style.backgroundHex = $0.hexRGB }
+                ),
+                supportsOpacity: false
+            )
+
+            HStack(spacing: 8) {
+                Text("Opacity")
+                    .font(.callout)
+                Slider(value: $style.backgroundOpacity, in: 0...1)
+                Text(style.backgroundOpacity.formatted(.percent.precision(.fractionLength(0))))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .frame(width: 38, alignment: .trailing)
             }
         }
     }

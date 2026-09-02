@@ -137,8 +137,27 @@ public struct StaticDemoExporter {
               box-shadow: 0 24px 80px rgba(0,0,0,.42);
             }
             .stage img { width: 100%; height: auto; display: block; }
+            .text-overlay {
+              position: absolute; z-index: 2; padding: 7px 11px; border-radius: 8px;
+              color: white; font-size: 13px; font-weight: 650; line-height: 1.35;
+              text-align: center; text-shadow: 0 2px 5px rgba(0,0,0,.48);
+              box-shadow: 0 4px 12px rgba(0,0,0,.22);
+              overflow-wrap: anywhere;
+            }
+            .subtitle {
+              left: 50%; width: max-content; max-width: min(680px, calc(100% - 32px));
+              transform: translateX(-50%); font-size: 15px;
+            }
+            .subtitle.top { top: 16px; }
+            .subtitle.bottom { bottom: 16px; }
+            .hotspot-caption {
+              max-width: min(190px, calc(100% - 16px));
+              max-height: calc(100% - 16px); overflow: hidden;
+              display: -webkit-box; -webkit-box-orient: vertical;
+              -webkit-line-clamp: 3; pointer-events: none;
+            }
             .hotspot {
-              position: absolute; width: 34px; height: 34px; border: 0;
+              position: absolute; z-index: 3; width: 34px; height: 34px; border: 0;
               transform: translate(-50%, -50%); border-radius: 50%;
               color: white; background: var(--accent); cursor: pointer;
               box-shadow: 0 0 0 7px color-mix(in srgb, var(--accent) 24%, transparent);
@@ -162,10 +181,9 @@ public struct StaticDemoExporter {
               background: var(--accent); color: white; font-weight: 700; cursor: pointer;
             }
             .footer {
-              display: flex; justify-content: space-between; align-items: center;
+              display: flex; justify-content: flex-end; align-items: center;
               gap: 14px; margin-top: 16px;
             }
-            .caption { color: #b9bbcc; min-height: 1.4em; }
             .controls { display: flex; gap: 8px; }
             .controls button {
               border: 1px solid rgba(255,255,255,.16); border-radius: 10px;
@@ -185,7 +203,6 @@ public struct StaticDemoExporter {
             </div>
             <div class="stage" id="stage"></div>
             <div class="footer">
-              <div class="caption" id="caption"></div>
               <div class="controls">
                 <button id="back">Back</button>
                 <button id="next">Next</button>
@@ -198,15 +215,17 @@ public struct StaticDemoExporter {
             const demo = JSON.parse(document.getElementById("demo-data").textContent);
             const stage = document.getElementById("stage");
             const title = document.getElementById("title");
-            const caption = document.getElementById("caption");
             const progress = document.getElementById("progress");
             const back = document.getElementById("back");
             const next = document.getElementById("next");
             let index = 0;
             let callout = null;
+            let completed = false;
 
             function targetIndex(hotspot) {
-              if (!hotspot.targetStepID) return Math.min(index + 1, demo.steps.length - 1);
+              if (!hotspot.targetStepID) {
+                return index < demo.steps.length - 1 ? index + 1 : null;
+              }
               const found = demo.steps.findIndex(step => step.id === hotspot.targetStepID);
               return found < 0 ? index : found;
             }
@@ -214,6 +233,90 @@ public struct StaticDemoExporter {
             function closeCallout() {
               if (callout) callout.remove();
               callout = null;
+            }
+
+            function overlayBackground(style) {
+              const hex = /^#[0-9a-f]{6}$/i.test(style.backgroundHex)
+                ? style.backgroundHex
+                : "#11131A";
+              const opacity = Number(style.backgroundOpacity);
+              const value = Number.parseInt(hex.slice(1), 16);
+              return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${opacity})`;
+            }
+
+            function appendSubtitle(step) {
+              if (!step.caption || !step.caption.trim()) return;
+              const subtitle = document.createElement("div");
+              subtitle.className = `text-overlay subtitle ${step.subtitlePosition === "top" ? "top" : "bottom"}`;
+              subtitle.textContent = step.caption;
+              subtitle.style.background = overlayBackground(step.subtitleStyle);
+              stage.appendChild(subtitle);
+            }
+
+            function positionHotspotCaption(caption, hotspot) {
+              const inset = 8;
+              const pointX = hotspot.x * stage.clientWidth;
+              const pointY = hotspot.y * stage.clientHeight;
+              const gap = Math.min(30, stage.clientWidth * .08);
+              caption.style.maxWidth = `${Math.min(
+                190,
+                Math.max(stage.clientWidth - inset * 2, 0)
+              )}px`;
+              caption.style.maxHeight = `${Math.max(stage.clientHeight - inset * 2, 0)}px`;
+              caption.style.left = "0";
+              caption.style.top = "0";
+              caption.style.transform = "none";
+
+              const rect = caption.getBoundingClientRect();
+              const desiredLeft = hotspot.x <= .5
+                ? pointX + gap
+                : pointX - gap - rect.width;
+              const maximumLeft = Math.max(
+                stage.clientWidth - rect.width - inset,
+                inset
+              );
+              const left = Math.min(
+                Math.max(desiredLeft, inset),
+                maximumLeft
+              );
+              const maximumTop = Math.max(
+                stage.clientHeight - rect.height - inset,
+                inset
+              );
+              const top = Math.min(
+                Math.max(pointY - rect.height / 2, inset),
+                maximumTop
+              );
+              caption.style.left = `${left}px`;
+              caption.style.top = `${top}px`;
+            }
+
+            function appendHotspotCaption(hotspot) {
+              if (!hotspot.caption || !hotspot.caption.trim()) return;
+              const caption = document.createElement("div");
+              caption.className = "text-overlay hotspot-caption";
+              caption.textContent = hotspot.caption;
+              caption.setAttribute("aria-hidden", "true");
+              caption.style.background = overlayBackground(hotspot.captionStyle);
+              stage.appendChild(caption);
+              positionHotspotCaption(caption, hotspot);
+            }
+
+            function complete() {
+              completed = true;
+              closeCallout();
+              progress.textContent = "Complete";
+              next.disabled = true;
+            }
+
+            function follow(hotspot) {
+              const target = targetIndex(hotspot);
+              if (target === null) {
+                complete();
+                return;
+              }
+              index = target;
+              render();
             }
 
             function activate(hotspot, button) {
@@ -227,7 +330,7 @@ public struct StaticDemoExporter {
                 body.textContent = hotspot.body || "";
                 const action = document.createElement("button");
                 action.textContent = "Continue";
-                action.onclick = () => { index = targetIndex(hotspot); render(); };
+                action.onclick = () => follow(hotspot);
                 callout.append(heading, body, action);
                 document.body.appendChild(callout);
                 const rect = button.getBoundingClientRect();
@@ -235,12 +338,12 @@ public struct StaticDemoExporter {
                 callout.style.top = `${Math.min(rect.bottom + 12, innerHeight - callout.offsetHeight - 16)}px`;
                 return;
               }
-              index = targetIndex(hotspot);
-              render();
+              follow(hotspot);
             }
 
             function render() {
               closeCallout();
+              completed = false;
               stage.replaceChildren();
               if (!demo.steps.length) {
                 const empty = document.createElement("div");
@@ -254,29 +357,43 @@ public struct StaticDemoExporter {
               }
               const step = demo.steps[index];
               title.textContent = step.title;
-              caption.textContent = step.caption || "";
               progress.textContent = `${index + 1} / ${demo.steps.length}`;
               const image = document.createElement("img");
               image.src = step.assetFilename;
               image.alt = step.title;
               stage.appendChild(image);
-              step.hotspots.forEach((hotspot, hotspotIndex) => {
-                const button = document.createElement("button");
-                button.className = "hotspot";
-                button.style.left = `${hotspot.x * 100}%`;
-                button.style.top = `${hotspot.y * 100}%`;
-                button.textContent = hotspot.kind === "information" ? "i" : hotspotIndex + 1;
-                button.setAttribute("aria-label", hotspot.title || "Demo hotspot");
-                button.onclick = () => activate(hotspot, button);
-                stage.appendChild(button);
-              });
+              const appendOverlays = () => {
+                appendSubtitle(step);
+                step.hotspots.forEach((hotspot, hotspotIndex) => {
+                  appendHotspotCaption(hotspot);
+                  const button = document.createElement("button");
+                  button.className = "hotspot";
+                  button.style.left = `${hotspot.x * 100}%`;
+                  button.style.top = `${hotspot.y * 100}%`;
+                  button.textContent = hotspot.kind === "information" ? "i" : hotspotIndex + 1;
+                  button.setAttribute(
+                    "aria-label",
+                    hotspot.caption || hotspot.title || "Demo hotspot"
+                  );
+                  button.onclick = () => activate(hotspot, button);
+                  stage.appendChild(button);
+                });
+              };
+              if (image.complete && image.naturalWidth > 0) {
+                appendOverlays();
+              } else {
+                image.addEventListener("load", appendOverlays, { once: true });
+              }
               back.disabled = index === 0;
               next.disabled = index === demo.steps.length - 1;
             }
 
             back.onclick = () => { if (index > 0) { index -= 1; render(); } };
             next.onclick = () => { if (index < demo.steps.length - 1) { index += 1; render(); } };
-            window.addEventListener("resize", closeCallout);
+            window.addEventListener("resize", () => {
+              closeCallout();
+              if (!completed) render();
+            });
             render();
           </script>
         </body>

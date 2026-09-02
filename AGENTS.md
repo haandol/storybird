@@ -17,6 +17,7 @@ Storybird is a local-first SwiftUI macOS application.
 - `Tests/StorybirdCoreTests/`: deterministic XCTest coverage.
 - `Resources/`: bundle metadata, entitlements, editable SVG app icon.
 - `docs/adr/`: ADR registry and decision records.
+- `.agents/skills/record-storybird-flow/`: software-controlled recording skill.
 - `.agents/skills/prepare-storybird-release/`: release audit harness.
 
 Generated artifacts belong in `.build/`, `build/`, and `dist/`. Never edit or
@@ -53,6 +54,13 @@ Read these before changing capture, persistence, or export behavior.
   can force permission approval after every rebuild.
 - **Never record keyboard input.** Input Monitoring exists only to observe mouse
   clicks. Do not add key logging.
+- **Agent recordings enter through validated local packages.** A software agent
+  supplies visible PNG screens and normalized click coordinates in one
+  `.storybirdrecording` package. Reject extra fields/files, path traversal, and
+  symbolic links. Never serialize DOM, cookies, keyboard input, credentials, or
+  payment data.
+- **Storybird remains the project writer.** Agent skills may build recording
+  packages but must never edit `library.json` or app-owned assets directly.
 - **Persist projects atomically.** Library JSON writes use atomic replacement;
   captured assets are written before the project references them.
 - **Preserve legacy data.** On first Storybird launch, copy an existing
@@ -73,6 +81,8 @@ Read these before changing capture, persistence, or export behavior.
 
 - `swift build -c debug`: compile with Swift 6 actor race checks.
 - `swift test`: run deterministic unit tests without network access.
+- `python3 .agents/skills/record-storybird-flow/scripts/test_build_recording_bundle.py`:
+  validate the agent package builder and PNG metadata stripping.
 - `./build.sh release`: create and sign `build/Storybird.app`.
 - `open build/Storybird.app`: run the bundle that owns macOS TCC permissions.
 - `./install.sh`: build and replace `/Applications/Storybird.app`.
@@ -108,6 +118,13 @@ Capture changes require a manual smoke test:
 4. Confirm ordered screens and hotspot targets in preview.
 5. Rebuild with the same signing identity and confirm permissions persist.
 6. Export the demo and open `index.html` locally.
+
+Agent recording changes also require a synthetic package smoke test:
+
+1. Build a package with `.agents/skills/record-storybird-flow/scripts/`.
+2. Open it with the signed Storybird bundle.
+3. Confirm the project screen count and ordered hotspot targets.
+4. Confirm a malformed package leaves the existing library unchanged.
 
 ## Commit & Pull Request Guidelines
 
