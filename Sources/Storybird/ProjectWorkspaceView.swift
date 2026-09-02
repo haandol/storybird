@@ -76,31 +76,44 @@ private struct ProjectHeader: View {
     @Binding var mode: WorkspaceMode
 
     var body: some View {
-        HStack(spacing: 16) {
-            VStack(alignment: .leading, spacing: 2) {
-                TextField("Demo name", text: $project.name)
-                    .textFieldStyle(.plain)
-                    .font(.title2.weight(.semibold))
-                Text(project.steps.isEmpty
-                     ? "Press Record Flow to capture the first interactive path."
-                     : "\(project.steps.count) screens · Updated \(project.updatedAt.formatted(date: .abbreviated, time: .shortened))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 16) {
+                projectIdentity
+                Spacer()
+                workspacePicker
             }
-
-            Spacer()
-
-            Picker("Workspace", selection: $mode) {
-                ForEach(WorkspaceMode.allCases) { mode in
-                    Text(mode.rawValue).tag(mode)
-                }
+            VStack(alignment: .leading, spacing: 8) {
+                projectIdentity
+                workspacePicker
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(width: 210)
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
         .background(.bar)
+    }
+
+    private var projectIdentity: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            TextField("Demo name", text: $project.name)
+                .textFieldStyle(.plain)
+                .font(.title2.weight(.semibold))
+            Text(project.steps.isEmpty
+                 ? "Press Record Flow to capture the first interactive path."
+                 : "\(project.steps.count) screens · Updated \(project.updatedAt.formatted(date: .abbreviated, time: .shortened))")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+    }
+
+    private var workspacePicker: some View {
+        Picker("Workspace", selection: $mode) {
+            ForEach(WorkspaceMode.allCases) { mode in
+                Text(mode.rawValue).tag(mode)
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(maxWidth: 210)
     }
 }

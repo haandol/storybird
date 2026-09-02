@@ -8,6 +8,8 @@ struct ContentView: View {
 
     @State private var isPreviewPresented = false
     @State private var projectPendingDeletion: UUID?
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var isCompactWindow = false
 
     init(store: AppStore) {
         self.store = store
@@ -17,7 +19,7 @@ struct ContentView: View {
     }
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             ProjectSidebar(
                 store: store,
                 projectPendingDeletion: $projectPendingDeletion
@@ -34,6 +36,20 @@ struct ContentView: View {
                     onRecord: startRecording
                 )
             }
+        }
+        .background {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: WindowWidthPreferenceKey.self,
+                    value: proxy.size.width
+                )
+            }
+        }
+        .onPreferenceChange(WindowWidthPreferenceKey.self) { width in
+            let compact = width < 900
+            guard compact != isCompactWindow else { return }
+            isCompactWindow = compact
+            columnVisibility = compact ? .detailOnly : .all
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
@@ -80,12 +96,12 @@ struct ContentView: View {
         .sheet(isPresented: $isPreviewPresented) {
             if let projectID = store.selectedProjectID {
                 DemoPreviewView(store: store, projectID: projectID)
-                    .frame(minWidth: 980, minHeight: 680)
+                    .frame(width: 760, height: 560)
             }
         }
         .sheet(isPresented: $recorder.isSourcePickerPresented) {
             CaptureSourcePickerView(recorder: recorder)
-                .frame(width: 760, height: 520)
+                .frame(width: 680, height: 480)
                 .interactiveDismissDisabled()
         }
         .alert(
@@ -185,5 +201,13 @@ struct ContentView: View {
         } catch {
             store.errorMessage = "The demo could not be exported: \(error.localizedDescription)"
         }
+    }
+}
+
+private struct WindowWidthPreferenceKey: PreferenceKey {
+    static let defaultValue: CGFloat = 1000
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }

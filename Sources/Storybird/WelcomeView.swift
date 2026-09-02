@@ -29,32 +29,52 @@ struct WelcomeView: View {
                         .frame(maxWidth: 620)
                 }
 
-                HStack(spacing: 12) {
-                    Button(action: onRecord) {
-                        Label("Record a Flow", systemImage: "record.circle")
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) {
+                        actionButtons
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .tint(.red)
-
-                    Button {
-                        store.createSampleProject()
-                    } label: {
-                        Label("Explore Sample", systemImage: "sparkles")
+                    VStack(spacing: 10) {
+                        actionButtons
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
                 }
 
-                HStack(spacing: 26) {
-                    FeatureNote(icon: "cursorarrow.click", text: "Automatic click hotspots")
-                    FeatureNote(icon: "rectangle.stack", text: "Screen after every click")
-                    FeatureNote(icon: "lock.shield", text: "Stored only on this Mac")
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 26) {
+                        featureNotes
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        featureNotes
+                    }
                 }
                 .padding(.top, 12)
             }
-            .padding(50)
+            .padding(28)
         }
+    }
+
+    @ViewBuilder
+    private var actionButtons: some View {
+        Button(action: onRecord) {
+            Label("Record a Flow", systemImage: "record.circle")
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+        .tint(.red)
+
+        Button {
+            store.createSampleProject()
+        } label: {
+            Label("Explore Sample", systemImage: "sparkles")
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.large)
+    }
+
+    @ViewBuilder
+    private var featureNotes: some View {
+        FeatureNote(icon: "cursorarrow.click", text: "Automatic click hotspots")
+        FeatureNote(icon: "rectangle.stack", text: "Screen after every click")
+        FeatureNote(icon: "lock.shield", text: "Stored only on this Mac")
     }
 }
 

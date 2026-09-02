@@ -66,13 +66,16 @@ ScreenCaptureKit and TCC behavior require a real signed bundle:
 
 1. Open `build/Storybird.app` and grant Screen Recording/Input Monitoring.
 2. Confirm the source sheet fits on screen and scrolls internally.
-3. Verify thumbnails appear for the display and unfocused app windows.
-4. Select a window, perform three paced clicks, and stop after the final click.
-5. Confirm each previous screen has a hotspot targeting the next screen.
-6. Preview the flow and finish it; check local analytics.
-7. Export to a temporary folder and open `index.html`.
-8. Rebuild and confirm the same signing identity keeps permissions.
-9. On first launch after renaming, confirm an OpenLane library is copied while
+3. Resize the main window to its minimum size. Confirm the project sidebar
+   collapses, screen selection moves to a menu, and the inspector opens as a
+   sheet without clipping.
+4. Verify thumbnails appear for the display and unfocused app windows.
+5. Select a window, perform three paced clicks, and stop after the final click.
+6. Confirm each previous screen has a hotspot targeting the next screen.
+7. Preview the flow and finish it; check local analytics.
+8. Export to a temporary folder and open `index.html`.
+9. Rebuild and confirm the same signing identity keeps permissions.
+10. On first launch after renaming, confirm an OpenLane library is copied while
    the original remains untouched.
 
 Use synthetic content. Never put customer dashboards, messages, credentials, or

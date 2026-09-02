@@ -64,6 +64,10 @@ Read these before changing capture, persistence, or export behavior.
 - **Fixed-size sheets scroll internally.** Do not let capture-source content
   resize the sheet beyond the visible display; clipping the last card is a
   regression.
+- **Compact windows change navigation, not reachability.** Below the wide-layout
+  threshold, hide the project sidebar automatically and replace the screen rail
+  and inspector columns with a screen picker and inspector sheet. Every editor
+  action must remain reachable without horizontal clipping.
 
 ## Build, Test, and Development Commands
 

@@ -8,37 +8,95 @@ struct DemoEditorView: View {
     @Binding var selectedStepID: UUID?
     @Binding var selectedHotspotID: UUID?
     @Binding var isAddingHotspot: Bool
+    @State private var isInspectorPresented = false
 
     var body: some View {
         if project.steps.isEmpty {
             EmptyEditorView()
         } else {
-            HSplitView {
-                StepRail(
-                    store: store,
-                    project: project,
-                    selectedStepID: $selectedStepID,
-                    selectedHotspotID: $selectedHotspotID
-                )
-                .frame(minWidth: 145, idealWidth: 185, maxWidth: 230)
-
-                EditorCanvasColumn(
-                    store: store,
-                    project: $project,
-                    selectedStepID: $selectedStepID,
-                    selectedHotspotID: $selectedHotspotID,
-                    isAddingHotspot: $isAddingHotspot
-                )
-                .frame(minWidth: 400)
-
-                DemoInspector(
-                    store: store,
-                    project: $project,
-                    selectedStepID: $selectedStepID,
-                    selectedHotspotID: $selectedHotspotID
-                )
-                .frame(minWidth: 215, idealWidth: 260, maxWidth: 320)
+            GeometryReader { proxy in
+                if proxy.size.width < 760 {
+                    compactEditor
+                } else {
+                    regularEditor
+                }
             }
+        }
+    }
+
+    private var regularEditor: some View {
+        HSplitView {
+            StepRail(
+                store: store,
+                project: project,
+                selectedStepID: $selectedStepID,
+                selectedHotspotID: $selectedHotspotID
+            )
+            .frame(minWidth: 135, idealWidth: 175, maxWidth: 220)
+
+            EditorCanvasColumn(
+                store: store,
+                project: $project,
+                selectedStepID: $selectedStepID,
+                selectedHotspotID: $selectedHotspotID,
+                isAddingHotspot: $isAddingHotspot
+            )
+            .frame(minWidth: 360)
+
+            DemoInspector(
+                store: store,
+                project: $project,
+                selectedStepID: $selectedStepID,
+                selectedHotspotID: $selectedHotspotID
+            )
+            .frame(minWidth: 205, idealWidth: 250, maxWidth: 310)
+        }
+    }
+
+    private var compactEditor: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Picker("Screen", selection: $selectedStepID) {
+                    ForEach(Array(project.steps.enumerated()), id: \.element.id) {
+                        index,
+                        step in
+                        Text("\(index + 1). \(step.title)")
+                            .tag(Optional(step.id))
+                    }
+                }
+                .labelsHidden()
+                .frame(maxWidth: 260)
+
+                Spacer()
+
+                Button {
+                    isInspectorPresented = true
+                } label: {
+                    Label("Inspector", systemImage: "sidebar.right")
+                        .labelStyle(.iconOnly)
+                }
+                .help("Show screen and hotspot settings")
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(.bar)
+
+            EditorCanvasColumn(
+                store: store,
+                project: $project,
+                selectedStepID: $selectedStepID,
+                selectedHotspotID: $selectedHotspotID,
+                isAddingHotspot: $isAddingHotspot
+            )
+        }
+        .sheet(isPresented: $isInspectorPresented) {
+            DemoInspector(
+                store: store,
+                project: $project,
+                selectedStepID: $selectedStepID,
+                selectedHotspotID: $selectedHotspotID
+            )
+            .frame(width: 360, height: 480)
         }
     }
 }
@@ -171,29 +229,29 @@ private struct EditorCanvasColumn: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                Button {
-                    isAddingHotspot.toggle()
-                } label: {
-                    Label(
-                        isAddingHotspot ? "Click the screen…" : "Add Hotspot",
-                        systemImage: isAddingHotspot ? "scope" : "plus.circle"
-                    )
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(Color(hex: project.theme.accentHex))
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) {
+                    hotspotButton
 
-                if isAddingHotspot {
-                    Text("Choose a point on the screenshot")
+                    if isAddingHotspot {
+                        Text("Choose a point on the screenshot")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    Text("Drag a hotspot to reposition it")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.tertiary)
                 }
-
-                Spacer()
-
-                Text("Drag a hotspot to reposition it")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
+                HStack {
+                    hotspotButton
+                    Spacer()
+                    Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
+                        .foregroundStyle(.tertiary)
+                        .help("Drag a hotspot to reposition it")
+                }
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 9)
@@ -217,6 +275,19 @@ private struct EditorCanvasColumn: View {
             }
         }
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.52))
+    }
+
+    private var hotspotButton: some View {
+        Button {
+            isAddingHotspot.toggle()
+        } label: {
+            Label(
+                isAddingHotspot ? "Click the screen…" : "Add Hotspot",
+                systemImage: isAddingHotspot ? "scope" : "plus.circle"
+            )
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(Color(hex: project.theme.accentHex))
     }
 }
 

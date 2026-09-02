@@ -7,7 +7,7 @@ struct StorybirdApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView(store: store)
-                .frame(minWidth: 1000, minHeight: 700)
+                .frame(minWidth: 720, minHeight: 520)
         }
         .windowStyle(.titleBar)
         .windowToolbarStyle(.unified(showsTitle: false))
