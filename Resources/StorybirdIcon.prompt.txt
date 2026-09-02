@@ -1,0 +1,12 @@
+Use case: logo-brand
+Asset type: macOS application icon, 1024×1024 master artwork
+Primary request: Create an original premium app icon for Storybird, a local macOS app that turns a sequence of captured product screens and mouse clicks into an interactive story.
+Subject: A single simplified bird in flight constructed from three overlapping rounded rectangular screen cards. Its wing and tail form a smooth curved click path that ends in one small circular waypoint. The bird must read as both "story" and "guided product flow" without becoming a literal screenshot.
+Style/medium: polished vector-friendly 3D icon with restrained soft depth, clean geometric forms, strong silhouette, and macOS-quality finish
+Composition/framing: centered symbol, large and bold, generous safe margin, readable at 16px, no separate border, no device mockup
+Scene/backdrop: full square app-icon canvas with a softly rounded-square indigo background and subtle dimensional lighting
+Color palette: deep indigo and violet base, periwinkle highlights, warm white bird/path, one tiny coral accent at the waypoint
+Materials/textures: smooth matte-glass surfaces with subtle bevels; crisp edges; no grain
+Text (verbatim): none
+Constraints: one centered icon only; original design; clear silhouette; balanced negative space; preserve visual clarity when downscaled; no text; no letters; no word "Storybird"; no watermark; no Apple logo; no third-party logos; no realistic feathers; no detailed user interface; no screenshot content; no extra birds; no background scene
+Avoid: generic social-media bird logos, Twitter/X-like silhouettes, origami crane clichés, mascots, photorealism, excessive gradients, neon glow, tiny details, busy patterns

@@ -38,6 +38,25 @@ Without a certificate the script falls back to ad-hoc signing. The app can
 launch, but its designated requirement becomes code-hash-specific, so Screen
 Recording and Input Monitoring permission may need approval after every build.
 
+### Regenerating the App Icon
+
+The checked-in app icon is generated from a versioned prompt:
+
+```bash
+./scripts/generate-storybird-icon.sh
+```
+
+The command uses the official imagegen CLI and writes
+`Resources/AppIcon-generated.png`. It refuses to overwrite the current icon;
+review the existing asset first, then explicitly regenerate with:
+
+```bash
+./scripts/generate-storybird-icon.sh --force
+```
+
+Keep `Resources/AppIcon.svg` as the deterministic fallback used when the
+generated PNG is absent. Never place API keys in the repository.
+
 ## ADR-First Workflow
 
 Behavior contracts live under `docs/adr/`. Update the relevant ADR before

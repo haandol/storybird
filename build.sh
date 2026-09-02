@@ -12,7 +12,8 @@ cd "$(dirname "$0")"
 CONFIG="${1:-release}"
 APP_NAME="Storybird"
 APP_BUNDLE="build/${APP_NAME}.app"
-ICON_SOURCE="Resources/AppIcon.svg"
+ICON_SOURCE="${STORYBIRD_ICON_SOURCE:-Resources/AppIcon-generated.png}"
+ICON_FALLBACK="Resources/AppIcon.svg"
 ICON_PNG="build/AppIcon.png"
 ICONSET="build/AppIcon.iconset"
 ICON_FILE="build/AppIcon.icns"
@@ -30,7 +31,16 @@ cp Resources/Info.plist "${APP_BUNDLE}/Contents/Info.plist"
 echo "==> 앱 아이콘 생성"
 rm -rf "$ICONSET"
 mkdir -p "$ICONSET"
-sips -s format png "$ICON_SOURCE" --out "$ICON_PNG" >/dev/null
+if [[ ! -f "$ICON_SOURCE" ]]; then
+    echo "    생성 아이콘이 없어 SVG fallback을 사용합니다: ${ICON_FALLBACK}"
+    ICON_SOURCE="$ICON_FALLBACK"
+fi
+
+if [[ "$ICON_SOURCE" == *.png ]]; then
+    cp "$ICON_SOURCE" "$ICON_PNG"
+else
+    sips -s format png "$ICON_SOURCE" --out "$ICON_PNG" >/dev/null
+fi
 for SIZE in 16 32 128 256 512; do
     DOUBLE_SIZE=$((SIZE * 2))
     sips -z "$SIZE" "$SIZE" "$ICON_PNG" \
