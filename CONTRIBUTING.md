@@ -40,10 +40,9 @@ Recording and Input Monitoring permission may need approval after every build.
 
 ### Replacing the App Icon
 
-The reference-character prompt lives at
-`Resources/StorybirdIcon.prompt.txt`. Generate the artwork with a character
-image you have permission to use, review it at both 1024px and 64px, then save
-the approved 1024×1024 PNG as `Resources/AppIcon-generated.png`.
+Generate the artwork with a character image you have permission to use, review
+it at both 1024px and 64px, then save the approved 1024×1024 PNG as
+`Resources/AppIcon-generated.png`.
 
 Do not commit the reference character image unless its license explicitly
 permits redistribution. Keep `Resources/AppIcon.svg` as the deterministic
