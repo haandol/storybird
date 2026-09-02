@@ -2,9 +2,11 @@ Use case: logo-brand
 Asset type: macOS application icon, 1024×1024 master artwork
 
 Input image:
-- Image 1 is the character identity reference.
-- Use only the white 3D chick character shown near the bottom of the reference.
-- Ignore every screenshot, application window, UI panel, old icon, and background elsewhere in the reference image.
+- Image 1 is the attached file `105e6865-00d2-42a1-93c7-e01e5c169548.png`.
+- This image is the mandatory character source for the final Storybird logo, not optional style inspiration.
+- The final logo must visibly use the exact white 3D chick character shown at the very bottom of Image 1.
+- Ignore every screenshot, application window, UI panel, blue origami-bird icon, old OpenLane icon, and background elsewhere in Image 1.
+- Do not invent or substitute a different bird character.
 
 Primary request:
 Create a premium macOS app icon for Storybird using the exact white chick character from Image 1. Storybird turns captured product screens and mouse clicks into an interactive story. Show the chick happily guiding a path through two or three simplified purple screen cards.
