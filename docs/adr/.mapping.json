@@ -1,0 +1,61 @@
+{
+  "$schema": "https://raw.githubusercontent.com/haandol/alps-writer-plugins/main/plugins/adr-writer/templates/adr/mapping.schema.json",
+  "categories": {
+    "recording": {
+      "feature": "Click-driven recording",
+      "subdomainType": "core",
+      "adrs": [
+        {
+          "path": "docs/adr/recording/0001-thumbnail-source-selection.md",
+          "status": "Accepted (2026-09-02)",
+          "summary": "전체 화면과 열린 창을 포커스 없이 썸네일로 비교해 단일 녹화 소스를 선택한다"
+        },
+        {
+          "path": "docs/adr/recording/0002-click-to-step-recording.md",
+          "status": "Accepted (2026-09-02)",
+          "summary": "선택 범위 안의 마우스 클릭과 결과 화면을 순서대로 인터랙티브 단계로 연결한다"
+        },
+        {
+          "path": "docs/adr/recording/0003-permission-and-signing.md",
+          "status": "Accepted (2026-09-02)",
+          "summary": "안정적인 개발 서명과 실제 API 우선 권한 판정으로 macOS TCC 신원을 유지한다"
+        }
+      ]
+    },
+    "authoring": {
+      "feature": "Demo editing and preview",
+      "subdomainType": "core",
+      "adrs": [
+        {
+          "path": "docs/adr/authoring/0001-editor-and-player.md",
+          "status": "Accepted (2026-09-02)",
+          "summary": "에디터와 네이티브·정적 플레이어가 UUID 기반 데모 모델을 공유한다"
+        }
+      ],
+      "dependsOn": ["recording"]
+    },
+    "library": {
+      "feature": "Local project library",
+      "subdomainType": "supporting",
+      "adrs": [
+        {
+          "path": "docs/adr/library/0001-local-project-library.md",
+          "status": "Accepted (2026-09-02)",
+          "summary": "프로젝트와 캡처를 Application Support에 원자적으로 저장하고 OpenLane 데이터를 복사 보존한다"
+        }
+      ]
+    },
+    "sharing": {
+      "feature": "Static demo export",
+      "subdomainType": "supporting",
+      "adrs": [
+        {
+          "path": "docs/adr/sharing/0001-static-demo-export.md",
+          "status": "Accepted (2026-09-02)",
+          "summary": "선택 자산과 안전하게 이스케이프한 프로젝트 JSON으로 독립 정적 데모를 만든다"
+        }
+      ],
+      "dependsOn": ["authoring", "library"]
+    }
+  }
+}
