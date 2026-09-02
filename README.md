@@ -8,72 +8,109 @@ click through the product, then edit, preview, and export the generated flow.
 [![Swift 6](https://img.shields.io/badge/Swift-6-F05138)](Package.swift)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-## What Storybird Does
+> [!NOTE]
+> Storybird is an early-stage project. The project format may change before the
+> first stable release. Keep backups of important captures.
 
-- Shows live thumbnails for recordable displays and unfocused windows.
-- Captures the starting screen and the result of every mouse click.
-- Converts each click into a hotspot targeting the next captured screen.
-- Provides a visual editor, branching targets, and interactive preview.
-- Records local preview analytics.
-- Exports a standalone HTML demo with no server dependency.
-- Stores all projects and assets locally in Application Support.
+## Why Storybird?
 
-Storybird does not record keyboard input and has no account, cloud upload,
+Most product-demo tools require a hosted account or start from manually
+uploaded screenshots. Storybird records a real desktop walkthrough while
+keeping every capture on your Mac:
+
+```mermaid
+flowchart LR
+    Pick["Choose a display or window"] --> Record["Click through the product"]
+    Record --> Build["Screens + click hotspots"]
+    Build --> Edit["Edit and preview"]
+    Edit --> Export["Standalone HTML demo"]
+```
+
+## Features
+
+- Live thumbnail gallery for displays and unfocused windows.
+- Click-driven capture: every click links the previous screen to its result.
+- Visual screen and hotspot editor with branching targets.
+- Responsive editor for compact and wide windows.
+- Interactive native preview with local-only analytics.
+- Standalone HTML export with no Storybird server dependency.
+- Atomic local persistence and one-time OpenLane library migration.
+- Stable Apple Development signing support for repeatable macOS permissions.
+
+Storybird does **not** record keyboard input and has no account, cloud upload,
 telemetry, CRM integration, video output, or HTML/DOM capture.
 
 ## Requirements
 
 - macOS 14 or later
-- Xcode 16 or later
+- Xcode 26 or a Swift 6.2 toolchain
 - Screen Recording permission
 - Input Monitoring permission for mouse clicks only
 
-## Build and Run
+## Installation
+
+Storybird does not currently publish a notarized binary release. Build from
+source:
 
 ```bash
-swift build -c debug
+git clone https://github.com/haandol/storybird.git
+cd storybird
 swift test
 ./build.sh release
 open build/Storybird.app
 ```
 
-Run the app bundle rather than `swift run` when testing permissions. macOS ties
-Transparency, Consent, and Control (TCC) grants to the bundle identifier and
-code-signing requirement.
+Install the signed local build into `/Applications`:
+
+```bash
+./install.sh
+```
 
 `build.sh` prefers a `Developer ID Application` or `Apple Development`
-certificate. Override it with:
+certificate. Override it when necessary:
 
 ```bash
 SIGN_IDENTITY="Apple Development: you@example.com (TEAMID)" \
   ./build.sh release
 ```
 
-Without a certificate, the script falls back to ad-hoc signing and macOS may
-ask for permissions again after every rebuild.
+Without a certificate, the script falls back to ad-hoc signing. The app still
+launches, but macOS may treat each rebuild as a new identity and ask for Screen
+Recording and Input Monitoring permission again.
 
-Install the current build into `/Applications` with:
+Run the `.app` bundle rather than `swift run` when testing permissions. macOS
+ties Transparency, Consent, and Control (TCC) grants to the bundle identifier
+and signing requirement.
 
-```bash
-./install.sh
-```
+## First Launch and Permissions
+
+Storybird requests only the permissions needed for click-driven recording:
+
+| Permission | Why it is needed | What Storybird does not do |
+|---|---|---|
+| Screen Recording | Build source thumbnails and capture the selected display/window | It does not upload captures |
+| Input Monitoring | Observe global left/right mouse-down events | It does not observe keyboard events |
+
+After enabling a permission in System Settings, quit and reopen Storybird.
+Permission loops and signing diagnostics are covered in
+[Troubleshooting](docs/Troubleshooting.md).
 
 ## Record a Flow
 
 1. Click **Record Flow**.
-2. Choose an entire display or an open window from the thumbnail gallery.
-3. Use the selected product normally. Pace clicks long enough for each result
-   screen to settle.
+2. Choose a display or open window from the thumbnail gallery.
+3. Use the selected product normally. Pause briefly after each click so the
+   resulting screen can settle.
 4. Click **Stop** in the floating Storybird control.
 5. Edit screen titles, captions, hotspot behavior, and target screens.
 6. Preview the flow or export it as static HTML.
 
-Clicks outside the selected source are ignored. The editor and floating
-recording HUD are excluded from captured content.
+Clicks outside the selected source are ignored. The Storybird editor is hidden
+during capture, and the floating recording HUD is excluded from shared content.
 
-## Local Data
+## Project and Export Layout
 
-Projects live under:
+Projects are stored locally:
 
 ```text
 ~/Library/Application Support/Storybird/
@@ -83,38 +120,80 @@ Projects live under:
         └── <capture>.png
 ```
 
-When Storybird is first launched after the rename, it copies an existing
-`~/Library/Application Support/OpenLane` library only if a Storybird library
-does not already exist. The OpenLane copy is never moved or deleted.
+On first launch after the rename, Storybird copies an existing
+`~/Library/Application Support/OpenLane` library only when the Storybird
+library does not already exist. The OpenLane copy is never moved or deleted.
 
-Static exports contain an `index.html`, `demo.json`, and only the assets used by
-the selected demo.
+A static export contains:
 
-## Permissions and Privacy
+```text
+<demo-name>/
+├── index.html
+├── demo.json
+└── assets/
+    └── step-*.png
+```
 
-Screen Recording is needed to generate the source gallery and capture selected
-content. Input Monitoring is used only for global mouse-down events; Storybird
-never observes keyboard events.
+The export is self-contained and can be opened locally or placed on a static
+web host. It contains the selected demo's screenshots, so review it before
+sharing.
 
-Captured screens can contain sensitive product or customer data. Storybird
-keeps them on the Mac, but an exported demo intentionally copies its selected
-screens to the export folder. Review exports before sharing them.
+## Privacy and Security
 
-See [Troubleshooting](docs/Troubleshooting.md) for permission loops, empty
-galleries, missing clicks, signing identity checks, and Gatekeeper warnings.
+Storybird has no application-owned network path. Screenshots, click positions,
+projects, and preview analytics remain on the Mac unless the user explicitly
+exports a demo.
 
-## Architecture
+Captured screens may contain customer data, credentials, or private messages.
+Never attach real captures to a public issue or pull request. See
+[SECURITY.md](SECURITY.md) for the vulnerability boundary and private reporting
+instructions.
 
-- `Storybird`: SwiftUI, AppKit, ScreenCaptureKit, permission and session
-  orchestration.
-- `StorybirdCore`: models, persistence, coordinate conversion, analytics, and
-  static export.
-- `docs/adr`: decision records for recording, authoring, library, and sharing.
+## Current Limitations
 
-The detailed contributor contract and architecture invariants are in
-[AGENTS.md](AGENTS.md). Development workflow, smoke tests, commits, and pull
-requests are covered by [CONTRIBUTING.md](CONTRIBUTING.md).
+- Transitions and animation are represented by post-click screenshots, not
+  video clips.
+- Very rapid clicks can skip an intermediate visual state; pace clicks during
+  recording.
+- Minimized and off-screen windows are not listed in the source gallery.
+- Analytics are local preview events, not visitor analytics from exported
+  demos.
+- The project format has no compatibility guarantee before a stable release.
+- Public builds are not currently notarized.
+
+## Development
+
+```bash
+swift build -c debug
+swift test
+./build.sh release
+```
+
+The repository follows an ADR-first workflow and Swift 6 concurrency checking.
+See:
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) for build, test, smoke, commit, and PR rules.
+- [AGENTS.md](AGENTS.md) for architecture invariants.
+- [docs/adr](docs/adr) for decisions and rejected alternatives.
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for community expectations.
+
+## Repository Layout
+
+```text
+Sources/Storybird/          SwiftUI and ScreenCaptureKit orchestration
+Sources/StorybirdCore/      Models, persistence, geometry, analytics, export
+Tests/StorybirdCoreTests/   Deterministic XCTest suite
+Resources/                  Info.plist, entitlements, editable app icon
+docs/adr/                   Architecture Decision Records
+.agents/skills/             Release preparation harness
+```
+
+## Support
+
+- Bugs and feature requests: [GitHub Issues](https://github.com/haandol/storybird/issues)
+- Security reports: [GitHub Security Advisories](https://github.com/haandol/storybird/security/advisories/new)
+- Recovery steps: [Troubleshooting](docs/Troubleshooting.md)
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+Storybird is available under the [MIT License](LICENSE).

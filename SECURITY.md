@@ -2,8 +2,9 @@
 
 ## Supported Versions
 
-Only the latest public Storybird release is supported. Security fixes ship in a
-new release rather than being backported.
+Before the first tagged release, security fixes target the `main` branch. After
+releases begin, only the latest public Storybird release is supported; fixes
+ship in a new release rather than being backported.
 
 ## Reporting a Vulnerability
 

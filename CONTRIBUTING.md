@@ -6,7 +6,8 @@ capture, permission, persistence, or export behavior.
 
 ## Build and Run
 
-Storybird is a dependency-free Swift Package targeting macOS 14 or later.
+Storybird is a dependency-free Swift Package targeting macOS 14 or later and
+uses Swift tools 6.2 (Xcode 26 or a compatible Swift 6.2 toolchain).
 
 ```bash
 swift build -c debug

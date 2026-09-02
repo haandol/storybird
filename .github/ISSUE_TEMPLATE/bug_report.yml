@@ -1,0 +1,58 @@
+name: Bug report
+description: Report a reproducible Storybird problem
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not attach real customer captures, credentials, private messages, or exported customer demos. Use synthetic content.
+  - type: input
+    id: version
+    attributes:
+      label: Storybird version or commit
+      placeholder: 0.1.0 or commit SHA
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: macOS 15.6
+    validations:
+      required: true
+  - type: dropdown
+    id: build
+    attributes:
+      label: Build source
+      options:
+        - Built locally with Apple Development signing
+        - Built locally with ad-hoc signing
+        - GitHub release
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Use a synthetic window or project.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Diagnostics
+      description: Include signing identity or permission state, but no secrets.
