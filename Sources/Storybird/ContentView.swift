@@ -71,7 +71,7 @@ struct ContentView: View {
                     )
                 }
                 .tint(.red)
-                .help("Record clicks and turn each resulting screen into a step")
+                .help("Record each click-time screen and its resulting step")
 
                 Button {
                     isPreviewPresented = true

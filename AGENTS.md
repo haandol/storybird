@@ -38,8 +38,9 @@ Read these before changing capture, persistence, or export behavior.
 - **Normalize against the selected capture frame.** Clicks outside the chosen
   source are ignored. Window movement or resize uses the current filter frame
   where the runtime exposes it.
-- **A click connects the previous screen to the resulting screen.** Persist the
-  post-click frame, then add a hotspot on the previous step targeting it.
+- **A click belongs to the screen visible at mouse-down.** Freeze the latest
+  valid capture frame with the click coordinates, use it for the hotspot's
+  source step, then persist the resulting screen as the target step.
 - **Serialize click persistence.** Rapid clicks may queue, but project mutation
   remains ordered. Stop rejects new clicks and awaits the pending queue.
 - **Capture remains local.** No screenshot, click event, project, or analytics

@@ -12,8 +12,8 @@
         },
         {
           "path": "docs/adr/recording/0002-click-to-step-recording.md",
-          "status": "Accepted (2026-09-02)",
-          "summary": "사람의 물리 클릭과 에이전트의 로컬 녹화 패키지를 같은 화면·핫스팟 그래프로 변환한다"
+          "status": "Accepted (2026-09-03)",
+          "summary": "물리 클릭의 좌표와 mouse-down 시점 화면을 같은 단계로 고정하고 녹화 HUD를 가시 영역 상단 중앙 안쪽에 배치하며 에이전트와 동일한 그래프로 저장한다"
         },
         {
           "path": "docs/adr/recording/0003-permission-and-signing.md",

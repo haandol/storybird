@@ -57,6 +57,153 @@ struct CaptureSource: Identifiable {
     let initialCaptureFrame: CGRect
 }
 
+struct RecordedClick: @unchecked Sendable {
+    let normalizedPoint: CGPoint
+    let screenImage: CGImage
+}
+
+final class RecordedClickIngress: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isAccepting = false
+    private var clicks: [RecordedClick] = []
+
+    func start() {
+        lock.lock()
+        clicks.removeAll(keepingCapacity: true)
+        isAccepting = true
+        lock.unlock()
+    }
+
+    func stopAccepting() {
+        lock.lock()
+        isAccepting = false
+        lock.unlock()
+    }
+
+    @discardableResult
+    func accept(
+        screenPoint: CGPoint,
+        captureFrame: CGRect,
+        screenImage: CGImage
+    ) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard isAccepting,
+              let normalizedPoint = RecordingGeometry.normalizedCaptureClick(
+                  capturePoint: screenPoint,
+                  captureFrame: captureFrame
+              )
+        else {
+            return false
+        }
+
+        clicks.append(
+            RecordedClick(
+                normalizedPoint: normalizedPoint,
+                screenImage: screenImage
+            )
+        )
+        return true
+    }
+
+    func takeAcceptedClicks() -> [RecordedClick] {
+        lock.lock()
+        defer { lock.unlock() }
+        let accepted = clicks
+        clicks.removeAll(keepingCapacity: true)
+        return accepted
+    }
+
+    func reset() {
+        lock.lock()
+        isAccepting = false
+        clicks.removeAll(keepingCapacity: true)
+        lock.unlock()
+    }
+}
+
+@MainActor
+final class RecordedClickProcessor {
+    typealias PersistClick = (
+        _ click: RecordedClick,
+        _ resultingImage: CGImage,
+        _ sourceStepID: UUID
+    ) throws -> UUID
+
+    private var currentStepID: UUID
+    private var clickQueue: [RecordedClick] = []
+    private var processingTask: Task<Void, Never>?
+    private var savedClickCount = 0
+
+    private let resultDelay: Duration
+    private let resultImageProvider: () -> CGImage?
+    private let persistClick: PersistClick
+    private let didUpdatePending: (Int) -> Void
+    private let didSaveClick: (Int) -> Void
+    private let didFail: (Error) -> Void
+
+    init(
+        currentStepID: UUID,
+        resultDelay: Duration,
+        resultImageProvider: @escaping () -> CGImage?,
+        persistClick: @escaping PersistClick,
+        didUpdatePending: @escaping (Int) -> Void,
+        didSaveClick: @escaping (Int) -> Void,
+        didFail: @escaping (Error) -> Void
+    ) {
+        self.currentStepID = currentStepID
+        self.resultDelay = resultDelay
+        self.resultImageProvider = resultImageProvider
+        self.persistClick = persistClick
+        self.didUpdatePending = didUpdatePending
+        self.didSaveClick = didSaveClick
+        self.didFail = didFail
+    }
+
+    func enqueue(_ clicks: [RecordedClick]) {
+        guard !clicks.isEmpty else { return }
+        clickQueue.append(contentsOf: clicks)
+        didUpdatePending(clickQueue.count)
+        guard processingTask == nil else { return }
+
+        processingTask = Task { [weak self] in
+            await self?.drainQueue()
+        }
+    }
+
+    func stopAndDrain() async {
+        let pendingTask = processingTask
+        await pendingTask?.value
+    }
+
+    private func drainQueue() async {
+        while !clickQueue.isEmpty {
+            let click = clickQueue.removeFirst()
+            didUpdatePending(clickQueue.count)
+
+            do {
+                try await Task.sleep(for: resultDelay)
+                guard let resultingImage = resultImageProvider() else {
+                    throw FlowRecordingError.noFrame
+                }
+                currentStepID = try persistClick(
+                    click,
+                    resultingImage,
+                    currentStepID
+                )
+                savedClickCount += 1
+                didSaveClick(savedClickCount)
+            } catch is CancellationError {
+                break
+            } catch {
+                didFail(error)
+                break
+            }
+        }
+        processingTask = nil
+    }
+}
+
 @MainActor
 final class RecordingCoordinator: ObservableObject {
     @Published private(set) var state: RecordingState = .idle
@@ -64,26 +211,18 @@ final class RecordingCoordinator: ObservableObject {
     @Published private(set) var isLoadingSources = false
     @Published private(set) var captureSources: [CaptureSource] = []
 
-    private struct RecordedClick {
-        var normalizedPoint: CGPoint
-    }
-
     private unowned let store: AppStore
     private let frameSource = ScreenFrameSource()
+    private let clickIngress = RecordedClickIngress()
     private let sampleQueue = DispatchQueue(
         label: "io.storybird.screen-frames",
         qos: .userInteractive
     )
 
     private var stream: SCStream?
-    private var selectedFilter: SCContentFilter?
-    private var selectedCaptureFrame: CGRect?
     private var projectID: UUID?
-    private var currentStepID: UUID?
-    private var capturedClickCount = 0
     private var clickMonitor: Any?
-    private var clickQueue: [RecordedClick] = []
-    private var processingTask: Task<Void, Never>?
+    private var clickProcessor: RecordedClickProcessor?
     private var startTask: Task<Void, Never>?
     private var stopTask: Task<Void, Never>?
     private var sessionToken: UUID?
@@ -119,9 +258,8 @@ final class RecordingCoordinator: ObservableObject {
         let token = UUID()
         sessionToken = token
         self.projectID = projectID
-        currentStepID = nil
-        capturedClickCount = 0
-        clickQueue.removeAll()
+        clickProcessor = nil
+        clickIngress.reset()
         frameSource.clear()
         setState(.preparing)
         isSourcePickerPresented = true
@@ -204,6 +342,7 @@ final class RecordingCoordinator: ObservableObject {
 
     func stop() {
         guard state.isActive, stopTask == nil else { return }
+        clickIngress.stopAccepting()
         sessionToken = nil
         startTask?.cancel()
         isSourcePickerPresented = false
@@ -229,7 +368,7 @@ final class RecordingCoordinator: ObservableObject {
         guard sessionToken == token else { return }
 
         let filter = source.filter
-        let captureFrame = captureFrame(
+        let captureFrame = Self.captureFrame(
             for: filter,
             fallback: source.initialCaptureFrame
         )
@@ -238,9 +377,6 @@ final class RecordingCoordinator: ObservableObject {
         else {
             throw FlowRecordingError.invalidContentSelection
         }
-        selectedFilter = filter
-        selectedCaptureFrame = source.initialCaptureFrame
-
         let configuration = SCStreamConfiguration()
         configuration.width = max(
             Int(captureFrame.width * CGFloat(filter.pointPixelScale)),
@@ -290,20 +426,61 @@ final class RecordingCoordinator: ObservableObject {
         let firstFrame = try await waitForFrame()
         guard let projectID else { return }
         let firstStepID = try store.beginRecordedFlow(
-            with: NSImage(
-                cgImage: firstFrame,
-                size: NSSize(width: firstFrame.width, height: firstFrame.height)
-            ),
+            with: firstFrame.storybirdImage,
             in: projectID
         )
-        currentStepID = firstStepID
+        let store = store
+        clickProcessor = RecordedClickProcessor(
+            currentStepID: firstStepID,
+            resultDelay: .milliseconds(450),
+            resultImageProvider: { [weak frameSource] in
+                frameSource?.latestImage()
+            },
+            persistClick: { click, resultingImage, sourceStepID in
+                try store.appendRecordedClick(
+                    at: click.normalizedPoint,
+                    clickedImage: click.screenImage.storybirdImage,
+                    resultingImage: resultingImage.storybirdImage,
+                    from: sourceStepID,
+                    in: projectID
+                )
+            },
+            didUpdatePending: { [weak self] count in
+                self?.hud?.setPendingClicks(count)
+            },
+            didSaveClick: { [weak self] count in
+                guard let self, case .recording = self.state else { return }
+                self.setState(.recording(clicks: count))
+            },
+            didFail: { error in
+                store.errorMessage =
+                    "A recorded click could not be saved: \(error.localizedDescription)"
+            }
+        )
 
+        clickIngress.start()
         clickMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
         ) { [weak self] event in
-            guard let location = event.cgEvent?.location else { return }
+            guard let self,
+                  let location = event.cgEvent?.location,
+                  let image = self.frameSource.latestImage()
+            else {
+                return
+            }
+            let eventCaptureFrame = Self.captureFrame(
+                for: filter,
+                fallback: source.initialCaptureFrame
+            )
+            guard self.clickIngress.accept(
+                screenPoint: location,
+                captureFrame: eventCaptureFrame,
+                screenImage: image
+            ) else {
+                return
+            }
             Task { @MainActor [weak self] in
-                self?.enqueueClick(at: location)
+                self?.consumeAcceptedClicks()
             }
         }
         guard clickMonitor != nil else {
@@ -433,73 +610,13 @@ final class RecordingCoordinator: ObservableObject {
         ) else {
             return nil
         }
-        return NSImage(
-            cgImage: image,
-            size: NSSize(width: image.width, height: image.height)
-        )
+        return image.storybirdImage
     }
 
-    private func enqueueClick(at screenPoint: CGPoint) {
-        guard case .recording = state,
-              let selectedFilter,
-              let selectedCaptureFrame,
-              let normalizedPoint = RecordingGeometry.normalizedCaptureClick(
-                  capturePoint: screenPoint,
-                  captureFrame: captureFrame(
-                      for: selectedFilter,
-                      fallback: selectedCaptureFrame
-                  )
-              )
-        else {
-            return
-        }
-
-        clickQueue.append(RecordedClick(normalizedPoint: normalizedPoint))
-        hud?.setPendingClicks(clickQueue.count)
-        guard processingTask == nil else { return }
-
-        processingTask = Task { [weak self] in
-            await self?.drainClickQueue()
-        }
-    }
-
-    private func drainClickQueue() async {
-        while !clickQueue.isEmpty {
-            let click = clickQueue.removeFirst()
-            hud?.setPendingClicks(clickQueue.count)
-
-            do {
-                try await Task.sleep(for: .milliseconds(450))
-                guard let image = frameSource.latestImage(),
-                      let projectID,
-                      let currentStepID
-                else {
-                    throw FlowRecordingError.noFrame
-                }
-
-                let nextStepID = try store.appendRecordedClick(
-                    at: click.normalizedPoint,
-                    resultingImage: NSImage(
-                        cgImage: image,
-                        size: NSSize(width: image.width, height: image.height)
-                    ),
-                    from: currentStepID,
-                    in: projectID
-                )
-                self.currentStepID = nextStepID
-
-                capturedClickCount += 1
-                if case .recording = state {
-                    setState(.recording(clicks: capturedClickCount))
-                }
-            } catch is CancellationError {
-                break
-            } catch {
-                store.errorMessage = "A recorded click could not be saved: \(error.localizedDescription)"
-                break
-            }
-        }
-        processingTask = nil
+    private func consumeAcceptedClicks() {
+        let acceptedClicks = clickIngress.takeAcceptedClicks()
+        guard !acceptedClicks.isEmpty else { return }
+        clickProcessor?.enqueue(acceptedClicks)
     }
 
     private func waitForFrame() async throws -> CGImage {
@@ -514,14 +631,15 @@ final class RecordingCoordinator: ObservableObject {
     }
 
     private func finishStopping(showEditor: Bool) async {
+        clickIngress.stopAccepting()
         if let clickMonitor {
             NSEvent.removeMonitor(clickMonitor)
             self.clickMonitor = nil
         }
 
-        let pendingTask = processingTask
-        await pendingTask?.value
-        clickQueue.removeAll()
+        consumeAcceptedClicks()
+        let pendingProcessor = clickProcessor
+        await pendingProcessor?.stopAndDrain()
 
         if let stream {
             try? await stream.stopCaptureAsync()
@@ -539,13 +657,11 @@ final class RecordingCoordinator: ObservableObject {
             restoreEditorWindows()
         }
 
-        selectedFilter = nil
-        selectedCaptureFrame = nil
+        clickIngress.reset()
         sessionToken = nil
         projectID = nil
-        currentStepID = nil
+        clickProcessor = nil
         startTask = nil
-        processingTask = nil
         stopTask = nil
         setState(.idle)
     }
@@ -579,7 +695,7 @@ final class RecordingCoordinator: ObservableObject {
         hud?.update(state: state)
     }
 
-    private func captureFrame(
+    private nonisolated static func captureFrame(
         for filter: SCContentFilter,
         fallback: CGRect
     ) -> CGRect {
@@ -850,6 +966,15 @@ private extension CGRect {
     var area: CGFloat {
         guard !isNull, !isInfinite else { return 0 }
         return width * height
+    }
+}
+
+private extension CGImage {
+    var storybirdImage: NSImage {
+        NSImage(
+            cgImage: self,
+            size: NSSize(width: width, height: height)
+        )
     }
 }
 

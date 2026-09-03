@@ -174,6 +174,15 @@ final class StorybirdCoreTests: XCTestCase {
         XCTAssertEqual(point?.y ?? -1, 0.25, accuracy: 0.001)
     }
 
+    func test_captureCoordinates_rejectPointOutsideCaptureFrame() {
+        let point = RecordingGeometry.normalizedCaptureClick(
+            capturePoint: CGPoint(x: 99, y: 250),
+            captureFrame: CGRect(x: 100, y: 100, width: 800, height: 600)
+        )
+
+        XCTAssertNil(point)
+    }
+
     func test_recordedClick_linksPreviousScreenToNewScreen() throws {
         let first = DemoStep(title: "Before", assetFilename: "before.png")
         let second = DemoStep(title: "After", assetFilename: "after.png")

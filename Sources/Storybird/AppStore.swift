@@ -168,6 +168,7 @@ final class AppStore: ObservableObject {
     @discardableResult
     func appendRecordedClick(
         at normalizedPoint: CGPoint,
+        clickedImage: NSImage,
         resultingImage: NSImage,
         from sourceStepID: UUID,
         in projectID: UUID
@@ -177,23 +178,72 @@ final class AppStore: ObservableObject {
         }) else {
             throw RecordingStoreError.projectNotFound
         }
-        let filename = try repository.writeImage(
-            resultingImage,
-            projectID: projectID
-        )
-        let nextStep = DemoStep(
-            title: "Recorded screen \(projects[projectIndex].steps.count + 1)",
-            caption: "Captured after click \(projects[projectIndex].steps.count).",
-            assetFilename: filename
-        )
-        try RecordedFlowBuilder.append(
-            nextStep: nextStep,
-            clickPoint: normalizedPoint,
-            from: sourceStepID,
-            to: &projects[projectIndex]
-        )
-        persist()
-        return nextStep.id
+        var updatedProject = projects[projectIndex]
+        guard let sourceStepIndex = updatedProject.steps.firstIndex(where: {
+            $0.id == sourceStepID
+        }) else {
+            throw RecordedFlowBuilderError.sourceStepNotFound
+        }
+
+        let replacedFilename = updatedProject.steps[sourceStepIndex].assetFilename
+        var createdFilenames: [String] = []
+
+        do {
+            let clickedFilename = try repository.writeImage(
+                clickedImage,
+                projectID: projectID
+            )
+            createdFilenames.append(clickedFilename)
+
+            let resultingFilename = try repository.writeImage(
+                resultingImage,
+                projectID: projectID
+            )
+            createdFilenames.append(resultingFilename)
+
+            updatedProject.steps[sourceStepIndex].assetFilename = clickedFilename
+            updatedProject.steps[sourceStepIndex].caption =
+                "Captured when this click occurred."
+            let nextStep = DemoStep(
+                title: "Recorded screen \(updatedProject.steps.count + 1)",
+                caption: "Captured after click \(updatedProject.steps.count).",
+                assetFilename: resultingFilename
+            )
+            let nextStepID = try RecordedFlowBuilder.append(
+                nextStep: nextStep,
+                clickPoint: normalizedPoint,
+                from: sourceStepID,
+                to: &updatedProject
+            )
+
+            let previousProject = projects[projectIndex]
+            projects[projectIndex] = updatedProject
+            do {
+                try repository.saveProjects(projects)
+            } catch {
+                projects[projectIndex] = previousProject
+                throw error
+            }
+
+            let stillReferenced = updatedProject.steps.contains {
+                $0.assetFilename == replacedFilename
+            }
+            if !stillReferenced {
+                try? repository.removeAsset(
+                    projectID: projectID,
+                    filename: replacedFilename
+                )
+            }
+            return nextStepID
+        } catch {
+            for filename in createdFilenames {
+                try? repository.removeAsset(
+                    projectID: projectID,
+                    filename: filename
+                )
+            }
+            throw error
+        }
     }
 
     func deleteProject(id: UUID) {
@@ -311,7 +361,7 @@ struct RecordingPermissionPrompt: Identifiable {
     var message: String {
         switch kind {
         case .screenRecording:
-            return "Storybird needs Screen Recording access to save the screen that appears after each click."
+            return "Storybird needs Screen Recording access to save each click-time screen and its result."
         case .inputMonitoring:
             return "Storybird needs Input Monitoring access to observe mouse clicks during a recording session. Keyboard input is not recorded."
         }

@@ -22,7 +22,7 @@ struct WelcomeView: View {
                 VStack(spacing: 8) {
                     Text("Record clicks. Get an interactive demo.")
                         .font(.system(size: 32, weight: .bold, design: .rounded))
-                    Text("Storybird captures the starting screen, watches each click, and turns the result into the next playable step.")
+                    Text("Storybird pairs each click with the screen visible at that moment, then turns its result into the next playable step.")
                         .font(.title3)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)

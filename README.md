@@ -31,7 +31,8 @@ flowchart LR
 ## Features
 
 - Live thumbnail gallery for displays and unfocused windows.
-- Click-driven capture: every click links the previous screen to its result.
+- Click-driven capture: every hotspot is shown on its mouse-down screen and
+  links to the resulting screen.
 - Agent recording import from local screenshots and normalized click points.
 - Visual screen and hotspot editor with branching targets.
 - Responsive editor for compact and wide windows.
@@ -105,8 +106,9 @@ Permission loops and signing diagnostics are covered in
 
 1. Click **Record Flow**.
 2. Choose a display or open window from the thumbnail gallery.
-3. Use the selected product normally. Pause briefly after each click so the
-   resulting screen can settle.
+3. Use the selected product normally. Storybird binds each click to the screen
+   visible at that moment and saves its result as the next step. Pause briefly
+   after clicks when the resulting screen needs time to settle.
 4. Click **Stop** in the floating Storybird control.
 5. Edit screen titles, captions, hotspot behavior, and target screens.
 6. Preview the flow or export it as static HTML.
@@ -184,10 +186,11 @@ instructions.
 
 ## Current Limitations
 
-- Transitions and animation are represented by post-click screenshots, not
-  video clips.
-- Very rapid clicks can skip an intermediate visual state; pace clicks during
-  recording.
+- Transitions and animation are represented by click-time and result
+  screenshots, not video clips.
+- Transient animation between a click and its result is not preserved.
+- Very rapid clicks can skip an intermediate result state; pace clicks when
+  that state must appear as a step.
 - Minimized and off-screen windows are not listed in the source gallery.
 - Analytics are local preview events, not visitor analytics from exported
   demos.

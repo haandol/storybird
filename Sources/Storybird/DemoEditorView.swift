@@ -280,6 +280,9 @@ private struct EditorCanvasColumn: View {
     private var hotspotButton: some View {
         Button {
             isAddingHotspot.toggle()
+            if isAddingHotspot {
+                selectedHotspotID = nil
+            }
         } label: {
             Label(
                 isAddingHotspot ? "Click the screen…" : "Add Hotspot",
@@ -329,25 +332,23 @@ private struct DemoCanvas: View {
                     .frame(width: imageFrame.width, height: imageFrame.height)
                     .contentShape(Rectangle())
                     .position(x: imageFrame.midX, y: imageFrame.midY)
-                    .gesture(
-                        DragGesture(minimumDistance: 0)
-                            .onEnded { value in
-                                guard isAddingHotspot,
-                                      imageFrame.width > 0,
-                                      imageFrame.height > 0
-                                else {
-                                    return
-                                }
-                                let hotspot = Hotspot(
-                                    x: value.location.x / imageFrame.width,
-                                    y: value.location.y / imageFrame.height,
-                                    title: "Continue"
-                                )
-                                step.hotspots.append(hotspot)
-                                selectedHotspotID = hotspot.id
-                                isAddingHotspot = false
-                            }
-                    )
+
+                if isAddingHotspot {
+                    RoundedRectangle(cornerRadius: 7)
+                        .stroke(
+                            accent,
+                            style: StrokeStyle(
+                                lineWidth: 2,
+                                dash: [7, 5]
+                            )
+                        )
+                        .frame(
+                            width: imageFrame.width,
+                            height: imageFrame.height
+                        )
+                        .position(x: imageFrame.midX, y: imageFrame.midY)
+                        .allowsHitTesting(false)
+                }
 
                 ScreenSubtitleOverlay(
                     text: step.caption,
@@ -376,6 +377,7 @@ private struct DemoCanvas: View {
                         y: imageFrame.minY + CGFloat(hotspot.y) * imageFrame.height
                     )
                     .contentShape(Circle())
+                    .allowsHitTesting(!isAddingHotspot)
                     .onTapGesture {
                         selectedHotspotID = hotspot.id
                     }
@@ -406,6 +408,29 @@ private struct DemoCanvas: View {
                 }
             }
             .coordinateSpace(name: "demoCanvas")
+            .highPriorityGesture(
+                SpatialTapGesture(coordinateSpace: .named("demoCanvas"))
+                    .onEnded { value in
+                        guard isAddingHotspot,
+                              let normalizedPoint =
+                                  RecordingGeometry.normalizedCaptureClick(
+                                      capturePoint: value.location,
+                                      captureFrame: imageFrame
+                                  )
+                        else {
+                            return
+                        }
+                        let hotspot = Hotspot(
+                            x: normalizedPoint.x,
+                            y: normalizedPoint.y,
+                            title: "Continue"
+                        )
+                        step.hotspots.append(hotspot)
+                        selectedHotspotID = hotspot.id
+                        isAddingHotspot = false
+                    },
+                including: isAddingHotspot ? .all : .none
+            )
         }
     }
 }
