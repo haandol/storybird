@@ -652,6 +652,32 @@ private final class ScreenFrameSource: NSObject, SCStreamOutput {
 }
 
 @MainActor
+enum RecordingHUDLayout {
+    static let topInset: CGFloat = 96
+
+    static func initialOrigin(
+        panelSize: CGSize,
+        visibleFrame: CGRect
+    ) -> CGPoint {
+        let maximumX = max(
+            visibleFrame.minX,
+            visibleFrame.maxX - panelSize.width
+        )
+        let centeredX = visibleFrame.midX - panelSize.width / 2
+        let x = min(max(centeredX, visibleFrame.minX), maximumX)
+
+        let maximumY = max(
+            visibleFrame.minY,
+            visibleFrame.maxY - panelSize.height
+        )
+        let preferredY = visibleFrame.maxY - panelSize.height - topInset
+        let y = min(max(preferredY, visibleFrame.minY), maximumY)
+
+        return CGPoint(x: x, y: y)
+    }
+}
+
+@MainActor
 private final class RecordingHUDController {
     private let model = RecordingHUDModel()
     private let panel: NSPanel
@@ -681,11 +707,10 @@ private final class RecordingHUDController {
     }
 
     func show(on screen: NSScreen) {
-        let frame = screen.visibleFrame
         panel.setFrameOrigin(
-            NSPoint(
-                x: frame.midX - panel.frame.width / 2,
-                y: frame.maxY - panel.frame.height - 18
+            RecordingHUDLayout.initialOrigin(
+                panelSize: panel.frame.size,
+                visibleFrame: screen.visibleFrame
             )
         )
         panel.orderFrontRegardless()
