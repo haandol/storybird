@@ -20,9 +20,9 @@ struct WelcomeView: View {
                 StorybirdMark(size: 70)
 
                 VStack(spacing: 8) {
-                    Text("Record clicks. Get an interactive demo.")
+                    Text("Record the screen. Explain every click.")
                         .font(.system(size: 32, weight: .bold, design: .rounded))
-                    Text("Storybird pairs each click with the screen visible at that moment, then turns its result into the next playable step.")
+                    Text("Storybird records one display or window as video, then lets you add timed click captions and subtitles before exporting an MP4.")
                         .font(.title3)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -55,25 +55,19 @@ struct WelcomeView: View {
     @ViewBuilder
     private var actionButtons: some View {
         Button(action: onRecord) {
-            Label("Record a Flow", systemImage: "record.circle")
+            Label("Record Video", systemImage: "record.circle")
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
         .tint(.red)
 
-        Button {
-            store.createSampleProject()
-        } label: {
-            Label("Explore Sample", systemImage: "sparkles")
-        }
-        .buttonStyle(.bordered)
-        .controlSize(.large)
     }
 
     @ViewBuilder
     private var featureNotes: some View {
-        FeatureNote(icon: "cursorarrow.click", text: "Automatic click hotspots")
-        FeatureNote(icon: "rectangle.stack", text: "Screen after every click")
+        FeatureNote(icon: "video", text: "Continuous screen video")
+        FeatureNote(icon: "cursorarrow.click", text: "Timed click highlights")
+        FeatureNote(icon: "captions.bubble", text: "Editable subtitles")
         FeatureNote(icon: "lock.shield", text: "Stored only on this Mac")
     }
 }

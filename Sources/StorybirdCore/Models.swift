@@ -2,32 +2,560 @@ import Foundation
 
 public struct DemoProject: Codable, Identifiable, Hashable, Sendable {
     public var id: UUID
+    public var revision: Int
     public var name: String
     public var summary: String
     public var createdAt: Date
     public var updatedAt: Date
+    public var recording: VideoRecordingAsset?
+    public var clips: [VideoClip]
+    public var clicks: [TimedPointerClick]
+    public var subtitles: [TimedSubtitle]
+    public var effects: [DemoEffect]
+    public var suggestions: [ClickEditSuggestion]
     public var steps: [DemoStep]
     public var events: [AnalyticsEvent]
     public var theme: DemoTheme
 
     public init(
         id: UUID = UUID(),
+        revision: Int = 0,
         name: String,
         summary: String = "",
         createdAt: Date = Date(),
         updatedAt: Date = Date(),
+        recording: VideoRecordingAsset? = nil,
+        clips: [VideoClip] = [],
+        clicks: [TimedPointerClick] = [],
+        subtitles: [TimedSubtitle] = [],
+        effects: [DemoEffect] = [],
+        suggestions: [ClickEditSuggestion] = [],
         steps: [DemoStep] = [],
         events: [AnalyticsEvent] = [],
         theme: DemoTheme = .openLane
     ) {
         self.id = id
+        self.revision = max(revision, 0)
         self.name = name
         self.summary = summary
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.recording = recording
+        if clips.isEmpty, let recording {
+            self.clips = [
+                VideoClip(
+                    sourceStart: 0,
+                    sourceEnd: recording.duration
+                ),
+            ]
+        } else {
+            self.clips = clips
+        }
+        self.clicks = clicks
+        self.subtitles = subtitles
+        self.effects = effects
+        self.suggestions = suggestions
         self.steps = steps
         self.events = events
         self.theme = theme
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case revision
+        case name
+        case summary
+        case createdAt
+        case updatedAt
+        case recording
+        case clips
+        case clicks
+        case subtitles
+        case effects
+        case suggestions
+        case steps
+        case events
+        case theme
+    }
+
+    /// Decodes pre-video projects without treating their screenshot graph as a recording.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        revision = try container.decodeIfPresent(Int.self, forKey: .revision) ?? 0
+        name = try container.decode(String.self, forKey: .name)
+        summary = try container.decode(String.self, forKey: .summary)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        recording = try container.decodeIfPresent(
+            VideoRecordingAsset.self,
+            forKey: .recording
+        )
+        clips = try container.decodeIfPresent(
+            [VideoClip].self,
+            forKey: .clips
+        ) ?? []
+        clicks = try container.decodeIfPresent(
+            [TimedPointerClick].self,
+            forKey: .clicks
+        ) ?? []
+        subtitles = try container.decodeIfPresent(
+            [TimedSubtitle].self,
+            forKey: .subtitles
+        ) ?? []
+        effects = try container.decodeIfPresent(
+            [DemoEffect].self,
+            forKey: .effects
+        ) ?? []
+        suggestions = try container.decodeIfPresent(
+            [ClickEditSuggestion].self,
+            forKey: .suggestions
+        ) ?? []
+        steps = try container.decodeIfPresent(
+            [DemoStep].self,
+            forKey: .steps
+        ) ?? []
+        events = try container.decodeIfPresent(
+            [AnalyticsEvent].self,
+            forKey: .events
+        ) ?? []
+        theme = try container.decodeIfPresent(
+            DemoTheme.self,
+            forKey: .theme
+        ) ?? .openLane
+    }
+
+    public var timelineDuration: Double {
+        clips.reduce(0) { $0 + $1.outputDuration }
+            + effects.reduce(0) { total, effect in
+                if effect.isFullScreenCard {
+                    return total + max(effect.endTime - effect.startTime, 0)
+                }
+                return total
+            }
+    }
+}
+
+public struct VideoRecordingAsset: Codable, Hashable, Sendable {
+    public var filename: String
+    public var duration: Double
+    public var width: Int
+    public var height: Int
+
+    public init(
+        filename: String,
+        duration: Double,
+        width: Int,
+        height: Int
+    ) {
+        self.filename = filename
+        self.duration = max(duration, 0)
+        self.width = max(width, 1)
+        self.height = max(height, 1)
+    }
+}
+
+public enum PointerButton: String, Codable, CaseIterable, Identifiable, Hashable, Sendable {
+    case left
+    case right
+
+    public var id: String { rawValue }
+}
+
+public enum VideoClipKind: String, Codable, Hashable, Sendable {
+    case video
+    case freeze
+}
+
+public struct VideoClip: Codable, Identifiable, Hashable, Sendable {
+    public var id: UUID
+    public var kind: VideoClipKind
+    public var sourceStart: Double
+    public var sourceEnd: Double
+    public var playbackRate: Double
+    public var freezeDuration: Double
+
+    public init(
+        id: UUID = UUID(),
+        kind: VideoClipKind = .video,
+        sourceStart: Double,
+        sourceEnd: Double,
+        playbackRate: Double = 1,
+        freezeDuration: Double = 0
+    ) {
+        self.id = id
+        self.kind = kind
+        self.sourceStart = sourceStart
+        self.sourceEnd = sourceEnd
+        self.playbackRate = playbackRate
+        self.freezeDuration = freezeDuration
+    }
+
+    public var outputDuration: Double {
+        switch kind {
+        case .video:
+            return max(sourceEnd - sourceStart, 0) / max(playbackRate, 0.001)
+        case .freeze:
+            return max(freezeDuration, 0)
+        }
+    }
+}
+
+public enum ClickDescriptionPosition: String, Codable, CaseIterable, Identifiable, Hashable, Sendable {
+    case automatic
+    case custom
+
+    public var id: String { rawValue }
+}
+
+public struct ClickIndicatorStyle: Codable, Hashable, Sendable {
+    public var startTime: Double
+    public var endTime: Double
+    public var colorHex: String
+    public var size: Double
+    public var opacity: Double
+
+    public init(
+        startTime: Double,
+        endTime: Double,
+        colorHex: String = "#5B5CE2",
+        size: Double = 1,
+        opacity: Double = 1
+    ) {
+        self.startTime = startTime
+        self.endTime = endTime
+        self.colorHex = colorHex
+        self.size = max(size, 0.01)
+        self.opacity = min(max(opacity, 0), 1)
+    }
+}
+
+public struct ClickDescription: Codable, Hashable, Sendable {
+    public var text: String
+    public var startTime: Double
+    public var endTime: Double
+    public var position: ClickDescriptionPosition
+    public var x: Double
+    public var y: Double
+    public var style: TextOverlayStyle
+
+    public init(
+        text: String = "",
+        startTime: Double,
+        endTime: Double,
+        position: ClickDescriptionPosition = .automatic,
+        x: Double = 0.5,
+        y: Double = 0.5,
+        style: TextOverlayStyle = .default
+    ) {
+        self.text = text
+        self.startTime = startTime
+        self.endTime = endTime
+        self.position = position
+        self.x = min(max(x, 0), 1)
+        self.y = min(max(y, 0), 1)
+        self.style = style
+    }
+}
+
+public struct CueSubtitle: Codable, Hashable, Sendable {
+    public var text: String
+    public var startTime: Double
+    public var endTime: Double
+    public var position: SubtitlePosition
+    public var style: TextOverlayStyle
+
+    public init(
+        text: String = "",
+        startTime: Double,
+        endTime: Double,
+        position: SubtitlePosition = .bottom,
+        style: TextOverlayStyle = .default
+    ) {
+        self.text = text
+        self.startTime = startTime
+        self.endTime = endTime
+        self.position = position
+        self.style = style
+    }
+}
+
+public struct TimedPointerClick: Codable, Identifiable, Hashable, Sendable {
+    public var id: UUID
+    public var sourceTime: Double
+    public var time: Double
+    public var x: Double
+    public var y: Double
+    public var button: PointerButton
+    public var indicator: ClickIndicatorStyle
+    public var description: ClickDescription
+    public var cueSubtitle: CueSubtitle
+
+    public init(
+        id: UUID = UUID(),
+        sourceTime: Double? = nil,
+        time: Double,
+        x: Double,
+        y: Double,
+        button: PointerButton = .left,
+        caption: String = "",
+        captionStyle: TextOverlayStyle = .default
+    ) {
+        self.id = id
+        self.sourceTime = max(sourceTime ?? time, 0)
+        self.time = max(time, 0)
+        self.x = min(max(x, 0), 1)
+        self.y = min(max(y, 0), 1)
+        self.button = button
+        let start = max(time - 0.15, 0)
+        let end = time + 1.85
+        self.indicator = ClickIndicatorStyle(
+            startTime: start,
+            endTime: end
+        )
+        self.description = ClickDescription(
+            text: caption,
+            startTime: start,
+            endTime: end,
+            style: captionStyle
+        )
+        self.cueSubtitle = CueSubtitle(
+            startTime: start,
+            endTime: end
+        )
+    }
+
+    public var caption: String {
+        get { description.text }
+        set { description.text = newValue }
+    }
+
+    public var captionStyle: TextOverlayStyle {
+        get { description.style }
+        set { description.style = newValue }
+    }
+
+    public var isComplete: Bool {
+        !description.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !cueSubtitle.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Clamps generated Click Cue windows only when the recording duration becomes known.
+    public func bounded(to duration: Double) -> TimedPointerClick {
+        var result = self
+        let minimumEnd = min(max(time + 0.01, 0.01), duration)
+        result.indicator.startTime = min(result.indicator.startTime, time)
+        result.indicator.endTime = min(max(result.indicator.endTime, minimumEnd), duration)
+        result.description.startTime = min(result.description.startTime, time)
+        result.description.endTime = min(max(result.description.endTime, minimumEnd), duration)
+        result.cueSubtitle.startTime = min(result.cueSubtitle.startTime, time)
+        result.cueSubtitle.endTime = min(max(result.cueSubtitle.endTime, minimumEnd), duration)
+        return result
+    }
+}
+
+public struct TimedSubtitle: Codable, Identifiable, Hashable, Sendable {
+    public var id: UUID
+    public var startTime: Double
+    public var endTime: Double
+    public var text: String
+    public var position: SubtitlePosition
+    public var style: TextOverlayStyle
+
+    public init(
+        id: UUID = UUID(),
+        startTime: Double,
+        endTime: Double,
+        text: String = "",
+        position: SubtitlePosition = .bottom,
+        style: TextOverlayStyle = .default
+    ) {
+        self.id = id
+        self.startTime = max(startTime, 0)
+        self.endTime = max(endTime, self.startTime)
+        self.text = text
+        self.position = position
+        self.style = style
+    }
+}
+
+public struct SpotlightEffect: Codable, Identifiable, Hashable, Sendable {
+    public var id: UUID
+    public var startTime: Double
+    public var endTime: Double
+    public var x: Double
+    public var y: Double
+    public var width: Double
+    public var height: Double
+    public var dimOpacity: Double
+
+    public init(
+        id: UUID = UUID(),
+        startTime: Double,
+        endTime: Double,
+        x: Double,
+        y: Double,
+        width: Double,
+        height: Double,
+        dimOpacity: Double = 0.55
+    ) {
+        self.id = id
+        self.startTime = startTime
+        self.endTime = endTime
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.dimOpacity = min(max(dimOpacity, 0), 1)
+    }
+}
+
+public struct PanZoomEffect: Codable, Identifiable, Hashable, Sendable {
+    public var id: UUID
+    public var startTime: Double
+    public var endTime: Double
+    public var startX: Double
+    public var startY: Double
+    public var startScale: Double
+    public var endX: Double
+    public var endY: Double
+    public var endScale: Double
+
+    public init(
+        id: UUID = UUID(),
+        startTime: Double,
+        endTime: Double,
+        startX: Double = 0.5,
+        startY: Double = 0.5,
+        startScale: Double = 1,
+        endX: Double,
+        endY: Double,
+        endScale: Double
+    ) {
+        self.id = id
+        self.startTime = startTime
+        self.endTime = endTime
+        self.startX = startX
+        self.startY = startY
+        self.startScale = startScale
+        self.endX = endX
+        self.endY = endY
+        self.endScale = endScale
+    }
+}
+
+public struct TitleCardEffect: Codable, Identifiable, Hashable, Sendable {
+    public var id: UUID
+    public var startTime: Double
+    public var endTime: Double
+    public var title: String
+    public var subtitle: String
+    public var style: TextOverlayStyle
+
+    public init(
+        id: UUID = UUID(),
+        startTime: Double,
+        endTime: Double,
+        title: String,
+        subtitle: String = "",
+        style: TextOverlayStyle = .default
+    ) {
+        self.id = id
+        self.startTime = startTime
+        self.endTime = endTime
+        self.title = title
+        self.subtitle = subtitle
+        self.style = style
+    }
+}
+
+public struct CTACardEffect: Codable, Identifiable, Hashable, Sendable {
+    public var id: UUID
+    public var startTime: Double
+    public var endTime: Double
+    public var title: String
+    public var buttonLabel: String
+    public var style: TextOverlayStyle
+
+    public init(
+        id: UUID = UUID(),
+        startTime: Double,
+        endTime: Double,
+        title: String,
+        buttonLabel: String,
+        style: TextOverlayStyle = .default
+    ) {
+        self.id = id
+        self.startTime = startTime
+        self.endTime = endTime
+        self.title = title
+        self.buttonLabel = buttonLabel
+        self.style = style
+    }
+}
+
+public enum DemoEffect: Codable, Identifiable, Hashable, Sendable {
+    case spotlight(SpotlightEffect)
+    case panZoom(PanZoomEffect)
+    case title(TitleCardEffect)
+    case cta(CTACardEffect)
+
+    public var id: UUID {
+        switch self {
+        case let .spotlight(value): value.id
+        case let .panZoom(value): value.id
+        case let .title(value): value.id
+        case let .cta(value): value.id
+        }
+    }
+
+    public var startTime: Double {
+        switch self {
+        case let .spotlight(value): value.startTime
+        case let .panZoom(value): value.startTime
+        case let .title(value): value.startTime
+        case let .cta(value): value.startTime
+        }
+    }
+
+    public var endTime: Double {
+        switch self {
+        case let .spotlight(value): value.endTime
+        case let .panZoom(value): value.endTime
+        case let .title(value): value.endTime
+        case let .cta(value): value.endTime
+        }
+    }
+}
+
+public enum ClickSuggestionState: String, Codable, CaseIterable, Hashable, Sendable {
+    case pending
+    case applied
+    case rejected
+}
+
+public struct ClickEditSuggestion: Codable, Identifiable, Hashable, Sendable {
+    public var id: UUID
+    public var clickID: UUID
+    public var state: ClickSuggestionState
+    public var splitTime: Double
+    public var spotlight: SpotlightEffect
+    public var panZoom: PanZoomEffect
+
+    public init(
+        id: UUID = UUID(),
+        clickID: UUID,
+        state: ClickSuggestionState = .pending,
+        splitTime: Double,
+        spotlight: SpotlightEffect,
+        panZoom: PanZoomEffect
+    ) {
+        self.id = id
+        self.clickID = clickID
+        self.state = state
+        self.splitTime = splitTime
+        self.spotlight = spotlight
+        self.panZoom = panZoom
     }
 }
 
@@ -188,6 +716,8 @@ public enum SubtitlePosition: String, Codable, CaseIterable, Identifiable, Hasha
 
 public struct TextOverlayStyle: Codable, Hashable, Sendable {
     public var backgroundHex: String
+    public var foregroundHex: String
+    public var fontSize: Double
     public var backgroundOpacity: Double {
         didSet {
             backgroundOpacity = Self.clampedOpacity(backgroundOpacity)
@@ -196,10 +726,14 @@ public struct TextOverlayStyle: Codable, Hashable, Sendable {
 
     public init(
         backgroundHex: String = "#11131A",
-        backgroundOpacity: Double = 0.72
+        backgroundOpacity: Double = 0.72,
+        foregroundHex: String = "#FFFFFF",
+        fontSize: Double = 17
     ) {
         self.backgroundHex = backgroundHex
         self.backgroundOpacity = Self.clampedOpacity(backgroundOpacity)
+        self.foregroundHex = foregroundHex
+        self.fontSize = max(fontSize, 1)
     }
 
     public static let `default` = TextOverlayStyle()
@@ -207,6 +741,8 @@ public struct TextOverlayStyle: Codable, Hashable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case backgroundHex
         case backgroundOpacity
+        case foregroundHex
+        case fontSize
     }
 
     public init(from decoder: Decoder) throws {
@@ -220,6 +756,15 @@ public struct TextOverlayStyle: Codable, Hashable, Sendable {
                 Double.self,
                 forKey: .backgroundOpacity
             ) ?? Self.default.backgroundOpacity
+        )
+        foregroundHex = try container.decodeIfPresent(
+            String.self,
+            forKey: .foregroundHex
+        ) ?? Self.default.foregroundHex
+        fontSize = max(
+            try container.decodeIfPresent(Double.self, forKey: .fontSize)
+                ?? Self.default.fontSize,
+            1
         )
     }
 

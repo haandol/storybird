@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/haandol/alps-writer-plugins/main/plugins/adr-writer/templates/adr/mapping.schema.json",
   "categories": {
     "recording": {
-      "feature": "Click-driven recording",
+      "feature": "Continuous video recording",
       "subdomainType": "core",
       "adrs": [
         {
@@ -11,54 +11,121 @@
           "summary": "전체 화면과 열린 창을 포커스 없이 썸네일로 비교해 단일 녹화 소스를 선택한다"
         },
         {
-          "path": "docs/adr/recording/0002-click-to-step-recording.md",
-          "status": "Accepted (2026-09-03)",
-          "summary": "물리 클릭의 좌표와 mouse-down 시점 화면을 같은 단계로 고정하고 녹화 HUD를 가시 영역 상단 중앙 안쪽에 배치하며 에이전트와 동일한 그래프로 저장한다"
+          "path": "docs/adr/recording/0002-continuous-video-recording.md",
+          "status": "Accepted (2026-09-05)",
+          "summary": "Storybird가 단일 소스의 무음 영상을 기록하고 유효한 클릭마다 같은 시간축의 Click Cue를 정확히 하나 생성한다"
         },
         {
           "path": "docs/adr/recording/0003-permission-and-signing.md",
-          "status": "Accepted (2026-09-02)",
-          "summary": "안정적인 개발 서명과 실제 API 우선 권한 판정으로 macOS TCC 신원을 유지한다"
+          "status": "Accepted (2026-09-05)",
+          "summary": "인증된 로컬 MCP 연결은 모든 프로젝트를 자동화하고 화면·포인터 제어만 선택 소스별 네이티브 승인을 요구한다"
         }
-      ]
+      ],
+      "dependsOn": []
     },
-    "authoring": {
-      "feature": "Demo editing and preview",
-      "subdomainType": "core",
+    "timeline-editing": {
+      "feature": "Non-destructive timeline editing",
       "adrs": [
         {
-          "path": "docs/adr/authoring/0001-editor-and-player.md",
-          "status": "Accepted (2026-09-02)",
-          "summary": "에디터와 네이티브·정적 플레이어가 UUID 기반 데모 모델과 화면·핫스팟 텍스트 오버레이 계약을 공유한다"
+          "path": "docs/adr/timeline-editing/0001-non-destructive-clip-timeline.md",
+          "status": "Accepted (2026-09-05)",
+          "summary": "원본 영상을 보존하고 클립 순서·속도·정지 구간과 연결 레이어를 하나의 프로젝트 시간축에서 비파괴 편집한다"
         }
       ],
       "dependsOn": [
-        "recording"
+        "recording",
+        "library"
+      ]
+    },
+    "demo-effects": {
+      "feature": "Timed product demo effects",
+      "adrs": [
+        {
+          "path": "docs/adr/demo-effects/0001-timed-demo-effects.md",
+          "status": "Accepted (2026-09-05)",
+          "summary": "스포트라이트·팬줌·타이틀·CTA를 콘텐츠 연결 좌표와 화면 고정 좌표가 분리된 시간 기반 레이어로 편집한다"
+        }
+      ],
+      "dependsOn": [
+        "timeline-editing",
+        "authoring"
+      ]
+    },
+    "click-edit-suggestions": {
+      "feature": "Deterministic click edit suggestions",
+      "adrs": [
+        {
+          "path": "docs/adr/click-edit-suggestions/0001-deterministic-click-suggestions.md",
+          "status": "Accepted (2026-09-05)",
+          "summary": "Click Cue마다 결정론적 편집 제안 묶음 하나를 만들고 명시적 적용 전에는 프로젝트를 변경하지 않는다"
+        }
+      ],
+      "dependsOn": [
+        "recording",
+        "timeline-editing",
+        "authoring",
+        "demo-effects"
+      ]
+    },
+    "agent-project-editing": {
+      "feature": "Versioned MCP project editing",
+      "adrs": [
+        {
+          "path": "docs/adr/agent-project-editing/0001-versioned-mcp-project-editing.md",
+          "status": "Accepted (2026-09-05)",
+          "summary": "외부 MCP 편집은 Storybird 명령과 기준 revision을 사용해 모든 UI 속성을 원자적으로 변경하고 충돌을 거부한다"
+        }
+      ],
+      "dependsOn": [
+        "recording",
+        "library",
+        "timeline-editing",
+        "authoring",
+        "demo-effects",
+        "click-edit-suggestions"
+      ]
+    },
+    "authoring": {
+      "feature": "Video timeline editing and preview",
+      "subdomainType": "core",
+      "adrs": [
+        {
+          "path": "docs/adr/authoring/0001-timeline-overlay-editor.md",
+          "status": "Accepted (2026-09-05)",
+          "summary": "Click Cue·독립 자막과 합성 프리뷰가 하나의 프로젝트 시간·좌표·스타일 계약을 사용한다"
+        }
+      ],
+      "dependsOn": [
+        "recording",
+        "timeline-editing",
+        "library"
       ]
     },
     "library": {
-      "feature": "Local project library",
+      "feature": "Local versioned project library",
       "subdomainType": "supporting",
       "adrs": [
         {
           "path": "docs/adr/library/0001-local-project-library.md",
-          "status": "Accepted (2026-09-02)",
-          "summary": "프로젝트와 캡처를 Application Support에 원자적으로 저장하고 OpenLane 데이터를 복사 보존한다"
+          "status": "Accepted (2026-09-05)",
+          "summary": "영상·편집 상태를 기기 안에 원자적으로 저장하고 revision으로 UI와 MCP의 오래된 변경을 거부한다"
         }
-      ]
+      ],
+      "dependsOn": []
     },
     "sharing": {
-      "feature": "Static demo export",
+      "feature": "Layered video export",
       "subdomainType": "supporting",
       "adrs": [
         {
-          "path": "docs/adr/sharing/0001-static-demo-export.md",
-          "status": "Accepted (2026-09-02)",
-          "summary": "선택 자산과 안전하게 이스케이프한 프로젝트 JSON으로 텍스트 오버레이를 보존하는 독립 정적 데모를 만든다"
+          "path": "docs/adr/sharing/0001-layered-video-export.md",
+          "status": "Accepted (2026-09-05)",
+          "summary": "Storybird가 검증된 편집 타임라인을 무음 H.264 MP4로 원자적으로 합성하고 UI·MCP에 동일한 작업 상태를 제공한다"
         }
       ],
       "dependsOn": [
         "authoring",
+        "demo-effects",
         "library"
       ]
     }

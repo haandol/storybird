@@ -57,5 +57,5 @@ Storybird는 녹화 시작 시 전체 디스플레이와 현재 화면에 존재
 
 ## Related
 
-- [클릭 이벤트를 인터랙티브 단계로 변환한다](./0002-click-to-step-recording.md)
+- [연속 화면 영상과 시간 기반 클릭을 기록한다](./0002-continuous-video-recording.md)
 - [안정적인 서명 신원과 최소 권한을 사용한다](./0003-permission-and-signing.md)

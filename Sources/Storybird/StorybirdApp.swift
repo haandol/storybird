@@ -2,19 +2,29 @@ import SwiftUI
 
 @main
 struct StorybirdApp: App {
-    @StateObject private var store = AppStore()
+    @StateObject private var store: AppStore
+    private let externalControlHost: StorybirdExternalControlHost
+
+    init() {
+        let store = AppStore()
+        _store = StateObject(wrappedValue: store)
+        externalControlHost = StorybirdExternalControlHost(store: store)
+    }
 
     var body: some Scene {
         WindowGroup {
             ContentView(store: store)
                 .frame(minWidth: 720, minHeight: 520)
+                .task {
+                    externalControlHost.start()
+                }
         }
         .windowStyle(.titleBar)
         .windowToolbarStyle(.unified(showsTitle: false))
         .commands {
             CommandGroup(replacing: .newItem) {
-                Button("New Demo") {
-                    _ = store.createProject()
+                Button("New Recording Project") {
+                    _ = store.createProject(name: "Untitled recording")
                 }
                 .keyboardShortcut("n", modifiers: .command)
             }
@@ -37,7 +47,7 @@ private struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Storybird")
                         .font(.title2.weight(.semibold))
-                    Text("Local-first interactive demos")
+                    Text("Local-first screen videos")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -51,7 +61,7 @@ private struct SettingsView: View {
                     .textSelection(.enabled)
             }
 
-            Text("Captures and imported images remain on this Mac until you explicitly export a demo.")
+            Text("Original recordings and timeline layers remain on this Mac until you explicitly export a video.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
 

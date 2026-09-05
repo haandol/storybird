@@ -1,20 +1,13 @@
-import AppKit
 import Foundation
 
 public enum RepositoryError: LocalizedError {
     case applicationSupportUnavailable
-    case unreadableImage
-    case pngEncodingFailed
     case legacyMigrationFailed(String)
 
     public var errorDescription: String? {
         switch self {
         case .applicationSupportUnavailable:
             return "The Application Support folder is unavailable."
-        case .unreadableImage:
-            return "The selected file is not a readable image."
-        case .pngEncodingFailed:
-            return "Storybird could not encode the captured image."
         case let .legacyMigrationFailed(reason):
             return "Storybird could not copy the existing OpenLane library: \(reason)"
         }
@@ -122,46 +115,20 @@ public struct ProjectRepository {
         projectAssetsURL(projectID: projectID)
     }
 
-    public func importImage(at sourceURL: URL, projectID: UUID) throws -> String {
-        guard let image = NSImage(contentsOf: sourceURL) else {
-            throw RepositoryError.unreadableImage
-        }
-        return try writeImage(image, projectID: projectID)
-    }
-
-    public func writeImage(_ image: NSImage, projectID: UUID) throws -> String {
-        guard let tiff = image.tiffRepresentation,
-              let representation = NSBitmapImageRep(data: tiff),
-              let data = representation.representation(
-                using: .png,
-                properties: [:]
-              )
-        else {
-            throw RepositoryError.pngEncodingFailed
-        }
-        return try writePNGData(data, projectID: projectID)
-    }
-
-    public func writePNGData(_ data: Data, projectID: UUID) throws -> String {
-        let filename = "\(UUID().uuidString.lowercased()).png"
+    /// Reserves a project-owned MP4 path so recording can finish before the library references it.
+    public func prepareVideoRecordingURL(
+        projectID: UUID
+    ) throws -> (filename: String, url: URL) {
+        let filename = "\(UUID().uuidString.lowercased()).mp4"
         let directory = projectAssetsURL(projectID: projectID)
         try fileManager.createDirectory(
             at: directory,
             withIntermediateDirectories: true
         )
-        try data.write(
-            to: directory.appendingPathComponent(filename),
-            options: .atomic
+        return (
+            filename,
+            directory.appendingPathComponent(filename)
         )
-        return filename
-    }
-
-    public func removeAsset(projectID: UUID, filename: String) throws {
-        let url = assetURL(projectID: projectID, filename: filename)
-        guard fileManager.fileExists(atPath: url.path) else {
-            return
-        }
-        try fileManager.removeItem(at: url)
     }
 
     public func removeProjectAssets(projectID: UUID) throws {

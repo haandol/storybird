@@ -1,4 +1,3 @@
-import AppKit
 import Combine
 import Foundation
 import StorybirdCore
@@ -9,8 +8,14 @@ final class AppStore: ObservableObject {
     @Published var selectedProjectID: UUID?
     @Published var errorMessage: String?
     @Published var permissionPrompt: RecordingPermissionPrompt?
+    @Published var externalControlPrompt: ExternalControlPrompt?
+    @Published var requestedPreviewProjectID: UUID?
 
     let repository: ProjectRepository
+    private var externalControlContinuation:
+        CheckedContinuation<Bool, Never>?
+    private var undoHistory: [UUID: [DemoProject]] = [:]
+    private var redoHistory: [UUID: [DemoProject]] = [:]
 
     init(repository: ProjectRepository? = nil) {
         let resolvedRepository: ProjectRepository
@@ -42,11 +47,13 @@ final class AppStore: ObservableObject {
         return projects.first { $0.id == selectedProjectID }
     }
 
+    /// Resolves one project without exposing mutable library storage to callers.
     func project(id: UUID) -> DemoProject? {
         projects.first { $0.id == id }
     }
 
-    func createProject(name: String = "Untitled demo") -> UUID {
+    /// Creates an empty local placeholder that remains separate from future recordings.
+    func createProject(name: String = "Untitled recording") -> UUID {
         let project = DemoProject(name: name)
         projects.insert(project, at: 0)
         selectedProjectID = project.id
@@ -54,198 +61,201 @@ final class AppStore: ObservableObject {
         return project.id
     }
 
-    func createSampleProject() {
-        let project = DemoProject(
-            name: "Storybird product tour",
-            summary: "A three-step sample made entirely on this Mac."
-        )
-
-        do {
-            var completed = project
-            let screens = SampleArtGenerator.makeScreens()
-            completed.steps = try screens.enumerated().map { index, screen in
-                let filename = try repository.writeImage(
-                    screen.image,
-                    projectID: project.id
-                )
-                return DemoStep(
-                    title: screen.title,
-                    caption: screen.caption,
-                    assetFilename: filename
-                )
-            }
-
-            if completed.steps.count == 3 {
-                completed.steps[0].hotspots = [
-                    Hotspot(
-                        x: 0.77,
-                        y: 0.16,
-                        title: "Create a new demo",
-                        body: "Start with a capture or a set of screenshots.",
-                        targetStepID: completed.steps[1].id
-                    ),
-                ]
-                completed.steps[1].hotspots = [
-                    Hotspot(
-                        x: 0.69,
-                        y: 0.52,
-                        kind: .information,
-                        title: "Guide the viewer",
-                        body: "Place hotspots directly on the screen, then choose where each one leads.",
-                        targetStepID: completed.steps[2].id
-                    ),
-                ]
-                completed.steps[2].hotspots = [
-                    Hotspot(
-                        x: 0.84,
-                        y: 0.16,
-                        title: "Export the experience",
-                        body: "Storybird creates a standalone web demo.",
-                        targetStepID: nil
-                    ),
-                ]
-            }
-
-            projects.insert(completed, at: 0)
-            selectedProjectID = completed.id
-            persist()
-        } catch {
-            errorMessage = "The sample could not be created: \(error.localizedDescription)"
-        }
-    }
-
-    func importAgentRecording(at packageURL: URL) {
-        do {
-            let result = try AgentRecordingLibraryImporter(
-                repository: repository
-            ).importBundle(at: packageURL, into: projects)
-            projects = result.projects
-            selectedProjectID = result.project.id
-        } catch {
-            errorMessage = "The agent recording could not be imported: \(error.localizedDescription)"
-        }
-    }
-
+    /// Validates video timing and coordinates before atomically replacing project metadata.
     func replaceProject(_ project: DemoProject) {
-        guard let index = projects.firstIndex(where: { $0.id == project.id }) else {
-            return
-        }
-        guard projects[index] != project else {
-            return
-        }
-        var updated = project
-        updated.updatedAt = Date()
-        projects[index] = updated
-        persist()
-    }
-
-    @discardableResult
-    func beginRecordedFlow(
-        with image: NSImage,
-        in projectID: UUID
-    ) throws -> UUID {
-        guard let projectIndex = projects.firstIndex(where: {
-            $0.id == projectID
-        }) else {
-            throw RecordingStoreError.projectNotFound
-        }
-
-        let filename = try repository.writeImage(
-            image,
-            projectID: projectID
-        )
-        let step = DemoStep(
-            title: "Recorded screen \(projects[projectIndex].steps.count + 1)",
-            caption: "Captured when recording started.",
-            assetFilename: filename
-        )
-        projects[projectIndex].steps.append(step)
-        projects[projectIndex].updatedAt = Date()
-        persist()
-        return step.id
-    }
-
-    @discardableResult
-    func appendRecordedClick(
-        at normalizedPoint: CGPoint,
-        clickedImage: NSImage,
-        resultingImage: NSImage,
-        from sourceStepID: UUID,
-        in projectID: UUID
-    ) throws -> UUID {
-        guard let projectIndex = projects.firstIndex(where: {
-            $0.id == projectID
-        }) else {
-            throw RecordingStoreError.projectNotFound
-        }
-        var updatedProject = projects[projectIndex]
-        guard let sourceStepIndex = updatedProject.steps.firstIndex(where: {
-            $0.id == sourceStepID
-        }) else {
-            throw RecordedFlowBuilderError.sourceStepNotFound
-        }
-
-        let replacedFilename = updatedProject.steps[sourceStepIndex].assetFilename
-        var createdFilenames: [String] = []
-
         do {
-            let clickedFilename = try repository.writeImage(
-                clickedImage,
-                projectID: projectID
-            )
-            createdFilenames.append(clickedFilename)
-
-            let resultingFilename = try repository.writeImage(
-                resultingImage,
-                projectID: projectID
-            )
-            createdFilenames.append(resultingFilename)
-
-            updatedProject.steps[sourceStepIndex].assetFilename = clickedFilename
-            updatedProject.steps[sourceStepIndex].caption =
-                "Captured when this click occurred."
-            let nextStep = DemoStep(
-                title: "Recorded screen \(updatedProject.steps.count + 1)",
-                caption: "Captured after click \(updatedProject.steps.count).",
-                assetFilename: resultingFilename
-            )
-            let nextStepID = try RecordedFlowBuilder.append(
-                nextStep: nextStep,
-                clickPoint: normalizedPoint,
-                from: sourceStepID,
-                to: &updatedProject
-            )
-
-            let previousProject = projects[projectIndex]
-            projects[projectIndex] = updatedProject
-            do {
-                try repository.saveProjects(projects)
-            } catch {
-                projects[projectIndex] = previousProject
-                throw error
-            }
-
-            let stillReferenced = updatedProject.steps.contains {
-                $0.assetFilename == replacedFilename
-            }
-            if !stillReferenced {
-                try? repository.removeAsset(
-                    projectID: projectID,
-                    filename: replacedFilename
-                )
-            }
-            return nextStepID
+            try saveProject(project)
         } catch {
-            for filename in createdFilenames {
-                try? repository.removeAsset(
-                    projectID: projectID,
-                    filename: filename
-                )
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Persists one validated UI edit against the current in-memory revision.
+    func saveProject(_ project: DemoProject) throws {
+        guard let stored = self.project(id: project.id) else {
+            throw RecordingStoreError.projectNotFound
+        }
+        _ = try saveProject(project, expectedRevision: stored.revision)
+    }
+
+    /// Rejects stale edits and advances revision exactly once for one atomic project change.
+    @discardableResult
+    func saveProject(
+        _ project: DemoProject,
+        expectedRevision: Int,
+        recordUndo: Bool = true
+    ) throws -> DemoProject {
+        guard let index = projects.firstIndex(where: { $0.id == project.id }) else {
+            throw RecordingStoreError.projectNotFound
+        }
+        let current = projects[index]
+        guard current.revision == expectedRevision else {
+            throw RecordingStoreError.revisionConflict(current.revision)
+        }
+        var comparable = project
+        comparable.revision = current.revision
+        comparable.updatedAt = current.updatedAt
+        guard current != comparable else {
+            return current
+        }
+        var updated = comparable
+        updated.revision = current.revision + 1
+        updated.updatedAt = Date()
+        try Self.validateTransition(from: current, to: updated)
+        if updated.recording != nil {
+            try VideoProjectValidator.validate(updated)
+        }
+        var updatedProjects = projects
+        updatedProjects[index] = updated
+        try repository.saveProjects(updatedProjects)
+        if recordUndo {
+            undoHistory[project.id, default: []].append(current)
+            redoHistory[project.id] = []
+        }
+        projects = updatedProjects
+        return updated
+    }
+
+    /// Preserves terminal suggestion states while still allowing rejected suggestions to leave with a deleted cue.
+    private static func validateTransition(
+        from current: DemoProject,
+        to updated: DemoProject
+    ) throws {
+        let updatedByID = Dictionary(
+            uniqueKeysWithValues: updated.suggestions.map { ($0.id, $0) }
+        )
+        let updatedClickIDs = Set(updated.clicks.map(\.id))
+        for suggestion in current.suggestions {
+            switch suggestion.state {
+            case .pending:
+                continue
+            case .applied:
+                guard updatedByID[suggestion.id]?.state == .applied else {
+                    throw RecordingStoreError.invalidSuggestionTransition
+                }
+            case .rejected:
+                if let next = updatedByID[suggestion.id] {
+                    guard next.state == .rejected else {
+                        throw RecordingStoreError.invalidSuggestionTransition
+                    }
+                } else if updatedClickIDs.contains(suggestion.clickID) {
+                    throw RecordingStoreError.invalidSuggestionTransition
+                }
             }
+        }
+    }
+
+    /// Restores one complete project edit while keeping revision monotonic.
+    func undo(projectID: UUID) throws -> DemoProject {
+        guard var history = undoHistory[projectID],
+              let previous = history.popLast(),
+              let current = project(id: projectID)
+        else {
+            throw RecordingStoreError.noUndo
+        }
+        undoHistory[projectID] = history
+        redoHistory[projectID, default: []].append(current)
+        var replacement = previous
+        replacement.revision = current.revision
+        return try saveProject(
+            replacement,
+            expectedRevision: current.revision,
+            recordUndo: false
+        )
+    }
+
+    /// Reapplies one previously undone project edit.
+    func redo(projectID: UUID) throws -> DemoProject {
+        guard var history = redoHistory[projectID],
+              let next = history.popLast(),
+              let current = project(id: projectID)
+        else {
+            throw RecordingStoreError.noRedo
+        }
+        redoHistory[projectID] = history
+        undoHistory[projectID, default: []].append(current)
+        var replacement = next
+        replacement.revision = current.revision
+        return try saveProject(
+            replacement,
+            expectedRevision: current.revision,
+            recordUndo: false
+        )
+    }
+
+    /// Publishes a completed recording only after its MP4 and timed clicks validate together.
+    func commitRecordedVideo(
+        projectID: UUID,
+        name: String,
+        filename: String,
+        result: ScreenVideoRecordingResult,
+        clicks: [TimedPointerClick]
+    ) throws {
+        do {
+            let videoURL = repository.assetURL(
+                projectID: projectID,
+                filename: filename
+            )
+            guard FileManager.default.fileExists(atPath: videoURL.path) else {
+                throw RecordingStoreError.videoNotFound
+            }
+            var project = DemoProject(
+                id: projectID,
+                name: name,
+                recording: VideoRecordingAsset(
+                    filename: filename,
+                    duration: result.duration,
+                    width: result.width,
+                    height: result.height
+                ),
+                clicks: clicks.map { $0.bounded(to: result.duration) }
+            )
+            project.suggestions = ClickSuggestionGenerator.generate(for: project)
+            project.updatedAt = Date()
+            try VideoProjectValidator.validate(project)
+
+            var updatedProjects = projects
+            updatedProjects.insert(project, at: 0)
+            try repository.saveProjects(updatedProjects)
+            projects = updatedProjects
+            selectedProjectID = projectID
+        } catch {
+            try? repository.removeProjectAssets(projectID: projectID)
             throw error
         }
     }
 
+    /// Requests a native decision before an external control session or deletion.
+    func requestExternalControlApproval(
+        title: String,
+        message: String,
+        destructive: Bool = false
+    ) async -> Bool {
+        guard externalControlContinuation == nil else { return false }
+        return await withCheckedContinuation { continuation in
+            externalControlContinuation = continuation
+            externalControlPrompt = ExternalControlPrompt(
+                title: title,
+                message: message,
+                destructive: destructive
+            )
+        }
+    }
+
+    /// Resolves the pending native external-control decision exactly once.
+    func resolveExternalControlApproval(_ allowed: Bool) {
+        let continuation = externalControlContinuation
+        externalControlContinuation = nil
+        externalControlPrompt = nil
+        continuation?.resume(returning: allowed)
+    }
+
+    /// Invalidates a stale native prompt when its requesting MCP transport disappears.
+    func cancelExternalControlApproval() {
+        resolveExternalControlApproval(false)
+    }
+
+    /// Removes one project and its owned recording before persisting the remaining library.
     func deleteProject(id: UUID) {
         guard let index = projects.firstIndex(where: { $0.id == id }) else {
             return
@@ -264,62 +274,7 @@ final class AppStore: ObservableObject {
         persist()
     }
 
-    func deleteStep(projectID: UUID, stepID: UUID) {
-        guard let projectIndex = projects.firstIndex(where: { $0.id == projectID }),
-              let stepIndex = projects[projectIndex].steps.firstIndex(where: {
-                  $0.id == stepID
-              })
-        else {
-            return
-        }
-
-        let filename = projects[projectIndex].steps[stepIndex].assetFilename
-        projects[projectIndex].steps.remove(at: stepIndex)
-        for index in projects[projectIndex].steps.indices {
-            for hotspotIndex in projects[projectIndex].steps[index].hotspots.indices
-            where projects[projectIndex].steps[index].hotspots[hotspotIndex].targetStepID == stepID {
-                projects[projectIndex].steps[index].hotspots[hotspotIndex].targetStepID = nil
-            }
-        }
-        projects[projectIndex].updatedAt = Date()
-        try? repository.removeAsset(projectID: projectID, filename: filename)
-        persist()
-    }
-
-    func moveStep(projectID: UUID, stepID: UUID, offset: Int) {
-        guard let projectIndex = projects.firstIndex(where: { $0.id == projectID }),
-              let source = projects[projectIndex].steps.firstIndex(where: {
-                  $0.id == stepID
-              })
-        else {
-            return
-        }
-        let destination = source + offset
-        guard projects[projectIndex].steps.indices.contains(destination) else {
-            return
-        }
-        projects[projectIndex].steps.swapAt(source, destination)
-        projects[projectIndex].updatedAt = Date()
-        persist()
-    }
-
-    func record(_ event: AnalyticsEvent, in projectID: UUID) {
-        guard let index = projects.firstIndex(where: { $0.id == projectID }) else {
-            return
-        }
-        projects[index].events.append(event)
-        persist()
-    }
-
-    func clearAnalytics(projectID: UUID) {
-        guard let index = projects.firstIndex(where: { $0.id == projectID }) else {
-            return
-        }
-        projects[index].events = []
-        projects[index].updatedAt = Date()
-        persist()
-    }
-
+    /// Persists the full in-memory library through atomic JSON replacement.
     private func persist() {
         do {
             try repository.saveProjects(projects)
@@ -331,11 +286,26 @@ final class AppStore: ObservableObject {
 
 enum RecordingStoreError: LocalizedError {
     case projectNotFound
+    case videoNotFound
+    case revisionConflict(Int)
+    case noUndo
+    case noRedo
+    case invalidSuggestionTransition
 
     var errorDescription: String? {
         switch self {
         case .projectNotFound:
             return "The recording project no longer exists."
+        case .videoNotFound:
+            return "The completed recording file is missing."
+        case let .revisionConflict(current):
+            return "The project changed. Reload revision \(current) before editing."
+        case .noUndo:
+            return "There is no project edit to undo."
+        case .noRedo:
+            return "There is no project edit to redo."
+        case .invalidSuggestionTransition:
+            return "Applied or rejected edit suggestions cannot return to pending."
         }
     }
 }
@@ -361,7 +331,7 @@ struct RecordingPermissionPrompt: Identifiable {
     var message: String {
         switch kind {
         case .screenRecording:
-            return "Storybird needs Screen Recording access to save each click-time screen and its result."
+            return "Storybird needs Screen Recording access to record the selected display or window as video."
         case .inputMonitoring:
             return "Storybird needs Input Monitoring access to observe mouse clicks during a recording session. Keyboard input is not recorded."
         }

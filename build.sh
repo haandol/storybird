@@ -11,6 +11,7 @@ cd "$(dirname "$0")"
 
 CONFIG="${1:-release}"
 APP_NAME="Storybird"
+MCP_NAME="StorybirdMCP"
 APP_BUNDLE="build/${APP_NAME}.app"
 ICON_SOURCE="${STORYBIRD_ICON_SOURCE:-Resources/AppIcon-generated.png}"
 ICON_FALLBACK="Resources/AppIcon.svg"
@@ -21,11 +22,13 @@ ICON_FILE="build/AppIcon.icns"
 echo "==> 빌드 (${CONFIG})"
 swift build -c "$CONFIG"
 BINARY="$(swift build -c "$CONFIG" --show-bin-path)/${APP_NAME}"
+MCP_BINARY="$(swift build -c "$CONFIG" --show-bin-path)/${MCP_NAME}"
 
 echo "==> 번들 구성"
 rm -rf "$APP_BUNDLE"
 mkdir -p "${APP_BUNDLE}/Contents/MacOS" "${APP_BUNDLE}/Contents/Resources"
 cp "$BINARY" "${APP_BUNDLE}/Contents/MacOS/${APP_NAME}"
+cp "$MCP_BINARY" "${APP_BUNDLE}/Contents/MacOS/${MCP_NAME}"
 cp Resources/Info.plist "${APP_BUNDLE}/Contents/Info.plist"
 
 echo "==> 앱 아이콘 생성"
@@ -70,9 +73,17 @@ codesign --force --sign "$SIGN_IDENTITY" \
     --entitlements Resources/Storybird.entitlements \
     --options runtime \
     --timestamp=none \
+    "${APP_BUNDLE}/Contents/MacOS/${MCP_NAME}"
+
+codesign --force --sign "$SIGN_IDENTITY" \
+    --entitlements Resources/Storybird.entitlements \
+    --options runtime \
+    --timestamp=none \
     "$APP_BUNDLE"
 
 codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
+codesign --verify --strict --verbose=2 \
+    "${APP_BUNDLE}/Contents/MacOS/${MCP_NAME}"
 
 echo
 echo "완료: ${APP_BUNDLE}"

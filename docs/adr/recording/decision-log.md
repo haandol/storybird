@@ -3,9 +3,79 @@
 이 문서는 recording 카테고리의 주요 결정 변경 이력이다. ADR 본문은 현재 상태만
 서술하고, 주요 전환의 시간축은 여기에 최신 순으로 남긴다.
 
+## 2026-09-05 — 프로젝트 접근과 화면 제어 권한을 분리
+
+- **현재 ADR**: [permission-and-signing](./0003-permission-and-signing.md)
+- **변경 유형**: 아키텍처
+- **무엇이**: 인증된 로컬 MCP 연결은 모든 로컬 프로젝트 도구를 사용하고, 현재 화면 공개와
+  실제 포인터 입력만 선택 소스별 네이티브 승인을 받는 두 권한 경계로 분리했다.
+- **왜**: 로컬 프로젝트 자동화에는 반복 승인이 없어야 하지만 현재 화면과 실제 입력은 사용자가
+  세션마다 확인하고 즉시 철회할 수 있어야 한다.
+
+## 2026-09-05 — 클릭 이벤트를 Click Cue 생성 계약으로 확장
+
+- **현재 ADR**: [continuous-video-recording](./0002-continuous-video-recording.md)
+- **변경 유형**: 아키텍처
+- **무엇이**: 영상 시각과 정규화 좌표만 저장하던 클릭 이벤트를, 클릭 표시와 빈 설명·자막
+  슬롯을 포함하는 Click Cue로 기록한다.
+- **왜**: 녹화된 각 클릭이 후속 영상 편집에서 설명과 자막을 입력할 독립적인 안내 단위가
+  되어야 한다.
+
+## 2026-09-05 — 정지 화면 단계에서 연속 영상 타임라인으로 전환
+
+- **현재 ADR**: [continuous-video-recording](./0002-continuous-video-recording.md)
+- **변경 유형**: 아키텍처
+- **무엇이**: 클릭 전후 PNG를 단계 그래프로 저장하던 흐름을, 선택 소스의 무음 영상을 연속
+  기록하고 클릭 시각·좌표를 같은 시간축에 저장하는 흐름으로 바꿨다.
+- **왜**: 실제 화면 움직임, 스크롤, 전환 애니메이션과 커서 이동을 결과 영상에 보존해야 한다.
+- **무효가 된 것**: 외부 화면 녹화기가 실제 영상을 별도로 담당한다는 경계.
+
+## 2026-09-05 — TCC 권한과 실제 입력을 Storybird 앱으로 회수
+
+- **현재 ADR**: [permission-and-signing](./0003-permission-and-signing.md)
+- **변경 유형**: 아키텍처
+- **무엇이**: MCP companion이 ScreenCaptureKit과 포인터 게시 권한을 직접 사용하던 구조에서,
+  Storybird 앱만 TCC 권한을 보유하고 companion은 인증된 로컬 IPC만 사용하는 구조로 바꿨다.
+- **왜**: MCP 프로세스에 별도 Accessibility 승인을 주지 않고 Storybird의 기존 권한·확인 UI를
+  단일 보안 경계로 유지해야 한다.
+
+## 2026-09-05 — MCP companion을 인증된 로컬 어댑터로 축소
+
+- **현재 ADR**: [continuous-video-recording](./0002-continuous-video-recording.md)
+- **변경 유형**: 아키텍처
+- **무엇이**: companion이 직접 화면을 캡처하고 클릭하던 흐름을, Storybird 앱의 내부 녹화와
+  프로젝트 기능을 서명 검증된 Unix socket으로 호출하는 흐름으로 바꿨다.
+- **왜**: 앱 단일 작성자와 사용자 승인 경계를 유지하면서 MCP에 최소 권한만 부여해야 한다.
+
+## 2026-09-05 — 새 사람 녹화를 독립 데모 프로젝트로 분리
+
+- **현재 ADR**: [continuous-video-recording](./0002-continuous-video-recording.md)
+- **변경 유형**: 요구사항 값 변경
+- **무엇이**: 현재 선택된 데모에 새 화면을 이어붙이던 녹화 시작을, 첫 유효 화면으로 새 데모
+  프로젝트를 만든 뒤 그 프로젝트만 기록하는 흐름으로 바꿨다.
+- **왜**: 새 녹화가 기존 데모의 화면 순서와 핫스팟을 예기치 않게 변경하면 안 된다.
+
+## 2026-09-05 — 안정 서명된 companion에 포인터 게시 권한 추가
+
+- **현재 ADR**: [permission-and-signing](./0003-permission-and-signing.md)
+- **변경 유형**: 아키텍처
+- **무엇이**: 화면·mouse-down 관찰만 사용하던 권한 경계를, 같은 identity로 서명한 MCP
+  companion이 승인된 세션에서 실제 포인터 이벤트를 게시하는 범위까지 확장했다.
+- **왜**: Kiro가 외부 화면 녹화기에 보이는 실제 제품 조작을 반복 실행하면서 재빌드 사이의
+  macOS 권한 신원을 유지해야 한다.
+
+## 2026-09-05 — 로컬 MCP 화면 관찰과 실제 포인터 제어 추가
+
+- **현재 ADR**: [continuous-video-recording](./0002-continuous-video-recording.md)
+- **변경 유형**: 아키텍처
+- **무엇이**: 완성된 로컬 녹화 패키지만 받던 에이전트 경계를, 선택 화면의 PNG를 반환하고
+  실제 포인터 이동·클릭·스크롤을 실행한 뒤 같은 패키지를 만드는 MCP 세션까지 확장했다.
+- **왜**: CDE 같은 실제 화면 녹화에서 에이전트가 현재 화면을 보고 실제 커서 흐름을 실행하되,
+  Storybird의 인터랙티브 프로젝트와 단일 작성자 경계를 유지해야 한다.
+
 ## 2026-09-03 — 녹화 HUD 초기 위치를 상단 중앙 안쪽으로 이동
 
-- **현재 ADR**: [click-to-step-recording](./0002-click-to-step-recording.md)
+- **현재 ADR**: [continuous-video-recording](./0002-continuous-video-recording.md)
 - **변경 유형**: 요구사항 값 변경
 - **무엇이**: 화면 상단에 밀착되던 녹화 HUD를 선택 화면의 가로 중앙, 가시 영역 상단에서
   96pt 아래에 배치하고 공간이 부족하면 화면 안으로 제한한다.
@@ -14,7 +84,7 @@
 
 ## 2026-09-03 — 클릭 순간 화면과 핫스팟을 같은 단계에 고정
 
-- **현재 ADR**: [click-to-step-recording](./0002-click-to-step-recording.md)
+- **현재 ADR**: [continuous-video-recording](./0002-continuous-video-recording.md)
 - **변경 유형**: 동작 바꾸는 버그 수정
 - **무엇이**: 큐 처리 시점의 최신 화면을 클릭과 연결하던 방식에서, mouse-down 콜백에서
   확보한 화면과 좌표를 한 쌍으로 고정하는 방식으로 바꿨다.
@@ -25,7 +95,7 @@
 
 ## 2026-09-02 — 소프트웨어 에이전트 녹화 입력 추가
 
-- **현재 ADR**: [click-to-step-recording](./0002-click-to-step-recording.md)
+- **현재 ADR**: [continuous-video-recording](./0002-continuous-video-recording.md)
 - **변경 유형**: 아키텍처
 - **무엇이**: macOS에서 관찰한 물리 mouse-down만 단계로 변환하던 입력 경계를, 에이전트가
   수집한 화면과 정규화 클릭 좌표를 로컬 패키지로 가져오는 경로까지 확장했다.

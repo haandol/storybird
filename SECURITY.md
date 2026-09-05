@@ -13,24 +13,31 @@ Report privately through GitHub Security Advisories:
 `https://github.com/haandol/storybird/security/advisories/new`
 
 Include the impact, reproduction steps, Storybird version, and macOS version.
-Do not attach captured screens, exported demos, project libraries, credentials,
-or analytics data.
+Do not attach raw recordings, exported videos, project libraries, credentials,
+or private click/subtitle data.
 
 ## In Scope
 
-Storybird holds Screen Recording and Input Monitoring permission and stores
-captured product content locally. Important failures include:
+Storybird holds Screen Recording, Input Monitoring, and pointer-only
+Accessibility permission. Its bundled MCP companion has no TCC permission and
+uses authenticated local IPC. Important failures include:
 
-- screenshots, thumbnails, click coordinates, or projects leaving the Mac;
+- recordings, thumbnails, click coordinates, subtitles, or projects leaving the Mac
+  outside an explicitly approved MCP stdio session or export;
 - keyboard input being collected despite the mouse-only permission boundary;
 - capturing outside the display or window explicitly selected by the user;
 - another process borrowing Storybird's permissions or recording session;
-- path traversal, asset collisions, or writes outside the Storybird library or
+- an MCP client observing a source or posting input without explicit session
+  acknowledgement and native app approval, an untrusted local process passing
+  IPC authentication, or either process opening a TCP/HTTP listener;
+- path traversal, asset collisions, partial MP4 publication, or writes outside the Storybird library or
   an explicitly selected export folder;
-- agent recording packages containing unexpected files or fields, symbolic
-  links, non-PNG assets, or hidden browser/session data;
-- stored or exported script injection through project or hotspot text;
+- timed layers being rendered at a different source, time, or coordinate than
+  the approved recording;
+- exported text causing code execution or file-system interpretation;
 - accidental inclusion of Storybird's editor or HUD in captures;
+- keyboard, system audio, or microphone data being collected despite the
+  mouse-only and silent-video boundary;
 - unstable signing that disconnects the app from an existing TCC grant.
 
 ## Out of Scope
@@ -39,9 +46,11 @@ captured product content locally. Important failures include:
   independently distributed build.
 - Releases not being notarized is a distribution limitation, not by itself a
   vulnerability.
-- Captures intentionally included in a user-triggered static export.
-- Visible screenshots and normalized click positions intentionally included in
-  a user-triggered agent recording package import.
+- Recording pixels and overlays intentionally included in a user-triggered MP4
+  export.
+- The selected source PNG intentionally returned to the connected local MCP
+  client during a user-approved session. The client controls onward model or
+  network processing.
 - Data surviving app deletion under Application Support.
 - Issues requiring an attacker who already has local code execution as the
   logged-in user.

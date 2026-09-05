@@ -1,9 +1,8 @@
 # Storybird
 
-Storybird is a local-first macOS recorder that turns a real product walkthrough
-into an interactive demo. Select a display or window from live thumbnails,
-click through the product or let an agent execute a software-controlled flow,
-then edit, preview, and export the generated demo.
+Storybird is a local-first macOS screen-video recorder for product walkthroughs.
+Choose one display or window, record its motion and clicks, add timed click
+captions and subtitles, then export a silent H.264 MP4.
 
 [![macOS 14+](https://img.shields.io/badge/macOS-14%2B-black)](#requirements)
 [![Swift 6](https://img.shields.io/badge/Swift-6-F05138)](Package.swift)
@@ -11,53 +10,55 @@ then edit, preview, and export the generated demo.
 
 > [!NOTE]
 > Storybird is an early-stage project. The project format may change before the
-> first stable release. Keep backups of important captures.
+> first stable release. Keep backups of important recordings.
 
-## Why Storybird?
-
-Most product-demo tools require a hosted account or start from manually
-uploaded screenshots. Storybird records a real desktop walkthrough while
-keeping every capture on your Mac:
+## How it works
 
 ```mermaid
 flowchart LR
-    Human["Choose a display or window"] --> Record["Click through the product"]
-    Agent["Agent screenshots + click coordinates"] --> Build["Import local recording package"]
-    Record --> Build
-    Build --> Edit["Edit and preview"]
-    Edit --> Export["Standalone HTML demo"]
+    Source["Choose one display or window"] --> Record["Record continuous video"]
+    Record --> Timeline["Edit timed click and subtitle layers"]
+    Timeline --> Export["Render one H.264 MP4"]
+    Agent["Approved local MCP pointer control"] --> Record
 ```
 
 ## Features
 
 - Live thumbnail gallery for displays and unfocused windows.
-- Click-driven capture: every hotspot is shown on its mouse-down screen and
-  links to the resulting screen.
-- Agent recording import from local screenshots and normalized click points.
-- Visual screen and hotspot editor with branching targets.
-- Responsive editor for compact and wide windows.
-- Interactive native preview with local-only analytics.
-- Standalone HTML export with no Storybird server dependency.
+- Continuous cursor-visible screen video recorded directly by Storybird.
+- Timed left/right click coordinates on the same clock as the recording.
+- Timeline preview with editable click captions and top/bottom subtitles.
+- Per-layer background color and opacity.
+- Local H.264 MP4 export with the layers burned into the video.
+- Local stdio MCP companion for source observation and real pointer movement,
+  left/right clicks, and scrolling while Storybird records.
 - Atomic local persistence and one-time OpenLane library migration.
 - Stable Apple Development signing support for repeatable macOS permissions.
 
-Storybird does **not** record keyboard input and has no account, cloud upload,
-telemetry, CRM integration, video output, or HTML/DOM/cookie capture.
+Storybird does not record keyboard input, system audio, or microphone input. It
+has no account, cloud upload, telemetry, CRM integration, or application-owned
+network listener.
 
 ## Requirements
 
 - macOS 14 or later
 - Xcode 26 or a Swift 6.2 toolchain
 - Screen Recording permission
-- Input Monitoring permission for mouse clicks only
+- Input Monitoring permission for human mouse clicks
+- Accessibility permission for approved MCP pointer control
 
-The two permissions are required only for human-driven live recording. Agent
-recording packages can be imported without either permission.
+| Permission | Why it is needed | What Storybird does not do |
+|---|---|---|
+| Screen Recording | Record the selected display or window and show source thumbnails | It does not upload the recording |
+| Input Monitoring | Observe global left/right mouse-down events and timestamp them | It does not observe keyboard events |
+| Accessibility | Move, click, and scroll the real pointer after native MCP approval | It does not read or generate keyboard events |
+
+The MCP companion itself receives no TCC permission. Storybird performs capture
+and pointer input after authenticating the local companion.
 
 ## Installation
 
-Storybird does not currently publish a notarized binary release. Build from
-source:
+Storybird does not currently publish a notarized binary release.
 
 ```bash
 git clone https://github.com/haandol/storybird.git
@@ -81,119 +82,113 @@ SIGN_IDENTITY="Apple Development: you@example.com (TEAMID)" \
   ./build.sh release
 ```
 
-Without a certificate, the script falls back to ad-hoc signing. The app still
-launches, but macOS may treat each rebuild as a new identity and ask for Screen
-Recording and Input Monitoring permission again.
+Without a certificate, the script falls back to ad-hoc signing. macOS may then
+treat each rebuild as a new identity and request Screen Recording, Input
+Monitoring, or Accessibility permission again.
 
-Run the `.app` bundle rather than `swift run` when testing permissions. macOS
-ties Transparency, Consent, and Control (TCC) grants to the bundle identifier
-and signing requirement.
+Run the `.app` bundle rather than `swift run` when testing permissions.
 
-## First Launch and Permissions
+## Record and edit a video
 
-Storybird requests only the permissions needed for click-driven recording:
+1. Click **Record Video**.
+2. Choose one display or open window.
+3. After the countdown, use the selected product normally.
+4. Storybird records the screen continuously and timestamps valid left/right
+   clicks inside the selected source.
+5. Click **Stop** in the floating Storybird control.
+6. Select click layers on the timeline to edit their captions, positions,
+   colors, and opacity.
+7. Add top or bottom subtitles at the current playhead and edit their time range.
+8. Click **Export** and choose an MP4 destination.
 
-| Permission | Why it is needed | What Storybird does not do |
-|---|---|---|
-| Screen Recording | Build source thumbnails and capture the selected display/window | It does not upload captures |
-| Input Monitoring | Observe global left/right mouse-down events | It does not observe keyboard events |
+Every recording creates a new project. Storybird does not append a new session
+to the currently selected project. Clicks outside the selected source are
+ignored. The editor is hidden while recording and the floating HUD is excluded
+from captured content.
 
-After enabling a permission in System Settings, quit and reopen Storybird.
-Permission loops and signing diagnostics are covered in
-[Troubleshooting](docs/Troubleshooting.md).
+## Control a recording through MCP
 
-## Record a Flow
+Architecture, tools, and security details are in [Storybird MCP](docs/MCP.md).
+A ready-to-merge Kiro configuration is provided at
+[`mcp/storybird.kiro.json`](mcp/storybird.kiro.json).
 
-1. Click **Record Flow**.
-2. Choose a display or open window from the thumbnail gallery.
-3. Use the selected product normally. Storybird binds each click to the screen
-   visible at that moment and saves its result as the next step. Pause briefly
-   after clicks when the resulting screen needs time to settle.
-4. Click **Stop** in the floating Storybird control.
-5. Edit screen titles, captions, hotspot behavior, and target screens.
-6. Preview the flow or export it as static HTML.
-
-Clicks outside the selected source are ignored. The Storybird editor is hidden
-during capture, and the floating recording HUD is excluded from shared content.
-
-## Record a Flow with an Agent
-
-The repository includes the `record-storybird-flow` agent skill. It executes a
-user-approved browser or desktop workflow, captures the visible initial screen
-and each post-click screen, and records normalized click coordinates without
-trying to synthesize macOS mouse input.
-
-The skill builds a local `.storybirdrecording` package:
+The signed app bundle contains the local stdio companion:
 
 ```text
-example.storybirdrecording/
-├── manifest.json
-└── assets/
-    ├── step-0001.png
-    └── step-0002.png
+/Applications/Storybird.app/Contents/MacOS/StorybirdMCP
 ```
 
-Open the package with Storybird. Storybird validates the whole package, copies
-its PNG assets, and creates a new project.
-It rejects unsupported fields, extra files, path traversal, symbolic links,
-missing transitions, and coordinates outside `0...1`.
+Keep pointer-changing tools out of `autoApprove`; they operate the real pointer
+and can trigger external side effects.
 
-Agent packages remain local and contain no DOM, cookies, keyboard input,
-credentials, or payment information. Recording a workflow does not authorize
-the agent to complete purchases or other external side effects.
+The MCP workflow is:
 
-## Project and Export Layout
+1. Call `storybird_list_sources` and choose one display or window.
+2. Call `storybird_start_session` with a project name.
+3. Approve the native Storybird disclosure.
+4. Use `storybird_observe`, `storybird_move_pointer`, `storybird_click`, and
+   `storybird_scroll`.
+5. Call `storybird_stop_session`.
 
-Projects are stored locally:
+Storybird continuously records the selected source during the session and saves
+one video project with non-duplicated timed clicks. The selected source PNG may
+be returned to the connected MCP client; that client controls any onward model
+or network disclosure.
+
+The companion also supports project listing, click-layer edits, subtitle
+upsert, opening the timeline editor, MP4 export, and native-confirmed project
+deletion.
+
+## Project and export layout
+
+Projects remain local:
 
 ```text
 ~/Library/Application Support/Storybird/
 ├── library.json
 └── Assets/
     └── <project-id>/
-        └── <capture>.png
+        └── <recording>.mp4
 ```
+
+The library stores the recording duration and dimensions, timed normalized
+clicks, subtitles, and overlay styles. The original MP4 is never modified by
+editing or export.
+
+Export produces one silent MP4:
+
+```text
+<recording-name>.mp4
+```
+
+Storybird renders click highlights, click captions, subtitles, and optional
+branding into the exported video. A failed or cancelled export does not replace
+an existing destination.
 
 On first launch after the rename, Storybird copies an existing
 `~/Library/Application Support/OpenLane` library only when the Storybird
-library does not already exist. The OpenLane copy is never moved or deleted.
+library does not already exist. The legacy copy is never moved or deleted.
+Legacy screenshot projects remain readable but are not automatically converted
+into video projects.
 
-A static export contains:
+## Privacy and security
 
-```text
-<demo-name>/
-├── index.html
-├── demo.json
-└── assets/
-    └── step-*.png
-```
+Original recordings, click positions, projects, and timeline layers remain on
+the Mac unless the user explicitly exports a video. During an approved MCP
+session, only the selected source may pass through authenticated local IPC and
+stdio to the connected client.
 
-The export is self-contained and can be opened locally or placed on a static
-web host. It contains the selected demo's screenshots, so review it before
-sharing. Hotspot captions and top/bottom subtitles keep their selected
-background colors and opacity in the exported player.
+Recordings may contain customer data, credentials, or private messages. Never
+attach real recordings to a public issue or pull request. See
+[SECURITY.md](SECURITY.md).
 
-## Privacy and Security
+## Current limitations
 
-Storybird has no application-owned network path. Screenshots, click positions,
-projects, and preview analytics remain on the Mac unless the user explicitly
-exports a demo.
-
-Captured screens may contain customer data, credentials, or private messages.
-Never attach real captures to a public issue or pull request. See
-[SECURITY.md](SECURITY.md) for the vulnerability boundary and private reporting
-instructions.
-
-## Current Limitations
-
-- Transitions and animation are represented by click-time and result
-  screenshots, not video clips.
-- Transient animation between a click and its result is not preserved.
-- Very rapid clicks can skip an intermediate result state; pace clicks when
-  that state must appear as a step.
+- Recordings and exports are silent; microphone and system audio are not captured.
+- Keyboard input is never observed or generated.
 - Minimized and off-screen windows are not listed in the source gallery.
-- Analytics are local preview events, not visitor analytics from exported
-  demos.
+- Legacy screenshot projects are preserved but cannot be exported as videos
+  without a new recording.
 - The project format has no compatibility guarantee before a stable release.
 - Public builds are not currently notarized.
 
@@ -205,30 +200,25 @@ swift test
 ./build.sh release
 ```
 
-The repository follows an ADR-first workflow and Swift 6 concurrency checking.
-See:
+The repository follows an ADR-first workflow. See:
 
-- [CONTRIBUTING.md](CONTRIBUTING.md) for build, test, smoke, commit, and PR rules.
-- [AGENTS.md](AGENTS.md) for architecture invariants.
-- [docs/adr](docs/adr) for decisions and rejected alternatives.
-- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for community expectations.
+- [CONTRIBUTING.md](CONTRIBUTING.md)
+- [AGENTS.md](AGENTS.md)
+- [docs/adr](docs/adr)
+- [docs/Troubleshooting.md](docs/Troubleshooting.md)
 
-## Repository Layout
+## Repository layout
 
 ```text
-Sources/Storybird/          SwiftUI and ScreenCaptureKit orchestration
-Sources/StorybirdCore/      Models, persistence, geometry, analytics, export
-Tests/StorybirdCoreTests/   Deterministic XCTest suite
-Resources/                  Info.plist, entitlements, editable app icon
+Sources/Storybird/          SwiftUI, ScreenCaptureKit, video encoding and export
+Sources/StorybirdCore/      Models, validation, persistence and geometry
+Sources/StorybirdMCPKit/    MCP tools, source observation and pointer contracts
+Sources/StorybirdMCP/       Bundled stdio companion entry point
+Tests/StorybirdCoreTests/   Deterministic core XCTest coverage
+Tests/StorybirdTests/       Recording, MCP and real video-pipeline tests
+Resources/                  Info.plist, entitlements and app icon
 docs/adr/                   Architecture Decision Records
-.agents/skills/             Agent recording and release preparation skills
 ```
-
-## Support
-
-- Bugs and feature requests: [GitHub Issues](https://github.com/haandol/storybird/issues)
-- Security reports: [GitHub Security Advisories](https://github.com/haandol/storybird/security/advisories/new)
-- Recovery steps: [Troubleshooting](docs/Troubleshooting.md)
 
 ## License
 

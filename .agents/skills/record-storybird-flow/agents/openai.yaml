@@ -1,4 +1,0 @@
-interface:
-  display_name: "Record Storybird Flow"
-  short_description: "Record software-controlled workflows into Storybird"
-  default_prompt: "Use $record-storybird-flow to execute the requested workflow and import it into Storybird as an interactive demo."

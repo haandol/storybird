@@ -25,27 +25,15 @@ final class BundleMetadataTests: XCTestCase {
             "com.storybird.app"
         )
         XCTAssertEqual(value["CFBundleExecutable"] as? String, "Storybird")
-        let documentTypes = try XCTUnwrap(
-            value["CFBundleDocumentTypes"] as? [[String: Any]]
+        XCTAssertNil(value["CFBundleDocumentTypes"])
+        XCTAssertNil(value["UTExportedTypeDeclarations"])
+        XCTAssertTrue(
+            (value["NSScreenCaptureUsageDescription"] as? String)?
+                .contains("video") == true
         )
-        let contentTypes = documentTypes
-            .flatMap { $0["LSItemContentTypes"] as? [String] ?? [] }
-        XCTAssertTrue(contentTypes.contains("com.storybird.recording"))
-
-        let exportedTypes = try XCTUnwrap(
-            value["UTExportedTypeDeclarations"] as? [[String: Any]]
-        )
-        let recordingType = try XCTUnwrap(
-            exportedTypes.first {
-                $0["UTTypeIdentifier"] as? String == "com.storybird.recording"
-            }
-        )
-        let tags = try XCTUnwrap(
-            recordingType["UTTypeTagSpecification"] as? [String: Any]
-        )
-        XCTAssertEqual(
-            tags["public.filename-extension"] as? [String],
-            ["storybirdrecording"]
+        XCTAssertTrue(
+            (value["NSInputMonitoringUsageDescription"] as? String)?
+                .contains("Keyboard input is never recorded") == true
         )
     }
 }

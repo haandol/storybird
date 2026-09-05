@@ -13,12 +13,12 @@ struct ProjectSidebar: View {
                     .font(.headline)
                 Spacer()
                 Button {
-                    _ = store.createProject()
+                    _ = store.createProject(name: "Untitled recording")
                 } label: {
                     Image(systemName: "plus")
                 }
                 .buttonStyle(.borderless)
-                .help("New demo")
+                .help("New recording project")
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
@@ -31,9 +31,9 @@ struct ProjectSidebar: View {
                     Image(systemName: "rectangle.stack.badge.plus")
                         .font(.system(size: 30, weight: .light))
                         .foregroundStyle(.secondary)
-                    Text("No demos yet")
+                    Text("No recordings yet")
                         .font(.subheadline.weight(.medium))
-                    Text("Create a blank project or start with the sample.")
+                    Text("Create a project or start recording one display or window.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -42,7 +42,7 @@ struct ProjectSidebar: View {
                 .padding(24)
             } else {
                 List(selection: $store.selectedProjectID) {
-                    Section("Demos") {
+                    Section("Recordings") {
                         ForEach(store.projects) { project in
                             ProjectSidebarRow(project: project)
                                 .tag(project.id)
@@ -59,22 +59,11 @@ struct ProjectSidebar: View {
 
             Divider()
 
-            HStack {
-                Button {
-                    store.createSampleProject()
-                } label: {
-                    Label("Add Sample", systemImage: "sparkles")
-                }
-                .buttonStyle(.borderless)
+            Text("\(store.projects.count) recording\(store.projects.count == 1 ? "" : "s")")
                 .font(.caption)
-
-                Spacer()
-
-                Text("\(store.projects.count) demo\(store.projects.count == 1 ? "" : "s")")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(12)
+                .foregroundStyle(.tertiary)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(12)
         }
     }
 }
@@ -87,7 +76,7 @@ private struct ProjectSidebarRow: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 7)
                     .fill(Color(hex: project.theme.accentHex).opacity(0.14))
-                Image(systemName: "cursorarrow.motionlines")
+                Image(systemName: "video.fill")
                     .foregroundStyle(Color(hex: project.theme.accentHex))
             }
             .frame(width: 32, height: 32)
@@ -95,11 +84,26 @@ private struct ProjectSidebarRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(project.name)
                     .lineLimit(1)
-                Text("\(project.steps.count) screens")
+                Text(detail)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
         .padding(.vertical, 3)
+    }
+
+    private var detail: String {
+        if let recording = project.recording {
+            let seconds = max(Int(recording.duration.rounded()), 0)
+            return String(
+                format: "%d:%02d · %d clicks",
+                seconds / 60,
+                seconds % 60,
+                project.clicks.count
+            )
+        }
+        return project.steps.isEmpty
+            ? "No video"
+            : "Legacy screenshot project"
     }
 }

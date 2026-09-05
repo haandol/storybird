@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import Darwin
 import Foundation
 @testable import StorybirdCore
 import XCTest
@@ -12,264 +13,446 @@ final class StorybirdCoreTests: XCTestCase {
         XCTAssertEqual(hotspot.y, 1)
     }
 
+    func test_legacyProjectDecode_missingVideoFields_remainsScreenshotProject() throws {
+        let projectID = UUID()
+        let json = """
+        {
+          "id": "\(projectID.uuidString)",
+          "name": "Legacy",
+          "summary": "",
+          "createdAt": "2026-09-01T00:00:00Z",
+          "updatedAt": "2026-09-01T00:00:00Z",
+          "steps": [],
+          "events": [],
+          "theme": {
+            "accentHex": "#5B5CE2",
+            "backgroundHex": "#11131A",
+            "showsBranding": true
+          }
+        }
+        """
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        let project = try decoder.decode(
+            DemoProject.self,
+            from: Data(json.utf8)
+        )
+
+        XCTAssertNil(project.recording)
+        XCTAssertTrue(project.clicks.isEmpty)
+        XCTAssertTrue(project.subtitles.isEmpty)
+    }
+
     func test_textOverlayOpacity_clampsToSupportedRange() {
-        var style = TextOverlayStyle(backgroundOpacity: -0.25)
-
-        XCTAssertEqual(style.backgroundOpacity, 0)
-
-        style.backgroundOpacity = 1.8
-
+        var style = TextOverlayStyle(backgroundOpacity: 2)
         XCTAssertEqual(style.backgroundOpacity, 1)
-    }
 
-    func test_legacyOverlayFields_decodeWithCompatibleDefaults() throws {
-        let stepID = UUID()
-        let hotspotID = UUID()
-        let json = """
-        {
-          "id": "\(stepID.uuidString)",
-          "title": "Legacy screen",
-          "caption": "Existing caption",
-          "assetFilename": "legacy.png",
-          "hotspots": [
-            {
-              "id": "\(hotspotID.uuidString)",
-              "x": 0.75,
-              "y": 0.2,
-              "kind": "click",
-              "title": "Continue",
-              "body": "",
-              "targetStepID": null
-            }
-          ]
-        }
-        """
-
-        let step = try JSONDecoder().decode(
-            DemoStep.self,
-            from: Data(json.utf8)
-        )
-
-        XCTAssertEqual(step.caption, "Existing caption")
-        XCTAssertEqual(step.subtitlePosition, .bottom)
-        XCTAssertEqual(step.subtitleStyle, .default)
-        XCTAssertEqual(step.hotspots.first?.caption, "")
-        XCTAssertEqual(step.hotspots.first?.captionStyle, .default)
-    }
-
-    func test_legacyOverlayDecode_missingExistingCaptionFails() {
-        let json = """
-        {
-          "id": "\(UUID().uuidString)",
-          "title": "Missing caption",
-          "assetFilename": "legacy.png",
-          "hotspots": []
-        }
-        """
-
-        XCTAssertThrowsError(
-            try JSONDecoder().decode(
-                DemoStep.self,
-                from: Data(json.utf8)
-            )
-        )
-    }
-
-    func test_legacyHotspotDecode_preservesStoredCoordinates() throws {
-        let json = """
-        {
-          "id": "\(UUID().uuidString)",
-          "x": -0.25,
-          "y": 1.8,
-          "kind": "click",
-          "title": "Continue",
-          "body": "",
-          "targetStepID": null
-        }
-        """
-
-        let hotspot = try JSONDecoder().decode(
-            Hotspot.self,
-            from: Data(json.utf8)
-        )
-
-        XCTAssertEqual(hotspot.x, -0.25)
-        XCTAssertEqual(hotspot.y, 1.8)
-        XCTAssertEqual(hotspot.caption, "")
-        XCTAssertEqual(hotspot.captionStyle, .default)
-    }
-
-    func test_analyticsSummary_countsOnlyStartedCompletedSessions() {
-        let firstSession = UUID()
-        let secondSession = UUID()
-        let orphanCompletion = UUID()
-        let step = DemoStep(title: "Start", assetFilename: "start.png")
-        let project = DemoProject(
-            name: "Analytics",
-            steps: [step],
-            events: [
-                AnalyticsEvent(sessionID: firstSession, type: .sessionStarted),
-                AnalyticsEvent(
-                    sessionID: firstSession,
-                    type: .stepViewed,
-                    stepID: step.id
-                ),
-                AnalyticsEvent(
-                    sessionID: firstSession,
-                    type: .hotspotClicked,
-                    stepID: step.id
-                ),
-                AnalyticsEvent(sessionID: firstSession, type: .completed),
-                AnalyticsEvent(sessionID: secondSession, type: .sessionStarted),
-                AnalyticsEvent(sessionID: orphanCompletion, type: .completed),
-            ]
-        )
-
-        let summary = AnalyticsSummary(project: project)
-
-        XCTAssertEqual(summary.sessions, 2)
-        XCTAssertEqual(summary.completedSessions, 1)
-        XCTAssertEqual(summary.hotspotClicks, 1)
-        XCTAssertEqual(summary.completionRate, 0.5)
-        XCTAssertEqual(summary.stepResults.first?.views, 1)
+        style.backgroundOpacity = -1
+        XCTAssertEqual(style.backgroundOpacity, 0)
     }
 
     func test_aspectFit_centersWideContent() {
         let frame = AspectFit.frame(
-            contentSize: CGSize(width: 1600, height: 900),
+            contentSize: CGSize(width: 1_600, height: 900),
             in: CGRect(x: 0, y: 0, width: 800, height: 800)
         )
 
-        XCTAssertEqual(frame.width, 800, accuracy: 0.001)
-        XCTAssertEqual(frame.height, 450, accuracy: 0.001)
-        XCTAssertEqual(frame.minY, 175, accuracy: 0.001)
+        XCTAssertEqual(frame.width, 800)
+        XCTAssertEqual(frame.height, 450)
+        XCTAssertEqual(frame.minY, 175)
     }
 
-    func test_appKitCoordinates_flipMacScreenYAxis() {
+    func test_recordingGeometry_appKitScreenCoordinatesFlipYAxis() {
         let point = RecordingGeometry.normalizedClick(
-            screenPoint: CGPoint(x: 300, y: 650),
-            screenFrame: CGRect(x: 100, y: 200, width: 800, height: 600)
+            screenPoint: CGPoint(x: 50, y: 125),
+            screenFrame: CGRect(x: 0, y: 100, width: 200, height: 100)
         )
 
-        XCTAssertEqual(point?.x ?? -1, 0.25, accuracy: 0.001)
-        XCTAssertEqual(point?.y ?? -1, 0.25, accuracy: 0.001)
+        XCTAssertEqual(point?.x, 0.25)
+        XCTAssertEqual(point?.y, 0.75)
     }
 
-    func test_appKitCoordinates_rejectPointOutsideDisplay() {
-        let point = RecordingGeometry.normalizedClick(
-            screenPoint: CGPoint(x: -50, y: 300),
-            screenFrame: CGRect(x: 0, y: 0, width: 800, height: 600)
-        )
-
-        XCTAssertNil(point)
-    }
-
-    func test_captureCoordinates_useTopLeftOrigin() {
+    func test_recordingGeometry_normalizesQuartzClick() {
         let point = RecordingGeometry.normalizedCaptureClick(
             capturePoint: CGPoint(x: 500, y: 250),
             captureFrame: CGRect(x: 100, y: 100, width: 800, height: 600)
         )
 
-        XCTAssertEqual(point?.x ?? -1, 0.5, accuracy: 0.001)
-        XCTAssertEqual(point?.y ?? -1, 0.25, accuracy: 0.001)
+        XCTAssertEqual(point?.x, 0.5)
+        XCTAssertEqual(point?.y, 0.25)
     }
 
-    func test_captureCoordinates_rejectPointOutsideCaptureFrame() {
-        let point = RecordingGeometry.normalizedCaptureClick(
-            capturePoint: CGPoint(x: 99, y: 250),
-            captureFrame: CGRect(x: 100, y: 100, width: 800, height: 600)
+    func test_captureFrame_sampleRectTracksMovedWindow() {
+        let frame = CaptureFrameGeometry.preferredFrame(
+            sampleFrame: CGRect(x: 420, y: 180, width: 640, height: 480),
+            liveWindowFrame: CGRect(x: 300, y: 120, width: 640, height: 480),
+            fallbackFrame: CGRect(x: 100, y: 80, width: 640, height: 480)
         )
 
-        XCTAssertNil(point)
+        XCTAssertEqual(frame.origin.x, 420)
+        XCTAssertEqual(frame.origin.y, 180)
     }
 
-    func test_recordedClick_linksPreviousScreenToNewScreen() throws {
-        let first = DemoStep(title: "Before", assetFilename: "before.png")
-        let second = DemoStep(title: "After", assetFilename: "after.png")
-        var project = DemoProject(name: "Recorded", steps: [first])
-
-        let newStepID = try RecordedFlowBuilder.append(
-            nextStep: second,
-            clickPoint: CGPoint(x: 0.72, y: 0.31),
-            from: first.id,
-            to: &project
+    func test_controlWire_socketPair_roundTripsRequestAndResponse() throws {
+        var descriptors = [Int32](repeating: -1, count: 2)
+        XCTAssertEqual(socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors), 0)
+        defer {
+            close(descriptors[0])
+            close(descriptors[1])
+        }
+        let request = StorybirdControlRequest(
+            name: "storybird_list_projects",
+            argumentsJSON: Data("{}".utf8)
         )
 
-        XCTAssertEqual(project.steps.count, 2)
-        XCTAssertEqual(newStepID, second.id)
-        XCTAssertEqual(project.steps[0].hotspots.count, 1)
-        XCTAssertEqual(project.steps[0].hotspots[0].targetStepID, second.id)
-        XCTAssertEqual(project.steps[0].hotspots[0].x, 0.72, accuracy: 0.001)
-        XCTAssertEqual(project.steps[0].hotspots[0].y, 0.31, accuracy: 0.001)
+        try StorybirdControlWire.send(
+            request,
+            fileDescriptor: descriptors[0]
+        )
+        let received = try StorybirdControlWire.receive(
+            StorybirdControlRequest.self,
+            fileDescriptor: descriptors[1]
+        )
+        try StorybirdControlWire.send(
+            StorybirdControlResponse(text: "ok"),
+            fileDescriptor: descriptors[1]
+        )
+        let response = try StorybirdControlWire.receive(
+            StorybirdControlResponse.self,
+            fileDescriptor: descriptors[0]
+        )
+
+        XCTAssertEqual(received.name, request.name)
+        XCTAssertEqual(received.argumentsJSON, request.argumentsJSON)
+        XCTAssertEqual(response.text, "ok")
+        XCTAssertFalse(response.isError)
     }
 
-    func test_repository_roundTripsProjectLibrary() throws {
+    func test_repository_roundTripsVideoProjectLibrary() throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let repository = ProjectRepository(rootURL: root)
         let project = DemoProject(
-            name: "Round trip",
-            summary: "Stored locally",
-            steps: [
-                DemoStep(title: "Start", assetFilename: "start.png"),
+            name: "Video",
+            recording: VideoRecordingAsset(
+                filename: "recording.mp4",
+                duration: 3,
+                width: 1_280,
+                height: 720
+            ),
+            clicks: [
+                TimedPointerClick(time: 1, x: 0.25, y: 0.75),
+            ],
+            subtitles: [
+                TimedSubtitle(
+                    startTime: 0.5,
+                    endTime: 2,
+                    text: "Hello"
+                ),
             ]
         )
 
         try repository.saveProjects([project])
         let loaded = try repository.loadProjects()
 
-        XCTAssertEqual(loaded.count, 1)
-        XCTAssertEqual(loaded.first?.id, project.id)
-        XCTAssertEqual(loaded.first?.name, project.name)
-        XCTAssertEqual(loaded.first?.summary, project.summary)
-        XCTAssertEqual(loaded.first?.steps, project.steps)
-        XCTAssertEqual(loaded.first?.theme, project.theme)
+        XCTAssertEqual(loaded.map(\.id), [project.id])
+        XCTAssertEqual(loaded.first?.recording, project.recording)
+        XCTAssertEqual(loaded.first?.clicks, project.clicks)
+        XCTAssertEqual(loaded.first?.subtitles, project.subtitles)
+        XCTAssertEqual(loaded.first?.clips, project.clips)
+        XCTAssertEqual(loaded.first?.revision, 0)
+    }
+
+    func test_clickCue_newRecording_hasEmptyDescriptionAndSubtitleSlots() {
+        let cue = TimedPointerClick(time: 1, x: 0.25, y: 0.75)
+
+        XCTAssertEqual(cue.sourceTime, 1)
+        XCTAssertTrue(cue.description.text.isEmpty)
+        XCTAssertTrue(cue.cueSubtitle.text.isEmpty)
+        XCTAssertFalse(cue.isComplete)
+        XCTAssertLessThanOrEqual(cue.indicator.startTime, cue.time)
+        XCTAssertGreaterThan(cue.indicator.endTime, cue.time)
+    }
+
+    func test_videoTimeline_speedRemapsCueOntoProjectClock() throws {
+        var project = validVideoProject()
+        let clipID = try XCTUnwrap(project.clips.first?.id)
+        project.clicks = [
+            TimedPointerClick(sourceTime: 2, time: 2, x: 0.5, y: 0.5),
+        ]
+
+        let edited = try VideoTimelineEditor.setSpeed(
+            project: project,
+            clipID: clipID,
+            rate: 2
+        )
+
+        XCTAssertEqual(edited.timelineDuration, 2.5, accuracy: 0.001)
+        XCTAssertEqual(edited.clicks[0].time, 1, accuracy: 0.001)
+    }
+
+    func test_videoTimelineSchedule_mapsTitleClipAndCTAOnOneClock() throws {
+        var project = validVideoProject()
+        project = try DemoEffectEditor.insertTitle(
+            in: project,
+            after: nil,
+            duration: 1,
+            title: "Welcome"
+        )
+        project = try DemoEffectEditor.insertCTA(
+            in: project,
+            duration: 1,
+            title: "Next",
+            buttonLabel: "Continue"
+        )
+
+        let schedule = VideoTimelineSchedule(project: project)
+
+        XCTAssertTrue(schedule.isStructurallyValid)
+        XCTAssertEqual(schedule.duration, 7, accuracy: 0.001)
+        XCTAssertNil(schedule.sourceTime(at: 0.5))
+        XCTAssertEqual(
+            try XCTUnwrap(schedule.sourceTime(at: 1)),
+            0,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(schedule.sourceTime(at: 2)),
+            1,
+            accuracy: 0.001
+        )
+        XCTAssertNil(schedule.sourceTime(at: 6))
+        XCTAssertNil(schedule.sourceTime(at: 7))
+    }
+
+    func test_videoTimelineSchedule_insertionTimeFollowsExistingBoundaryCards() throws {
+        var project = validVideoProject()
+        let originalClipID = try XCTUnwrap(project.clips.first?.id)
+        project = try VideoTimelineEditor.split(
+            project: project,
+            clipID: originalClipID,
+            sourceTime: 2.5
+        )
+        let clipID = try XCTUnwrap(project.clips.first?.id)
+        project = try DemoEffectEditor.insertTitle(
+            in: project,
+            after: clipID,
+            duration: 1,
+            title: "First"
+        )
+
+        let schedule = VideoTimelineSchedule(project: project)
+
+        XCTAssertEqual(
+            try XCTUnwrap(schedule.insertionTime(after: clipID)),
+            3.5,
+            accuracy: 0.001
+        )
+    }
+
+    func test_videoTimeline_trimRemovesCueOutsideRemainingSource() throws {
+        var project = validVideoProject()
+        let clipID = try XCTUnwrap(project.clips.first?.id)
+        project.clicks = [
+            TimedPointerClick(sourceTime: 1, time: 1, x: 0.2, y: 0.2),
+            TimedPointerClick(sourceTime: 4, time: 4, x: 0.8, y: 0.8),
+        ]
+
+        let edited = try VideoTimelineEditor.trim(
+            project: project,
+            clipID: clipID,
+            sourceStart: 2,
+            sourceEnd: 5
+        )
+
+        XCTAssertEqual(edited.clicks.map(\.sourceTime), [4])
+        XCTAssertEqual(edited.clicks[0].time, 2, accuracy: 0.001)
+    }
+
+    func test_clickSuggestionGenerator_reusesOneBundlePerCue() {
+        var project = validVideoProject()
+        project.clicks = [
+            TimedPointerClick(time: 1, x: 0.5, y: 0.5),
+        ]
+        let first = ClickSuggestionGenerator.generate(for: project)
+        project.suggestions = first
+
+        let second = ClickSuggestionGenerator.generate(for: project)
+
+        XCTAssertEqual(second.count, 1)
+        XCTAssertEqual(second[0].id, first[0].id)
+        XCTAssertEqual(second[0].spotlight, first[0].spotlight)
+    }
+
+    func test_clickSuggestion_applyCreatesEffectsAndBecomesTerminal() throws {
+        var project = validVideoProject()
+        project.clicks = [
+            TimedPointerClick(time: 1, x: 0.5, y: 0.5),
+        ]
+        project.suggestions = ClickSuggestionGenerator.generate(for: project)
+        let id = try XCTUnwrap(project.suggestions.first?.id)
+
+        let applied = try ClickSuggestionGenerator.apply(id, to: project)
+
+        XCTAssertEqual(
+            applied.suggestions.first(where: { $0.id == id })?.state,
+            .applied
+        )
+        XCTAssertEqual(applied.effects.count, 2)
+        XCTAssertThrowsError(
+            try ClickSuggestionGenerator.apply(id, to: applied)
+        )
+    }
+
+    func test_clickSuggestion_rejectDoesNotChangeOutputTimeline() throws {
+        var project = validVideoProject()
+        project.clicks = [
+            TimedPointerClick(time: 1, x: 0.5, y: 0.5),
+        ]
+        project.suggestions = ClickSuggestionGenerator.generate(for: project)
+        let id = try XCTUnwrap(project.suggestions.first?.id)
+
+        let rejected = try ClickSuggestionGenerator.reject(id, in: project)
+
+        XCTAssertEqual(rejected.suggestions[0].state, .rejected)
+        XCTAssertEqual(rejected.clips, project.clips)
+        XCTAssertEqual(rejected.effects, project.effects)
+    }
+
+    func test_videoProjectValidation_rejectsOverlappingSpotlights() {
+        var project = validVideoProject()
+        project.effects = [
+            .spotlight(
+                SpotlightEffect(
+                    startTime: 0,
+                    endTime: 2,
+                    x: 0.1,
+                    y: 0.1,
+                    width: 0.3,
+                    height: 0.3
+                )
+            ),
+            .spotlight(
+                SpotlightEffect(
+                    startTime: 1,
+                    endTime: 3,
+                    x: 0.5,
+                    y: 0.5,
+                    width: 0.3,
+                    height: 0.3
+                )
+            ),
+        ]
+
+        XCTAssertThrowsError(try VideoProjectValidator.validate(project))
+    }
+
+    func test_videoProjectValidation_allowsSlowTimelinePastSourceDuration() throws {
+        var project = validVideoProject()
+        let clipID = try XCTUnwrap(project.clips.first?.id)
+        project.clicks = [
+            TimedPointerClick(sourceTime: 4, time: 4, x: 0.5, y: 0.5),
+        ]
+        project = try VideoTimelineEditor.setSpeed(
+            project: project,
+            clipID: clipID,
+            rate: 0.5
+        )
+
+        XCTAssertEqual(project.clicks[0].time, 8, accuracy: 0.001)
+        XCTAssertNoThrow(try VideoProjectValidator.validate(project))
+    }
+
+    func test_demoEffectEditor_titleCardShiftsCueAndCreatesTimelineGap() throws {
+        var project = validVideoProject()
+        project.clicks = [
+            TimedPointerClick(time: 1, x: 0.5, y: 0.5),
+        ]
+
+        let edited = try DemoEffectEditor.insertTitle(
+            in: project,
+            after: nil,
+            duration: 1,
+            title: "Welcome"
+        )
+
+        XCTAssertEqual(edited.timelineDuration, 6, accuracy: 0.001)
+        XCTAssertEqual(edited.clicks[0].time, 2, accuracy: 0.001)
+        XCTAssertNil(VideoTimelineEditor.sourceTime(in: edited, at: 0.5))
+        let sourceTime = try XCTUnwrap(
+            VideoTimelineEditor.sourceTime(in: edited, at: 2)
+        )
+        XCTAssertEqual(
+            sourceTime,
+            1,
+            accuracy: 0.001
+        )
+        XCTAssertNoThrow(try VideoProjectValidator.validate(edited))
+    }
+
+    func test_demoEffectEditor_ctaStaysAtProjectEnd() throws {
+        let project = validVideoProject()
+
+        let edited = try DemoEffectEditor.insertCTA(
+            in: project,
+            duration: 1
+        )
+
+        guard case let .cta(cta) = edited.effects.last else {
+            return XCTFail("Expected CTA")
+        }
+        XCTAssertEqual(cta.endTime, edited.timelineDuration, accuracy: 0.001)
+        XCTAssertNil(
+            VideoTimelineEditor.sourceTime(
+                in: edited,
+                at: edited.timelineDuration - 0.5
+            )
+        )
+        XCTAssertNoThrow(try VideoProjectValidator.validate(edited))
+    }
+
+    func test_demoEffectEditor_titleAfterFinalClip_isRejected() throws {
+        let project = validVideoProject()
+        let finalClipID = try XCTUnwrap(project.clips.last?.id)
+
+        XCTAssertThrowsError(
+            try DemoEffectEditor.insertTitle(
+                in: project,
+                after: finalClipID,
+                duration: 1
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? DemoEffectEditError,
+                .invalidTitlePosition
+            )
+        }
+    }
+
+    func test_demoEffectEditor_deleteTitleClosesTimelineGap() throws {
+        let project = validVideoProject()
+        let withTitle = try DemoEffectEditor.insertTitle(
+            in: project,
+            after: nil,
+            duration: 1
+        )
+        let titleID = try XCTUnwrap(withTitle.effects.first?.id)
+
+        let restored = try DemoEffectEditor.delete(
+            titleID,
+            from: withTitle
+        )
+
+        XCTAssertEqual(restored.timelineDuration, project.timelineDuration)
+        XCTAssertTrue(restored.effects.isEmpty)
     }
 
     func test_legacyMigration_copiesLibraryAndKeepsOriginal() throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
-        let legacy = root.appendingPathComponent(
-            "OpenLane",
-            isDirectory: true
-        )
-        let destination = root.appendingPathComponent(
-            "Storybird",
-            isDirectory: true
-        )
-        let legacyAsset = legacy.appendingPathComponent("Assets/example.png")
-        try FileManager.default.createDirectory(
-            at: legacyAsset.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try Data("legacy".utf8).write(to: legacyAsset)
-
-        try ProjectRepository.migrateLegacyLibraryIfNeeded(
-            from: legacy,
-            to: destination
-        )
-
-        XCTAssertTrue(
-            FileManager.default.fileExists(atPath: legacyAsset.path)
-        )
-        XCTAssertEqual(
-            try Data(
-                contentsOf: destination.appendingPathComponent(
-                    "Assets/example.png"
-                )
-            ),
-            Data("legacy".utf8)
-        )
-    }
-
-    func test_legacyMigration_existingStorybirdLibraryWins() throws {
-        let root = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let legacy = root.appendingPathComponent(
-            "OpenLane",
-            isDirectory: true
-        )
-        let destination = root.appendingPathComponent(
+        let legacy = root.appendingPathComponent("OpenLane", isDirectory: true)
+        let storybird = root.appendingPathComponent(
             "Storybird",
             isDirectory: true
         )
@@ -277,570 +460,190 @@ final class StorybirdCoreTests: XCTestCase {
             at: legacy,
             withIntermediateDirectories: true
         )
-        try FileManager.default.createDirectory(
-            at: destination,
-            withIntermediateDirectories: true
-        )
-        let existing = destination.appendingPathComponent("library.json")
-        try Data("storybird".utf8).write(to: existing)
+        let marker = legacy.appendingPathComponent("library.json")
+        try Data("legacy".utf8).write(to: marker)
 
         try ProjectRepository.migrateLegacyLibraryIfNeeded(
             from: legacy,
-            to: destination
+            to: storybird
         )
 
         XCTAssertEqual(
-            try Data(contentsOf: existing),
-            Data("storybird".utf8)
+            try Data(contentsOf: marker),
+            Data("legacy".utf8)
+        )
+        XCTAssertEqual(
+            try Data(
+                contentsOf: storybird.appendingPathComponent("library.json")
+            ),
+            Data("legacy".utf8)
         )
     }
 
-    func test_staticExport_copiesAssetsAndEscapesScriptBoundary() throws {
-        let root = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let source = root.appendingPathComponent("source", isDirectory: true)
-        let output = root.appendingPathComponent("output", isDirectory: true)
-        try FileManager.default.createDirectory(
-            at: source,
-            withIntermediateDirectories: true
-        )
-        try FileManager.default.createDirectory(
-            at: output,
-            withIntermediateDirectories: true
-        )
-        try Data([0x89, 0x50, 0x4E, 0x47]).write(
-            to: source.appendingPathComponent("capture.png")
-        )
-        let project = DemoProject(
-            name: "Launch </script> Demo",
-            steps: [
-                DemoStep(title: "Start", assetFilename: "capture.png"),
-            ]
-        )
+    func test_videoProjectValidation_acceptsBoundedTimedLayers() throws {
+        let project = validVideoProject()
+        XCTAssertNoThrow(try VideoProjectValidator.validate(project))
+    }
 
-        let destination = try StaticDemoExporter().export(
-            project: project,
-            sourceAssetsDirectory: source,
-            into: output
-        )
-        let html = try String(
-            contentsOf: destination.appendingPathComponent("index.html"),
-            encoding: .utf8
-        )
+    func test_videoProjectValidation_clickAfterDuration_isRejected() {
+        var project = validVideoProject()
+        project.clicks = [
+            TimedPointerClick(time: 6, x: 0.5, y: 0.5),
+        ]
 
+        XCTAssertThrowsError(
+            try VideoProjectValidator.validate(project)
+        ) { error in
+            guard case VideoProjectValidationError.invalidClick = error else {
+                return XCTFail("Expected invalid click, got \(error)")
+            }
+        }
+    }
+
+    func test_videoProjectValidation_subtitlePastDuration_isRejected() {
+        var project = validVideoProject()
+        project.subtitles = [
+            TimedSubtitle(
+                startTime: 4,
+                endTime: 6,
+                text: "Too late"
+            ),
+        ]
+
+        XCTAssertThrowsError(
+            try VideoProjectValidator.validate(project)
+        ) { error in
+            guard case VideoProjectValidationError.invalidSubtitle = error else {
+                return XCTFail("Expected invalid subtitle, got \(error)")
+            }
+        }
+    }
+
+    func test_videoProjectValidation_blankSubtitle_isRejected() {
+        var project = validVideoProject()
+        project.subtitles = [
+            TimedSubtitle(
+                startTime: 0,
+                endTime: 1,
+                text: "   "
+            ),
+        ]
+
+        XCTAssertThrowsError(
+            try VideoProjectValidator.validate(project)
+        ) { error in
+            guard case VideoProjectValidationError.invalidSubtitle = error else {
+                return XCTFail("Expected blank subtitle rejection, got \(error)")
+            }
+        }
+    }
+
+    func test_videoProjectValidation_emptyTimeline_isAllowedForEditing() {
+        var project = validVideoProject()
+        project.clips = []
+        project.clicks = []
+        project.subtitles = []
+        project.effects = []
+        project.suggestions = []
+
+        XCTAssertNoThrow(
+            try VideoProjectValidator.validate(project)
+        )
+    }
+
+    func test_videoProjectValidation_clickTimeRegression_isRejected() {
+        var project = validVideoProject()
+        project.clicks = [
+            TimedPointerClick(time: 2, x: 0.2, y: 0.2),
+            TimedPointerClick(time: 1, x: 0.8, y: 0.8),
+        ]
+
+        XCTAssertThrowsError(
+            try VideoProjectValidator.validate(project)
+        ) { error in
+            guard case VideoProjectValidationError.invalidClick = error else {
+                return XCTFail("Expected time-order rejection, got \(error)")
+            }
+        }
+    }
+
+    func test_videoProjectValidation_invalidOverlayColor_isRejected() {
+        var project = validVideoProject()
+        project.clicks[0].captionStyle.backgroundHex = "not-a-color"
+
+        XCTAssertThrowsError(
+            try VideoProjectValidator.validate(project)
+        ) { error in
+            guard case VideoProjectValidationError.invalidClick = error else {
+                return XCTFail("Expected invalid style rejection, got \(error)")
+            }
+        }
+    }
+
+    func test_videoOverlayLayout_captionStaysInsideBothCoordinateSystems() {
+        let frame = CGRect(x: 10, y: 20, width: 320, height: 180)
+        let metrics = VideoOverlayMetrics(frameSize: frame.size)
+        let label = CGSize(width: 120, height: 42)
+
+        for axis in [VideoOverlayAxis.topDown, .bottomUp] {
+            let origin = VideoOverlayLayout.captionOrigin(
+                labelSize: label,
+                x: 0.98,
+                y: 0.02,
+                in: frame,
+                axis: axis,
+                metrics: metrics
+            )
+            let caption = CGRect(origin: origin, size: label)
+
+            XCTAssertGreaterThanOrEqual(caption.minX, frame.minX)
+            XCTAssertGreaterThanOrEqual(caption.minY, frame.minY)
+            XCTAssertLessThanOrEqual(caption.maxX, frame.maxX)
+            XCTAssertLessThanOrEqual(caption.maxY, frame.maxY)
+        }
+    }
+
+    func test_videoOverlayTiming_previewAndExportWindowsShareBoundaries() {
         XCTAssertTrue(
-            FileManager.default.fileExists(
-                atPath: destination
-                    .appendingPathComponent("assets/step-1.png")
-                    .path
+            VideoOverlayTiming.clickIsVisible(
+                clickTime: 2,
+                at: 2 - VideoOverlayTiming.clickLead
             )
         )
-        XCTAssertTrue(html.contains("Launch &lt;/script&gt; Demo"))
-        XCTAssertTrue(html.contains("<\\/script>"))
-        XCTAssertFalse(html.contains("\"name\" : \"Launch </script> Demo\""))
-    }
-
-    func test_staticExport_usesUniqueDestinationAndCopiesOnlyReferencedAssets() throws {
-        let root = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let source = root.appendingPathComponent("source", isDirectory: true)
-        let output = root.appendingPathComponent("output", isDirectory: true)
-        let occupied = output.appendingPathComponent(
-            "unique-demo",
-            isDirectory: true
-        )
-        try FileManager.default.createDirectory(
-            at: source,
-            withIntermediateDirectories: true
-        )
-        try FileManager.default.createDirectory(
-            at: occupied,
-            withIntermediateDirectories: true
-        )
-        let marker = occupied.appendingPathComponent("keep.txt")
-        try Data("keep".utf8).write(to: marker)
-        try Data([0x89, 0x50, 0x4E, 0x47]).write(
-            to: source.appendingPathComponent("capture.png")
-        )
-        try Data("unused".utf8).write(
-            to: source.appendingPathComponent("unused.png")
-        )
-        let project = DemoProject(
-            name: "Unique demo",
-            steps: [
-                DemoStep(title: "Start", assetFilename: "capture.png"),
-            ]
-        )
-
-        let destination = try StaticDemoExporter().export(
-            project: project,
-            sourceAssetsDirectory: source,
-            into: output
-        )
-
-        XCTAssertEqual(destination.lastPathComponent, "unique-demo-2")
-        XCTAssertEqual(try Data(contentsOf: marker), Data("keep".utf8))
         XCTAssertTrue(
-            FileManager.default.fileExists(
-                atPath: destination
-                    .appendingPathComponent("assets/step-1.png")
-                    .path
+            VideoOverlayTiming.captionIsVisible(
+                clickTime: 2,
+                at: 2 + VideoOverlayTiming.captionTail
             )
         )
         XCTAssertFalse(
-            FileManager.default.fileExists(
-                atPath: destination
-                    .appendingPathComponent("assets/unused.png")
-                    .path
+            VideoOverlayTiming.clickIsVisible(
+                clickTime: 2,
+                at: 2 + VideoOverlayTiming.clickTail + 0.001
             )
         )
     }
 
-    func test_staticExport_preservesTextOverlayContract() throws {
-        let root = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let source = root.appendingPathComponent("source", isDirectory: true)
-        let output = root.appendingPathComponent("output", isDirectory: true)
-        try FileManager.default.createDirectory(
-            at: source,
-            withIntermediateDirectories: true
-        )
-        try FileManager.default.createDirectory(
-            at: output,
-            withIntermediateDirectories: true
-        )
-        try Data([0x89, 0x50, 0x4E, 0x47]).write(
-            to: source.appendingPathComponent("capture.png")
-        )
-        let project = DemoProject(
-            name: "Overlay demo",
-            steps: [
-                DemoStep(
-                    title: "Start",
-                    caption: "Top subtitle",
-                    subtitlePosition: .top,
-                    subtitleStyle: TextOverlayStyle(
-                        backgroundHex: "#123456",
-                        backgroundOpacity: 0.25
-                    ),
-                    assetFilename: "capture.png",
-                    hotspots: [
-                        Hotspot(
-                            x: 0.8,
-                            y: 0.15,
-                            caption: "Click here",
-                            captionStyle: TextOverlayStyle(
-                                backgroundHex: "#654321",
-                                backgroundOpacity: 0
-                            )
-                        ),
-                    ]
+    private func validVideoProject() -> DemoProject {
+        DemoProject(
+            name: "Video",
+            recording: VideoRecordingAsset(
+                filename: "recording.mp4",
+                duration: 5,
+                width: 1_280,
+                height: 720
+            ),
+            clicks: [
+                TimedPointerClick(time: 1, x: 0.25, y: 0.75),
+            ],
+            subtitles: [
+                TimedSubtitle(
+                    startTime: 0.5,
+                    endTime: 2,
+                    text: "Hello"
                 ),
             ]
         )
-
-        let destination = try StaticDemoExporter().export(
-            project: project,
-            sourceAssetsDirectory: source,
-            into: output
-        )
-        let html = try String(
-            contentsOf: destination.appendingPathComponent("index.html"),
-            encoding: .utf8
-        )
-        let manifestData = try Data(
-            contentsOf: destination.appendingPathComponent("demo.json")
-        )
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let exported = try decoder.decode(DemoProject.self, from: manifestData)
-
-        XCTAssertTrue(html.contains("subtitle.textContent = step.caption"))
-        XCTAssertTrue(html.contains("caption.textContent = hotspot.caption"))
-        XCTAssertTrue(html.contains("step.subtitlePosition === \"top\""))
-        XCTAssertEqual(exported.steps.first?.subtitlePosition, .top)
-        XCTAssertEqual(exported.steps.first?.subtitleStyle.backgroundOpacity, 0.25)
-        XCTAssertEqual(exported.steps.first?.hotspots.first?.caption, "Click here")
-        XCTAssertEqual(
-            exported.steps.first?.hotspots.first?.captionStyle.backgroundOpacity,
-            0
-        )
-    }
-
-    func test_agentRecordingImport_buildsOrderedProject() throws {
-        let root = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let repository = ProjectRepository(
-            rootURL: root.appendingPathComponent("library", isDirectory: true)
-        )
-        let package = try makeAgentRecordingPackage(
-            in: root,
-            manifest: AgentRecordingManifest(
-                projectName: "Agent checkout",
-                sourceName: "Amazon browser",
-                steps: [
-                    .init(assetFilename: "step-1.png"),
-                    .init(
-                        assetFilename: "step-2.png",
-                        clickFromPrevious: .init(x: 0.72, y: 0.08)
-                    ),
-                ]
-            )
-        )
-
-        let project = try AgentRecordingBundleImporter(
-            repository: repository
-        ).importBundle(at: package)
-
-        XCTAssertEqual(project.name, "Agent checkout")
-        XCTAssertEqual(project.summary, "Agent recording from Amazon browser")
-        XCTAssertEqual(project.steps.map(\.title), [
-            "Agent screen 1",
-            "Agent screen 2",
-        ])
-        XCTAssertEqual(project.steps[0].hotspots.count, 1)
-        XCTAssertEqual(project.steps[0].hotspots[0].x, 0.72, accuracy: 0.001)
-        XCTAssertEqual(project.steps[0].hotspots[0].y, 0.08, accuracy: 0.001)
-        XCTAssertEqual(
-            project.steps[0].hotspots[0].targetStepID,
-            project.steps[1].id
-        )
-        for step in project.steps {
-            XCTAssertTrue(
-                FileManager.default.fileExists(
-                    atPath: repository.assetURL(
-                        projectID: project.id,
-                        filename: step.assetFilename
-                    ).path
-                )
-            )
-        }
-    }
-
-    func test_agentRecordingLibraryImport_savesNewProjectWithExistingProjects() throws {
-        let root = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let repository = ProjectRepository(
-            rootURL: root.appendingPathComponent("library", isDirectory: true)
-        )
-        let existing = DemoProject(name: "Existing project")
-        try repository.saveProjects([existing])
-        let package = try makeAgentRecordingPackage(
-            in: root,
-            manifest: AgentRecordingManifest(
-                projectName: "Imported project",
-                sourceName: "Browser",
-                steps: [
-                    .init(assetFilename: "step-1.png"),
-                ]
-            )
-        )
-
-        let result = try AgentRecordingLibraryImporter(
-            repository: repository
-        ).importBundle(at: package, into: [existing])
-        let loaded = try repository.loadProjects()
-
-        XCTAssertEqual(result.project.name, "Imported project")
-        XCTAssertEqual(result.projects.map(\.name), [
-            "Imported project",
-            "Existing project",
-        ])
-        XCTAssertEqual(loaded.map(\.id), result.projects.map(\.id))
-        XCTAssertEqual(loaded.map(\.name), result.projects.map(\.name))
-        XCTAssertEqual(
-            loaded.map { $0.steps.map(\.id) },
-            result.projects.map { $0.steps.map(\.id) }
-        )
-    }
-
-    func test_agentRecordingLibraryImport_saveFailureRollsBackAssetsAndLibrary() throws {
-        let root = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let libraryRoot = root.appendingPathComponent(
-            "library",
-            isDirectory: true
-        )
-        try FileManager.default.createDirectory(
-            at: libraryRoot,
-            withIntermediateDirectories: true
-        )
-        let libraryURL = libraryRoot.appendingPathComponent(
-            "library.json",
-            isDirectory: true
-        )
-        try FileManager.default.createDirectory(
-            at: libraryURL,
-            withIntermediateDirectories: true
-        )
-        let marker = libraryURL.appendingPathComponent("existing-marker")
-        try Data("existing".utf8).write(to: marker)
-
-        let repository = ProjectRepository(rootURL: libraryRoot)
-        let existing = DemoProject(name: "Existing project")
-        let package = try makeAgentRecordingPackage(
-            in: root,
-            manifest: AgentRecordingManifest(
-                projectName: "Rejected project",
-                sourceName: "Browser",
-                steps: [
-                    .init(assetFilename: "step-1.png"),
-                ]
-            )
-        )
-
-        XCTAssertThrowsError(
-            try AgentRecordingLibraryImporter(
-                repository: repository
-            ).importBundle(at: package, into: [existing])
-        )
-        XCTAssertEqual(try Data(contentsOf: marker), Data("existing".utf8))
-        let assetsRoot = libraryRoot.appendingPathComponent(
-            "Assets",
-            isDirectory: true
-        )
-        let remainingAssets = try FileManager.default.contentsOfDirectory(
-            at: assetsRoot,
-            includingPropertiesForKeys: nil
-        )
-        XCTAssertTrue(remainingAssets.isEmpty)
-    }
-
-    func test_agentRecordingImport_rejectsOutOfRangeClickBeforeWritingAssets() throws {
-        let root = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let library = root.appendingPathComponent("library", isDirectory: true)
-        let repository = ProjectRepository(rootURL: library)
-        let package = try makeAgentRecordingPackage(
-            in: root,
-            manifest: AgentRecordingManifest(
-                projectName: "Invalid coordinates",
-                sourceName: "Browser",
-                steps: [
-                    .init(assetFilename: "step-1.png"),
-                    .init(
-                        assetFilename: "step-2.png",
-                        clickFromPrevious: .init(x: 1.1, y: 0.5)
-                    ),
-                ]
-            )
-        )
-
-        XCTAssertThrowsError(
-            try AgentRecordingBundleImporter(
-                repository: repository
-            ).importBundle(at: package)
-        ) { error in
-            guard case AgentRecordingBundleError.invalidCoordinate(1) = error else {
-                return XCTFail("Unexpected error: \(error)")
-            }
-        }
-        XCTAssertFalse(
-            FileManager.default.fileExists(
-                atPath: library.appendingPathComponent("Assets").path
-            )
-        )
-    }
-
-    func test_agentRecordingImport_rejectsAssetPathTraversal() throws {
-        let root = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let package = try makeAgentRecordingPackage(
-            in: root,
-            manifest: AgentRecordingManifest(
-                projectName: "Unsafe package",
-                sourceName: "Browser",
-                steps: [
-                    .init(assetFilename: "../secret.png"),
-                ]
-            ),
-            createAssets: false
-        )
-
-        XCTAssertThrowsError(
-            try AgentRecordingBundleImporter(
-                repository: ProjectRepository(
-                    rootURL: root.appendingPathComponent("library")
-                )
-            ).importBundle(at: package)
-        ) { error in
-            guard case AgentRecordingBundleError.invalidAssetName(
-                "../secret.png"
-            ) = error else {
-                return XCTFail("Unexpected error: \(error)")
-            }
-        }
-    }
-
-    func test_agentRecordingImport_rejectsSymbolicLinkAsset() throws {
-        let root = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let manifest = AgentRecordingManifest(
-            projectName: "Linked package",
-            sourceName: "Browser",
-            steps: [
-                .init(assetFilename: "step-1.png"),
-            ]
-        )
-        let package = try makeAgentRecordingPackage(
-            in: root,
-            manifest: manifest,
-            createAssets: false
-        )
-        let external = root.appendingPathComponent("external.png")
-        try writeTestPNG(to: external)
-        let linkedAsset = package
-            .appendingPathComponent("assets")
-            .appendingPathComponent("step-1.png")
-        try FileManager.default.createSymbolicLink(
-            at: linkedAsset,
-            withDestinationURL: external
-        )
-
-        XCTAssertThrowsError(
-            try AgentRecordingBundleImporter(
-                repository: ProjectRepository(
-                    rootURL: root.appendingPathComponent("library")
-                )
-            ).importBundle(at: package)
-        ) { error in
-            guard case AgentRecordingBundleError.symbolicLink(
-                "step-1.png"
-            ) = error else {
-                return XCTFail("Unexpected error: \(error)")
-            }
-        }
-    }
-
-    func test_agentRecordingImport_rejectsNonPNGData() throws {
-        let root = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let manifest = AgentRecordingManifest(
-            projectName: "Invalid image",
-            sourceName: "Browser",
-            steps: [
-                .init(assetFilename: "step-1.png"),
-            ]
-        )
-        let package = try makeAgentRecordingPackage(
-            in: root,
-            manifest: manifest,
-            createAssets: false
-        )
-        try Data("not a png".utf8).write(
-            to: package
-                .appendingPathComponent("assets")
-                .appendingPathComponent("step-1.png")
-        )
-
-        XCTAssertThrowsError(
-            try AgentRecordingBundleImporter(
-                repository: ProjectRepository(
-                    rootURL: root.appendingPathComponent("library")
-                )
-            ).importBundle(at: package)
-        ) { error in
-            guard case AgentRecordingBundleError.unreadableAsset(
-                "step-1.png"
-            ) = error else {
-                return XCTFail("Unexpected error: \(error)")
-            }
-        }
-    }
-
-    func test_agentRecordingImport_rejectsUnknownManifestFields() throws {
-        let root = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let package = try makeAgentRecordingPackage(
-            in: root,
-            manifest: AgentRecordingManifest(
-                projectName: "Extra data",
-                sourceName: "Browser",
-                steps: [
-                    .init(assetFilename: "step-1.png"),
-                ]
-            )
-        )
-        let unsafeManifest: [String: Any] = [
-            "version": 1,
-            "projectName": "Extra data",
-            "sourceName": "Browser",
-            "steps": [
-                ["assetFilename": "step-1.png"],
-            ],
-            "cookies": ["session": "secret"],
-        ]
-        try JSONSerialization.data(
-            withJSONObject: unsafeManifest,
-            options: [.prettyPrinted, .sortedKeys]
-        ).write(
-            to: package.appendingPathComponent("manifest.json"),
-            options: .atomic
-        )
-
-        XCTAssertThrowsError(
-            try AgentRecordingBundleImporter(
-                repository: ProjectRepository(
-                    rootURL: root.appendingPathComponent("library")
-                )
-            ).importBundle(at: package)
-        ) { error in
-            guard case AgentRecordingBundleError.unexpectedManifestField(
-                "manifest.cookies"
-            ) = error else {
-                return XCTFail("Unexpected error: \(error)")
-            }
-        }
-    }
-
-    private func makeAgentRecordingPackage(
-        in root: URL,
-        manifest: AgentRecordingManifest,
-        createAssets: Bool = true
-    ) throws -> URL {
-        let package = root.appendingPathComponent(
-            "recording.storybirdrecording",
-            isDirectory: true
-        )
-        let assets = package.appendingPathComponent(
-            "assets",
-            isDirectory: true
-        )
-        try FileManager.default.createDirectory(
-            at: assets,
-            withIntermediateDirectories: true
-        )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(manifest).write(
-            to: package.appendingPathComponent("manifest.json"),
-            options: .atomic
-        )
-        if createAssets {
-            for filename in Set(manifest.steps.map(\.assetFilename))
-            where !filename.contains("/") && !filename.contains("\\") {
-                try writeTestPNG(
-                    to: assets.appendingPathComponent(filename)
-                )
-            }
-        }
-        return package
-    }
-
-    private func writeTestPNG(to url: URL) throws {
-        let image = NSImage(size: NSSize(width: 8, height: 8))
-        image.lockFocus()
-        NSColor.systemPurple.setFill()
-        NSRect(x: 0, y: 0, width: 8, height: 8).fill()
-        image.unlockFocus()
-
-        let representation = try XCTUnwrap(
-            NSBitmapImageRep(data: try XCTUnwrap(image.tiffRepresentation))
-        )
-        let data = try XCTUnwrap(
-            representation.representation(using: .png, properties: [:])
-        )
-        try data.write(to: url, options: .atomic)
     }
 
     private func temporaryDirectory() -> URL {

@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "storybird": {
+      "command": "/Applications/Storybird.app/Contents/MacOS/StorybirdMCP",
+      "args": [],
+      "disabled": false,
+      "autoApprove": [
+        "storybird_list_sources",
+        "storybird_observe",
+        "storybird_list_projects",
+        "storybird_get_project"
+      ]
+    }
+  }
+}

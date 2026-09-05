@@ -1,15 +1,18 @@
 import AppKit
 import StorybirdCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @ObservedObject var store: AppStore
     @StateObject private var recorder: RecordingCoordinator
 
-    @State private var isPreviewPresented = false
     @State private var projectPendingDeletion: UUID?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var isCompactWindow = false
+    @State private var isExporting = false
+    @State private var exportProgress = 0.0
+    @State private var exportTask: Task<Void, Never>?
 
     init(store: AppStore) {
         self.store = store
@@ -51,8 +54,12 @@ struct ContentView: View {
             isCompactWindow = compact
             columnVisibility = compact ? .detailOnly : .all
         }
-        .onOpenURL { url in
-            store.importAgentRecording(at: url)
+        .onChange(of: store.requestedPreviewProjectID) { _, projectID in
+            guard let projectID, store.project(id: projectID) != nil else {
+                return
+            }
+            store.selectedProjectID = projectID
+            store.requestedPreviewProjectID = nil
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
@@ -71,41 +78,48 @@ struct ContentView: View {
                     )
                 }
                 .tint(.red)
-                .help("Record each click-time screen and its resulting step")
+                .help("Record one display or window as continuous video")
 
                 Button {
-                    isPreviewPresented = true
-                } label: {
-                    Label("Preview", systemImage: "play.fill")
-                }
-                .disabled(
-                    store.selectedProject?.steps.isEmpty != false
-                        || recorder.isActive
-                )
-                .help("Play this demo")
-
-                Button {
-                    exportDemo()
+                    exportVideo()
                 } label: {
                     Label("Export", systemImage: "square.and.arrow.up")
                 }
                 .disabled(
-                    store.selectedProject?.steps.isEmpty != false
+                    store.selectedProject?.recording == nil
+                        || store.selectedProject?.clips.isEmpty != false
                         || recorder.isActive
+                        || isExporting
                 )
-                .help("Export a standalone web demo")
-            }
-        }
-        .sheet(isPresented: $isPreviewPresented) {
-            if let projectID = store.selectedProjectID {
-                DemoPreviewView(store: store, projectID: projectID)
-                    .frame(width: 760, height: 560)
+                .help("Export an MP4 with click and subtitle layers")
             }
         }
         .sheet(isPresented: $recorder.isSourcePickerPresented) {
             CaptureSourcePickerView(recorder: recorder)
                 .frame(width: 680, height: 480)
                 .interactiveDismissDisabled()
+        }
+        .overlay {
+            if isExporting {
+                ZStack {
+                    Color.black.opacity(0.24)
+                        .ignoresSafeArea()
+                    VStack(spacing: 12) {
+                        ProgressView(value: exportProgress)
+                            .frame(width: 240)
+                        Text("Rendering video…")
+                            .font(.headline)
+                        Button("Cancel") {
+                            exportTask?.cancel()
+                        }
+                    }
+                    .padding(24)
+                    .background(
+                        .regularMaterial,
+                        in: RoundedRectangle(cornerRadius: 14)
+                    )
+                }
+            }
         }
         .alert(
             "Storybird",
@@ -128,7 +142,7 @@ struct ContentView: View {
             Alert(
                 title: Text(prompt.title),
                 message: Text(
-                    "\(prompt.message) Enable it in System Settings, then return to Storybird and press Record Flow again."
+                    "\(prompt.message) Enable it in System Settings, then return to Storybird and press Record Video again."
                 ),
                 primaryButton: .default(Text("Open System Settings")) {
                     if let url = prompt.settingsURL {
@@ -138,6 +152,20 @@ struct ContentView: View {
                 },
                 secondaryButton: .cancel {
                     store.permissionPrompt = nil
+                }
+            )
+        }
+        .alert(item: $store.externalControlPrompt) { prompt in
+            Alert(
+                title: Text(prompt.title),
+                message: Text(prompt.message),
+                primaryButton: .default(
+                    Text(prompt.destructive ? "Delete" : "Allow")
+                ) {
+                    store.resolveExternalControlApproval(true)
+                },
+                secondaryButton: .cancel {
+                    store.resolveExternalControlApproval(false)
                 }
             )
         }
@@ -162,48 +190,75 @@ struct ContentView: View {
                 projectPendingDeletion = nil
             }
         } message: {
-            Text("Its screens and local analytics will be removed from this Mac.")
+            Text("Its original recording and timeline layers will be removed from this Mac.")
         }
     }
 
     private func startRecording() {
-        let projectID = store.selectedProjectID
-            ?? store.createProject(name: "Recorded flow")
-        recorder.start(projectID: projectID)
+        recorder.start()
     }
 
-    private func exportDemo() {
-        guard let project = store.selectedProject else { return }
-
-        let panel = NSOpenPanel()
-        panel.title = "Choose an export folder"
-        panel.prompt = "Export Here"
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.canCreateDirectories = true
-        panel.allowsMultipleSelection = false
-
-        guard panel.runModal() == .OK,
-              let parentDirectory = panel.url
+    private func exportVideo() {
+        guard let project = store.selectedProject,
+              let recording = project.recording,
+              !project.clips.isEmpty
         else {
             return
         }
 
-        do {
-            let exporter = StaticDemoExporter()
-            let destination = try exporter.export(
-                project: project,
-                sourceAssetsDirectory: store.repository.assetsDirectory(
-                    projectID: project.id
-                ),
-                into: parentDirectory
-            )
-            NSWorkspace.shared.activateFileViewerSelecting([
-                destination.appendingPathComponent("index.html"),
-            ])
-        } catch {
-            store.errorMessage = "The demo could not be exported: \(error.localizedDescription)"
+        let panel = NSSavePanel()
+        panel.title = "Export Storybird Video"
+        panel.prompt = "Export"
+        panel.nameFieldStringValue = "\(slug(project.name)).mp4"
+        panel.allowedContentTypes = [.mpeg4Movie]
+        panel.canCreateDirectories = true
+
+        guard panel.runModal() == .OK, let destinationURL = panel.url else {
+            return
         }
+
+        let sourceURL = store.repository.assetURL(
+            projectID: project.id,
+            filename: recording.filename
+        )
+        isExporting = true
+        exportProgress = 0
+        exportTask = Task {
+            do {
+                let exporter = LayeredVideoExporter()
+                let result = try await exporter.export(
+                    project: project,
+                    sourceURL: sourceURL,
+                    destinationURL: destinationURL
+                ) { progress in
+                    Task { @MainActor in
+                        exportProgress = progress
+                    }
+                }
+                isExporting = false
+                exportTask = nil
+                NSWorkspace.shared.activateFileViewerSelecting([result])
+            } catch is CancellationError {
+                isExporting = false
+                exportTask = nil
+            } catch {
+                isExporting = false
+                exportTask = nil
+                store.errorMessage =
+                    "The video could not be exported: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func slug(_ value: String) -> String {
+        let allowed = CharacterSet.alphanumerics
+        let pieces = value.lowercased().unicodeScalars.map { scalar -> Character in
+            allowed.contains(scalar) ? Character(String(scalar)) : "-"
+        }
+        let collapsed = String(pieces)
+            .split(separator: "-", omittingEmptySubsequences: true)
+            .joined(separator: "-")
+        return collapsed.isEmpty ? "storybird-video" : collapsed
     }
 }
 

@@ -1,119 +1,108 @@
+import Foundation
 import StorybirdCore
 import SwiftUI
-
-enum WorkspaceMode: String, CaseIterable, Identifiable {
-    case editor = "Editor"
-    case insights = "Insights"
-
-    var id: String { rawValue }
-}
 
 struct ProjectWorkspaceView: View {
     @ObservedObject var store: AppStore
     let projectID: UUID
 
-    @State private var mode: WorkspaceMode = .editor
-    @State private var selectedStepID: UUID?
-    @State private var selectedHotspotID: UUID?
-    @State private var isAddingHotspot = false
-
     var body: some View {
         if let project = store.project(id: projectID) {
             let projectBinding = Binding(
                 get: { store.project(id: projectID) ?? project },
-                set: { store.replaceProject($0) }
+                set: {
+                    store.replaceProject(
+                        VideoTimelineEditor.remapContentLayers($0)
+                    )
+                }
             )
 
             VStack(spacing: 0) {
-                ProjectHeader(project: projectBinding, mode: $mode)
+                ProjectHeader(project: projectBinding)
                 Divider()
 
-                switch mode {
-                case .editor:
-                    DemoEditorView(
-                        store: store,
-                        project: projectBinding,
-                        selectedStepID: $selectedStepID,
-                        selectedHotspotID: $selectedHotspotID,
-                        isAddingHotspot: $isAddingHotspot
+                if let recording = project.recording,
+                   !project.clips.isEmpty {
+                    let videoURL = store.repository.assetURL(
+                        projectID: project.id,
+                        filename: recording.filename
                     )
-                case .insights:
-                    InsightsView(
-                        project: project,
-                        onClear: {
-                            store.clearAnalytics(projectID: projectID)
-                        }
+                    if FileManager.default.fileExists(atPath: videoURL.path) {
+                        VideoTimelineEditorView(
+                            store: store,
+                            project: projectBinding,
+                            videoURL: videoURL,
+                            duration: recording.duration
+                        )
+                    } else {
+                        ContentUnavailableView(
+                            "Recording unavailable",
+                            systemImage: "video.slash",
+                            description: Text(
+                                "The original video file is missing from this project."
+                            )
+                        )
+                    }
+                } else if project.recording != nil || !project.steps.isEmpty {
+                    ContentUnavailableView(
+                        "Unsupported existing project",
+                        systemImage: "rectangle.stack.badge.exclamationmark",
+                        description: Text(
+                            "This project remains on disk, but the new Click Cue timeline does not convert or edit older project models."
+                        )
+                    )
+                } else {
+                    ContentUnavailableView(
+                        "Record a video",
+                        systemImage: "record.circle",
+                        description: Text(
+                            "Choose Record Video to capture one display or window."
+                        )
                     )
                 }
             }
-            .onAppear {
-                ensureStepSelection(for: project)
-            }
-            .onChange(of: project.steps.map(\.id)) { _, _ in
-                ensureStepSelection(for: store.project(id: projectID) ?? project)
-            }
         } else {
             ContentUnavailableView(
-                "Demo not found",
+                "Recording not found",
                 systemImage: "exclamationmark.triangle"
             )
         }
-    }
-
-    private func ensureStepSelection(for project: DemoProject) {
-        if let selectedStepID,
-           project.steps.contains(where: { $0.id == selectedStepID }) {
-            return
-        }
-        selectedStepID = project.steps.first?.id
-        selectedHotspotID = nil
-        isAddingHotspot = false
     }
 }
 
 private struct ProjectHeader: View {
     @Binding var project: DemoProject
-    @Binding var mode: WorkspaceMode
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 16) {
-                projectIdentity
-                Spacer()
-                workspacePicker
+        HStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 2) {
+                TextField("Recording name", text: $project.name)
+                    .textFieldStyle(.plain)
+                    .font(.title2.weight(.semibold))
+                Text(projectSummary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
-            VStack(alignment: .leading, spacing: 8) {
-                projectIdentity
-                workspacePicker
-            }
+            Spacer()
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
         .background(.bar)
     }
 
-    private var projectIdentity: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            TextField("Demo name", text: $project.name)
-                .textFieldStyle(.plain)
-                .font(.title2.weight(.semibold))
-            Text(project.steps.isEmpty
-                 ? "Press Record Flow to capture the first interactive path."
-                 : "\(project.steps.count) screens · Updated \(project.updatedAt.formatted(date: .abbreviated, time: .shortened))")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+    private var projectSummary: String {
+        if let recording = project.recording {
+            return "\(Self.time(recording.duration)) · \(project.clicks.count) clicks · \(project.subtitles.count) subtitles"
         }
+        if !project.steps.isEmpty {
+            return "Legacy screenshot project · \(project.steps.count) screens"
+        }
+        return "No video recorded"
     }
 
-    private var workspacePicker: some View {
-        Picker("Workspace", selection: $mode) {
-            ForEach(WorkspaceMode.allCases) { mode in
-                Text(mode.rawValue).tag(mode)
-            }
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .frame(maxWidth: 210)
+    private static func time(_ seconds: Double) -> String {
+        let total = max(Int(seconds.rounded()), 0)
+        return String(format: "%d:%02d", total / 60, total % 60)
     }
 }

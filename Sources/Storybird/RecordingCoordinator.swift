@@ -1,6 +1,5 @@
 import AppKit
 import Combine
-import CoreImage
 import CoreMedia
 import CoreVideo
 import StorybirdCore
@@ -55,18 +54,15 @@ struct CaptureSource: Identifiable {
     let thumbnail: NSImage?
     let filter: SCContentFilter
     let initialCaptureFrame: CGRect
+    let windowID: CGWindowID?
 }
 
-struct RecordedClick: @unchecked Sendable {
-    let normalizedPoint: CGPoint
-    let screenImage: CGImage
-}
-
-final class RecordedClickIngress: @unchecked Sendable {
+final class TimedClickIngress: @unchecked Sendable {
     private let lock = NSLock()
     private var isAccepting = false
-    private var clicks: [RecordedClick] = []
+    private var clicks: [TimedPointerClick] = []
 
+    /// Opens one empty mouse-only event buffer for the new recording session.
     func start() {
         lock.lock()
         clicks.removeAll(keepingCapacity: true)
@@ -74,21 +70,26 @@ final class RecordedClickIngress: @unchecked Sendable {
         lock.unlock()
     }
 
+    /// Rejects clicks arriving after Stop before video finalization begins.
     func stopAccepting() {
         lock.lock()
         isAccepting = false
         lock.unlock()
     }
 
+    /// Stores one in-bounds mouse-down on the same zero-based clock as the MP4.
     @discardableResult
     func accept(
         screenPoint: CGPoint,
         captureFrame: CGRect,
-        screenImage: CGImage
+        time: Double,
+        button: PointerButton
     ) -> Bool {
         lock.lock()
         defer { lock.unlock() }
         guard isAccepting,
+              time.isFinite,
+              time >= 0,
               let normalizedPoint = RecordingGeometry.normalizedCaptureClick(
                   capturePoint: screenPoint,
                   captureFrame: captureFrame
@@ -98,109 +99,36 @@ final class RecordedClickIngress: @unchecked Sendable {
         }
 
         clicks.append(
-            RecordedClick(
-                normalizedPoint: normalizedPoint,
-                screenImage: screenImage
+            TimedPointerClick(
+                time: time,
+                x: normalizedPoint.x,
+                y: normalizedPoint.y,
+                button: button
             )
         )
         return true
     }
 
-    func takeAcceptedClicks() -> [RecordedClick] {
+    /// Returns the accepted click sequence without allowing callers to reorder it.
+    func acceptedClicks() -> [TimedPointerClick] {
         lock.lock()
         defer { lock.unlock() }
-        let accepted = clicks
-        clicks.removeAll(keepingCapacity: true)
-        return accepted
+        return clicks
     }
 
+    /// Reports the accepted event count for the recording HUD.
+    func count() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return clicks.count
+    }
+
+    /// Clears session state after commit or rollback so clicks cannot leak across recordings.
     func reset() {
         lock.lock()
         isAccepting = false
         clicks.removeAll(keepingCapacity: true)
         lock.unlock()
-    }
-}
-
-@MainActor
-final class RecordedClickProcessor {
-    typealias PersistClick = (
-        _ click: RecordedClick,
-        _ resultingImage: CGImage,
-        _ sourceStepID: UUID
-    ) throws -> UUID
-
-    private var currentStepID: UUID
-    private var clickQueue: [RecordedClick] = []
-    private var processingTask: Task<Void, Never>?
-    private var savedClickCount = 0
-
-    private let resultDelay: Duration
-    private let resultImageProvider: () -> CGImage?
-    private let persistClick: PersistClick
-    private let didUpdatePending: (Int) -> Void
-    private let didSaveClick: (Int) -> Void
-    private let didFail: (Error) -> Void
-
-    init(
-        currentStepID: UUID,
-        resultDelay: Duration,
-        resultImageProvider: @escaping () -> CGImage?,
-        persistClick: @escaping PersistClick,
-        didUpdatePending: @escaping (Int) -> Void,
-        didSaveClick: @escaping (Int) -> Void,
-        didFail: @escaping (Error) -> Void
-    ) {
-        self.currentStepID = currentStepID
-        self.resultDelay = resultDelay
-        self.resultImageProvider = resultImageProvider
-        self.persistClick = persistClick
-        self.didUpdatePending = didUpdatePending
-        self.didSaveClick = didSaveClick
-        self.didFail = didFail
-    }
-
-    func enqueue(_ clicks: [RecordedClick]) {
-        guard !clicks.isEmpty else { return }
-        clickQueue.append(contentsOf: clicks)
-        didUpdatePending(clickQueue.count)
-        guard processingTask == nil else { return }
-
-        processingTask = Task { [weak self] in
-            await self?.drainQueue()
-        }
-    }
-
-    func stopAndDrain() async {
-        let pendingTask = processingTask
-        await pendingTask?.value
-    }
-
-    private func drainQueue() async {
-        while !clickQueue.isEmpty {
-            let click = clickQueue.removeFirst()
-            didUpdatePending(clickQueue.count)
-
-            do {
-                try await Task.sleep(for: resultDelay)
-                guard let resultingImage = resultImageProvider() else {
-                    throw FlowRecordingError.noFrame
-                }
-                currentStepID = try persistClick(
-                    click,
-                    resultingImage,
-                    currentStepID
-                )
-                savedClickCount += 1
-                didSaveClick(savedClickCount)
-            } catch is CancellationError {
-                break
-            } catch {
-                didFail(error)
-                break
-            }
-        }
-        processingTask = nil
     }
 }
 
@@ -212,8 +140,8 @@ final class RecordingCoordinator: ObservableObject {
     @Published private(set) var captureSources: [CaptureSource] = []
 
     private unowned let store: AppStore
-    private let frameSource = ScreenFrameSource()
-    private let clickIngress = RecordedClickIngress()
+    private var frameSource = ScreenFrameSource()
+    private let clickIngress = TimedClickIngress()
     private let sampleQueue = DispatchQueue(
         label: "io.storybird.screen-frames",
         qos: .userInteractive
@@ -221,8 +149,10 @@ final class RecordingCoordinator: ObservableObject {
 
     private var stream: SCStream?
     private var projectID: UUID?
+    private var recordingFilename: String?
+    private var videoWriter: ScreenVideoWriter?
+    private var recordingDidBegin = false
     private var clickMonitor: Any?
-    private var clickProcessor: RecordedClickProcessor?
     private var startTask: Task<Void, Never>?
     private var stopTask: Task<Void, Never>?
     private var sessionToken: UUID?
@@ -240,7 +170,7 @@ final class RecordingCoordinator: ObservableObject {
     var toolbarTitle: String {
         switch state {
         case .idle:
-            return "Record Flow"
+            return "Record Video"
         case .preparing:
             return "Preparing…"
         case let .countdown(value):
@@ -252,15 +182,18 @@ final class RecordingCoordinator: ObservableObject {
         }
     }
 
-    func start(projectID: UUID) {
+    /// Begins source selection for one independent continuous video project.
+    func start() {
         guard state == .idle else { return }
 
         let token = UUID()
         sessionToken = token
-        self.projectID = projectID
-        clickProcessor = nil
         clickIngress.reset()
-        frameSource.clear()
+        frameSource = ScreenFrameSource()
+        projectID = nil
+        recordingFilename = nil
+        videoWriter = nil
+        recordingDidBegin = false
         setState(.preparing)
         isSourcePickerPresented = true
         isLoadingSources = true
@@ -272,7 +205,7 @@ final class RecordingCoordinator: ObservableObject {
                 try await self.loadCaptureSources(token: token)
             } catch is CancellationError {
                 guard self.sessionToken == token else { return }
-                await self.finishStopping(showEditor: true)
+                await self.finishStopping()
             } catch {
                 guard self.sessionToken == token else { return }
                 if let recordingError = error as? FlowRecordingError {
@@ -291,11 +224,12 @@ final class RecordingCoordinator: ObservableObject {
                 } else {
                     self.store.errorMessage = "Recording could not start: \(error.localizedDescription)"
                 }
-                await self.finishStopping(showEditor: true)
+                await self.finishStopping()
             }
         }
     }
 
+    /// Starts capture for the explicitly selected display or window.
     func selectCaptureSource(_ source: CaptureSource) {
         guard let token = sessionToken,
               state == .preparing
@@ -316,7 +250,7 @@ final class RecordingCoordinator: ObservableObject {
                 )
             } catch is CancellationError {
                 guard self.sessionToken == token else { return }
-                await self.finishStopping(showEditor: true)
+                await self.finishStopping()
             } catch {
                 guard self.sessionToken == token else { return }
                 if let recordingError = error as? FlowRecordingError {
@@ -331,15 +265,17 @@ final class RecordingCoordinator: ObservableObject {
                 } else {
                     self.store.errorMessage = "Recording could not start: \(error.localizedDescription)"
                 }
-                await self.finishStopping(showEditor: true)
+                await self.finishStopping()
             }
         }
     }
 
+    /// Cancels source selection without creating a project or recording asset.
     func cancelSourcePicker() {
         stop()
     }
 
+    /// Rejects new clicks and asynchronously finalizes the current video session.
     func stop() {
         guard state.isActive, stopTask == nil else { return }
         clickIngress.stopAccepting()
@@ -350,10 +286,11 @@ final class RecordingCoordinator: ObservableObject {
 
         stopTask = Task { [weak self] in
             guard let self else { return }
-            await self.finishStopping(showEditor: true)
+            await self.finishStopping()
         }
     }
 
+    /// Starts one silent encoder after permission and countdown, then binds mouse-downs to its clock.
     private func beginSession(
         source: CaptureSource,
         token: UUID
@@ -368,22 +305,23 @@ final class RecordingCoordinator: ObservableObject {
         guard sessionToken == token else { return }
 
         let filter = source.filter
-        let captureFrame = Self.captureFrame(
-            for: filter,
-            fallback: source.initialCaptureFrame
-        )
+        let captureFrame = Self.captureFrame(for: source)
         guard captureFrame.width > 0,
               captureFrame.height > 0
         else {
             throw FlowRecordingError.invalidContentSelection
         }
         let configuration = SCStreamConfiguration()
+        let contentRect = filter.contentRect.width > 0
+            && filter.contentRect.height > 0
+            ? filter.contentRect
+            : captureFrame
         configuration.width = max(
-            Int(captureFrame.width * CGFloat(filter.pointPixelScale)),
+            Int(contentRect.width * CGFloat(filter.pointPixelScale)),
             2
         )
         configuration.height = max(
-            Int(captureFrame.height * CGFloat(filter.pointPixelScale)),
+            Int(contentRect.height * CGFloat(filter.pointPixelScale)),
             2
         )
         configuration.minimumFrameInterval = CMTime(value: 1, timescale: 15)
@@ -392,6 +330,7 @@ final class RecordingCoordinator: ObservableObject {
         configuration.showsCursor = true
         configuration.capturesAudio = false
         configuration.shouldBeOpaque = true
+        configuration.ignoreShadowsSingleWindow = source.kind == .window
 
         let stream = SCStream(
             filter: filter,
@@ -423,39 +362,19 @@ final class RecordingCoordinator: ObservableObject {
         }
 
         guard sessionToken == token else { return }
-        let firstFrame = try await waitForFrame()
-        guard let projectID else { return }
-        let firstStepID = try store.beginRecordedFlow(
-            with: firstFrame.storybirdImage,
-            in: projectID
+        let projectID = UUID()
+        let recordingTarget = try store.repository.prepareVideoRecordingURL(
+            projectID: projectID
         )
-        let store = store
-        clickProcessor = RecordedClickProcessor(
-            currentStepID: firstStepID,
-            resultDelay: .milliseconds(450),
-            resultImageProvider: { [weak frameSource] in
-                frameSource?.latestImage()
-            },
-            persistClick: { click, resultingImage, sourceStepID in
-                try store.appendRecordedClick(
-                    at: click.normalizedPoint,
-                    clickedImage: click.screenImage.storybirdImage,
-                    resultingImage: resultingImage.storybirdImage,
-                    from: sourceStepID,
-                    in: projectID
-                )
-            },
-            didUpdatePending: { [weak self] count in
-                self?.hud?.setPendingClicks(count)
-            },
-            didSaveClick: { [weak self] count in
-                guard let self, case .recording = self.state else { return }
-                self.setState(.recording(clicks: count))
-            },
-            didFail: { error in
-                store.errorMessage =
-                    "A recorded click could not be saved: \(error.localizedDescription)"
-            }
+        let writer = try ScreenVideoWriter(outputURL: recordingTarget.url)
+        self.projectID = projectID
+        recordingFilename = recordingTarget.filename
+        videoWriter = writer
+        frameSource.setVideoWriter(writer)
+
+        _ = try await waitForRecordingStart(
+            writer: writer,
+            fallbackCaptureFrame: captureFrame
         )
 
         clickIngress.start()
@@ -464,29 +383,34 @@ final class RecordingCoordinator: ObservableObject {
         ) { [weak self] event in
             guard let self,
                   let location = event.cgEvent?.location,
-                  let image = self.frameSource.latestImage()
+                  let time = self.videoWriter?.recordingTime(
+                      atEventSeconds: event.timestamp
+                  ),
+                  let frame = self.frameSource.latestFrame(
+                      fallbackCaptureFrame: Self.captureFrame(for: source)
+                  )
             else {
                 return
             }
-            let eventCaptureFrame = Self.captureFrame(
-                for: filter,
-                fallback: source.initialCaptureFrame
-            )
             guard self.clickIngress.accept(
                 screenPoint: location,
-                captureFrame: eventCaptureFrame,
-                screenImage: image
+                captureFrame: frame.captureFrame,
+                time: time,
+                button: event.type == .rightMouseDown ? .right : .left
             ) else {
                 return
             }
             Task { @MainActor [weak self] in
-                self?.consumeAcceptedClicks()
+                guard let self else { return }
+                let count = self.clickIngress.count()
+                self.setState(.recording(clicks: count))
             }
         }
         guard clickMonitor != nil else {
             throw FlowRecordingError.clickMonitorUnavailable
         }
 
+        recordingDidBegin = true
         setState(.recording(clicks: 0))
         startTask = nil
     }
@@ -508,10 +432,9 @@ final class RecordingCoordinator: ObservableObject {
         try Task.checkCancellation()
         guard sessionToken == token else { return }
 
-        let ownBundleID = Bundle.main.bundleIdentifier
-        let ownApplications = content.applications.filter {
-            $0.bundleIdentifier == ownBundleID
-        }
+        let ownApplications = CaptureSourceCatalog.excludedApplications(
+            in: content
+        )
         var sources: [CaptureSource] = []
 
         for (index, display) in content.displays.enumerated() {
@@ -525,9 +448,10 @@ final class RecordingCoordinator: ObservableObject {
                 for: filter,
                 captureFrame: display.frame
             )
-            let screenName = NSScreen.screens.first(where: {
-                $0.displayID == display.displayID
-            })?.localizedName ?? "Display \(index + 1)"
+            let screenName = CaptureSourceCatalog.displayTitle(
+                displayID: display.displayID,
+                fallbackIndex: index
+            )
             sources.append(
                 CaptureSource(
                     id: "display-\(display.displayID)",
@@ -536,44 +460,35 @@ final class RecordingCoordinator: ObservableObject {
                     subtitle: "Entire screen · \(Int(display.frame.width)) × \(Int(display.frame.height))",
                     thumbnail: thumbnail,
                     filter: filter,
-                    initialCaptureFrame: display.frame
+                    initialCaptureFrame: display.frame,
+                    windowID: nil
                 )
             )
         }
 
-        let windows = content.windows.filter { window in
-            let frame = window.frame
-            return window.isOnScreen
-                && window.windowLayer == 0
-                && frame.width >= 220
-                && frame.height >= 120
-                && window.owningApplication?.bundleIdentifier != ownBundleID
-                && window.owningApplication?.applicationName != "Window Server"
-        }
-
-        for window in windows.prefix(30) {
+        for window in CaptureSourceCatalog.ordinaryWindows(in: content)
+            .prefix(CaptureSourceCatalog.maximumWindowCount) {
             try Task.checkCancellation()
             let filter = SCContentFilter(desktopIndependentWindow: window)
             let thumbnail = await thumbnail(
                 for: filter,
                 captureFrame: window.frame
             )
-            let applicationName =
-                window.owningApplication?.applicationName ?? "Application"
-            let windowTitle = window.title?.trimmingCharacters(
-                in: .whitespacesAndNewlines
+            let presentation = CaptureSourceCatalog.windowPresentation(
+                title: window.title,
+                applicationName:
+                    window.owningApplication?.applicationName
             )
             sources.append(
                 CaptureSource(
                     id: "window-\(window.windowID)",
                     kind: .window,
-                    title: windowTitle?.isEmpty == false
-                        ? windowTitle!
-                        : applicationName,
-                    subtitle: applicationName,
+                    title: presentation.title,
+                    subtitle: presentation.applicationName,
                     thumbnail: thumbnail,
                     filter: filter,
-                    initialCaptureFrame: window.frame
+                    initialCaptureFrame: window.frame,
+                    windowID: window.windowID
                 )
             )
         }
@@ -603,6 +518,7 @@ final class RecordingCoordinator: ObservableObject {
         configuration.height = max(Int(captureFrame.height * scale), 2)
         configuration.showsCursor = false
         configuration.shouldBeOpaque = true
+        configuration.ignoreShadowsSingleWindow = filter.style == .window
 
         guard let image = try? await SCScreenshotManager.captureImage(
             contentFilter: filter,
@@ -613,37 +529,75 @@ final class RecordingCoordinator: ObservableObject {
         return image.storybirdImage
     }
 
-    private func consumeAcceptedClicks() {
-        let acceptedClicks = clickIngress.takeAcceptedClicks()
-        guard !acceptedClicks.isEmpty else { return }
-        clickProcessor?.enqueue(acceptedClicks)
-    }
-
-    private func waitForFrame() async throws -> CGImage {
+    /// Waits for a post-countdown frame that has entered both preview and the video encoder.
+    private func waitForRecordingStart(
+        writer: ScreenVideoWriter,
+        fallbackCaptureFrame: CGRect
+    ) async throws -> CapturedFrameSnapshot {
         for _ in 0..<30 {
             try Task.checkCancellation()
-            if let image = frameSource.latestImage() {
-                return image
+            if writer.currentTime() != nil,
+               let frame = frameSource.latestFrame(
+                   fallbackCaptureFrame: fallbackCaptureFrame
+               ) {
+                return frame
             }
             try await Task.sleep(for: .milliseconds(100))
         }
         throw FlowRecordingError.noFrame
     }
 
-    private func finishStopping(showEditor: Bool) async {
+    /// Stops input before capture and publishes only a fully finalized, validated video project.
+    private func finishStopping() async {
         clickIngress.stopAccepting()
         if let clickMonitor {
             NSEvent.removeMonitor(clickMonitor)
             self.clickMonitor = nil
         }
 
-        consumeAcceptedClicks()
-        let pendingProcessor = clickProcessor
-        await pendingProcessor?.stopAndDrain()
-
+        var captureStopError: Error?
         if let stream {
-            try? await stream.stopCaptureAsync()
+            do {
+                try await stream.stopCaptureAsync()
+            } catch {
+                captureStopError = error
+            }
             self.stream = nil
+        }
+
+        if recordingDidBegin,
+           captureStopError == nil,
+           let writer = videoWriter,
+           let projectID,
+           let recordingFilename {
+            do {
+                let result = try await writer.finish()
+                try store.commitRecordedVideo(
+                    projectID: projectID,
+                    name: "Recorded video",
+                    filename: recordingFilename,
+                    result: result,
+                    clicks: clickIngress.acceptedClicks()
+                )
+            } catch {
+                writer.cancel()
+                try? store.repository.removeProjectAssets(
+                    projectID: projectID
+                )
+                store.errorMessage =
+                    "Recording could not be saved: \(error.localizedDescription)"
+            }
+        } else {
+            videoWriter?.cancel()
+            if let projectID {
+                try? store.repository.removeProjectAssets(
+                    projectID: projectID
+                )
+            }
+            if let captureStopError {
+                store.errorMessage =
+                    "Recording could not be finalized: \(captureStopError.localizedDescription)"
+            }
         }
 
         frameSource.clear()
@@ -653,14 +607,14 @@ final class RecordingCoordinator: ObservableObject {
         isLoadingSources = false
         captureSources = []
 
-        if showEditor {
-            restoreEditorWindows()
-        }
+        restoreEditorWindows()
 
         clickIngress.reset()
         sessionToken = nil
         projectID = nil
-        clickProcessor = nil
+        recordingFilename = nil
+        videoWriter = nil
+        recordingDidBegin = false
         startTask = nil
         stopTask = nil
         setState(.idle)
@@ -695,23 +649,33 @@ final class RecordingCoordinator: ObservableObject {
         hud?.update(state: state)
     }
 
+    /// Resolves current window movement before falling back to selection time.
     private nonisolated static func captureFrame(
-        for filter: SCContentFilter,
-        fallback: CGRect
+        for source: CaptureSource
     ) -> CGRect {
+        let filter = source.filter
+        var liveFrame = source.windowID.flatMap(
+            CaptureFrameGeometry.currentWindowFrame(windowID:)
+        )
         if #available(macOS 15.2, *) {
             if filter.style == .window,
                let window = filter.includedWindows.first {
-                return window.frame
+                liveFrame = window.frame
             }
             if filter.style == .display,
                let display = filter.includedDisplays.first {
-                return display.frame
+                liveFrame = display.frame
             }
         }
-        return fallback.width > 0 && fallback.height > 0
-            ? fallback
+        let fallback = source.initialCaptureFrame.width > 0
+            && source.initialCaptureFrame.height > 0
+            ? source.initialCaptureFrame
             : filter.contentRect
+        return CaptureFrameGeometry.preferredFrame(
+            sampleFrame: nil,
+            liveWindowFrame: liveFrame,
+            fallbackFrame: fallback
+        )
     }
 
     private func screen(containing captureFrame: CGRect) -> NSScreen? {
@@ -723,10 +687,21 @@ final class RecordingCoordinator: ObservableObject {
 
 }
 
+private struct CapturedFrameSnapshot: Sendable {
+    let captureFrame: CGRect
+}
+
 private final class ScreenFrameSource: NSObject, SCStreamOutput {
     private let lock = NSLock()
-    private let context = CIContext(options: [.cacheIntermediates: false])
-    private var image: CGImage?
+    private var snapshot: CapturedFrameSnapshot?
+    private var videoWriter: ScreenVideoWriter?
+
+    /// Starts forwarding subsequent frames to the session-owned video encoder.
+    func setVideoWriter(_ writer: ScreenVideoWriter) {
+        lock.lock()
+        videoWriter = writer
+        lock.unlock()
+    }
 
     func stream(
         _ stream: SCStream,
@@ -736,33 +711,51 @@ private final class ScreenFrameSource: NSObject, SCStreamOutput {
         guard outputType == .screen,
               sampleBuffer.isValid,
               CMSampleBufferDataIsReady(sampleBuffer),
-              let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)
+              CMSampleBufferGetImageBuffer(sampleBuffer) != nil
         else {
             return
         }
 
-        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-        guard let frame = context.createCGImage(
-            ciImage,
-            from: ciImage.extent
-        ) else {
-            return
-        }
+        lock.lock()
+        let writer = videoWriter
+        lock.unlock()
+        writer?.append(sampleBuffer)
+
+        let attachments = CMSampleBufferGetSampleAttachmentsArray(
+            sampleBuffer,
+            createIfNecessary: false
+        ) as? [[SCStreamFrameInfo: Any]]
+        let captureFrame = (
+            attachments?.first?[.screenRect] as? NSValue
+        )?.rectValue
 
         lock.lock()
-        image = frame
+        snapshot = CapturedFrameSnapshot(
+            captureFrame: captureFrame ?? .zero
+        )
         lock.unlock()
     }
 
-    func latestImage() -> CGImage? {
+    /// Returns pixels and their same-sample screen rect under one lock.
+    func latestFrame(
+        fallbackCaptureFrame: CGRect
+    ) -> CapturedFrameSnapshot? {
         lock.lock()
         defer { lock.unlock() }
-        return image
+        guard let snapshot else { return nil }
+        return CapturedFrameSnapshot(
+            captureFrame: CaptureFrameGeometry.preferredFrame(
+                sampleFrame: snapshot.captureFrame,
+                liveWindowFrame: nil,
+                fallbackFrame: fallbackCaptureFrame
+            )
+        )
     }
 
     func clear() {
         lock.lock()
-        image = nil
+        snapshot = nil
+        videoWriter = nil
         lock.unlock()
     }
 }
@@ -818,10 +811,6 @@ private final class RecordingHUDController {
         panel.sharingType = .none
     }
 
-    var clickCount: Int {
-        model.clickCount
-    }
-
     func show(on screen: NSScreen) {
         panel.setFrameOrigin(
             RecordingHUDLayout.initialOrigin(
@@ -836,10 +825,6 @@ private final class RecordingHUDController {
         model.state = state
     }
 
-    func setPendingClicks(_ count: Int) {
-        model.pendingClicks = count
-    }
-
     func close() {
         panel.orderOut(nil)
         panel.close()
@@ -849,14 +834,6 @@ private final class RecordingHUDController {
 @MainActor
 private final class RecordingHUDModel: ObservableObject {
     @Published var state: RecordingState = .preparing
-    @Published var pendingClicks = 0
-
-    var clickCount: Int {
-        if case let .recording(clicks) = state {
-            return clicks
-        }
-        return 0
-    }
 }
 
 private struct RecordingHUDView: View {
@@ -917,20 +894,18 @@ private struct RecordingHUDView: View {
         case let .recording(clicks):
             return "\(clicks) click\(clicks == 1 ? "" : "s") captured"
         case .stopping:
-            return "Saving the last screen"
+            return "Finalizing video"
         }
     }
 
     private var detail: String {
         switch model.state {
         case .recording:
-            return model.pendingClicks == 0
-                ? "Every click becomes the next interactive step."
-                : "Processing \(model.pendingClicks) queued click\(model.pendingClicks == 1 ? "" : "s")…"
+            return "Video and clicks share the same recording timeline."
         case .countdown:
             return "Bring the product you want to record to the front."
         case .stopping:
-            return "Storybird will return to the editor."
+            return "Storybird will open the timeline after the MP4 is complete."
         default:
             return "Choose the product window during the countdown."
         }

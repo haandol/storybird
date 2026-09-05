@@ -1,4 +1,3 @@
-import AppKit
 import CoreGraphics
 import StorybirdCore
 @testable import Storybird
@@ -26,41 +25,43 @@ final class RecordingCoordinatorTests: XCTestCase {
         XCTAssertEqual(origin.y, 25)
     }
 
-    func test_clickIngress_freezesCoordinatesAgainstAcceptedCaptureFrame() throws {
-        let ingress = RecordedClickIngress()
-        let image = try makeImage()
+    func test_timedClickIngress_mapsQuartzPointToVideoTimeline() throws {
+        let ingress = TimedClickIngress()
         ingress.start()
 
         let accepted = ingress.accept(
             screenPoint: CGPoint(x: 500, y: 250),
             captureFrame: CGRect(x: 100, y: 100, width: 800, height: 600),
-            screenImage: image
+            time: 1.25,
+            button: .right
         )
 
-        let click = try XCTUnwrap(ingress.takeAcceptedClicks().first)
+        let click = try XCTUnwrap(ingress.acceptedClicks().first)
         XCTAssertTrue(accepted)
-        XCTAssertEqual(click.normalizedPoint.x, 0.5, accuracy: 0.001)
-        XCTAssertEqual(click.normalizedPoint.y, 0.25, accuracy: 0.001)
-        XCTAssertTrue(click.screenImage === image)
+        XCTAssertEqual(click.time, 1.25, accuracy: 0.001)
+        XCTAssertEqual(click.x, 0.5, accuracy: 0.001)
+        XCTAssertEqual(click.y, 0.25, accuracy: 0.001)
+        XCTAssertEqual(click.button, .right)
     }
 
-    func test_clickIngress_preservesOrderAndRejectsClicksAfterStop() throws {
-        let ingress = RecordedClickIngress()
-        let image = try makeImage()
+    func test_timedClickIngress_preservesOrderAndRejectsAfterStop() {
+        let ingress = TimedClickIngress()
         ingress.start()
 
         XCTAssertTrue(
             ingress.accept(
                 screenPoint: CGPoint(x: 10, y: 10),
                 captureFrame: CGRect(x: 0, y: 0, width: 100, height: 100),
-                screenImage: image
+                time: 0.5,
+                button: .left
             )
         )
         XCTAssertTrue(
             ingress.accept(
                 screenPoint: CGPoint(x: 20, y: 20),
                 captureFrame: CGRect(x: 0, y: 0, width: 100, height: 100),
-                screenImage: image
+                time: 0.75,
+                button: .right
             )
         )
 
@@ -70,123 +71,111 @@ final class RecordingCoordinatorTests: XCTestCase {
             ingress.accept(
                 screenPoint: CGPoint(x: 30, y: 30),
                 captureFrame: CGRect(x: 0, y: 0, width: 100, height: 100),
-                screenImage: image
+                time: 1,
+                button: .left
             )
         )
-        let clicks = ingress.takeAcceptedClicks()
-        XCTAssertEqual(clicks.map(\.normalizedPoint.x), [0.1, 0.2])
-        XCTAssertEqual(clicks.map(\.normalizedPoint.y), [0.1, 0.2])
+        let clicks = ingress.acceptedClicks()
+        XCTAssertEqual(clicks.map(\.time), [0.5, 0.75])
+        XCTAssertEqual(clicks.map(\.x), [0.1, 0.2])
+        XCTAssertEqual(clicks.map(\.button), [.left, .right])
     }
 
-    func test_clickProcessor_drainsTwoClicksInOrderBeforeStopReturns() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let repository = ProjectRepository(rootURL: root)
-        let project = DemoProject(name: "Ordered recording")
-        try repository.saveProjects([project])
-        let store = AppStore(repository: repository)
-        let firstStepID = try store.beginRecordedFlow(
-            with: image(color: .red),
-            in: project.id
+    func test_captureSourceCatalog_acceptsOrdinaryWindowAtMinimumSize() {
+        let window = CaptureWindowFacts(
+            isOnScreen: true,
+            layer: 0,
+            frame: CGRect(x: 0, y: 0, width: 220, height: 120),
+            bundleIdentifier: "com.example.target",
+            applicationName: "Target"
         )
-        var resultImages = [
-            try cgImage(color: .blue),
-            try cgImage(color: .yellow),
+
+        XCTAssertTrue(
+            CaptureSourceCatalog.isOrdinaryWindow(
+                window,
+                storybirdBundleIdentifier: "com.storybird.app"
+            )
+        )
+    }
+
+    func test_captureSourceCatalog_rejectsSystemSelfAndUtilityWindows() {
+        let ordinary = CaptureWindowFacts(
+            isOnScreen: true,
+            layer: 0,
+            frame: CGRect(x: 0, y: 0, width: 220, height: 120),
+            bundleIdentifier: "com.example.target",
+            applicationName: "Target"
+        )
+        let rejected = [
+            CaptureWindowFacts(
+                isOnScreen: false,
+                layer: ordinary.layer,
+                frame: ordinary.frame,
+                bundleIdentifier: ordinary.bundleIdentifier,
+                applicationName: ordinary.applicationName
+            ),
+            CaptureWindowFacts(
+                isOnScreen: ordinary.isOnScreen,
+                layer: 1,
+                frame: ordinary.frame,
+                bundleIdentifier: ordinary.bundleIdentifier,
+                applicationName: ordinary.applicationName
+            ),
+            CaptureWindowFacts(
+                isOnScreen: ordinary.isOnScreen,
+                layer: ordinary.layer,
+                frame: CGRect(x: 0, y: 0, width: 219, height: 120),
+                bundleIdentifier: ordinary.bundleIdentifier,
+                applicationName: ordinary.applicationName
+            ),
+            CaptureWindowFacts(
+                isOnScreen: ordinary.isOnScreen,
+                layer: ordinary.layer,
+                frame: ordinary.frame,
+                bundleIdentifier: "com.storybird.app",
+                applicationName: "Storybird"
+            ),
+            CaptureWindowFacts(
+                isOnScreen: ordinary.isOnScreen,
+                layer: ordinary.layer,
+                frame: ordinary.frame,
+                bundleIdentifier: nil,
+                applicationName: "StorybirdMCP"
+            ),
+            CaptureWindowFacts(
+                isOnScreen: ordinary.isOnScreen,
+                layer: ordinary.layer,
+                frame: ordinary.frame,
+                bundleIdentifier: nil,
+                applicationName: "Window Server"
+            ),
         ]
-        var savedCounts: [Int] = []
-        var failures: [Error] = []
-        let processor = RecordedClickProcessor(
-            currentStepID: firstStepID,
-            resultDelay: .zero,
-            resultImageProvider: {
-                resultImages.removeFirst()
-            },
-            persistClick: { click, resultingImage, sourceStepID in
-                try store.appendRecordedClick(
-                    at: click.normalizedPoint,
-                    clickedImage: click.screenImage.storybirdTestImage,
-                    resultingImage: resultingImage.storybirdTestImage,
-                    from: sourceStepID,
-                    in: project.id
+
+        for window in rejected {
+            XCTAssertFalse(
+                CaptureSourceCatalog.isOrdinaryWindow(
+                    window,
+                    storybirdBundleIdentifier: "com.storybird.app"
                 )
-            },
-            didUpdatePending: { _ in },
-            didSaveClick: { savedCounts.append($0) },
-            didFail: { failures.append($0) }
-        )
-        processor.enqueue(
-            [
-                RecordedClick(
-                    normalizedPoint: CGPoint(x: 0.1, y: 0.2),
-                    screenImage: try cgImage(color: .green)
-                ),
-                RecordedClick(
-                    normalizedPoint: CGPoint(x: 0.3, y: 0.4),
-                    screenImage: try cgImage(color: .cyan)
-                ),
-            ]
-        )
+            )
+        }
+    }
 
-        await processor.stopAndDrain()
-
-        let updated = try XCTUnwrap(store.project(id: project.id))
-        XCTAssertTrue(failures.isEmpty)
-        XCTAssertEqual(savedCounts, [1, 2])
-        XCTAssertEqual(updated.steps.count, 3)
+    func test_captureSourceCatalog_usesTrimmedTitleOrApplicationFallback() {
         XCTAssertEqual(
-            updated.steps[0].hotspots.first?.targetStepID,
-            updated.steps[1].id
+            CaptureSourceCatalog.windowPresentation(
+                title: "  Demo Window  ",
+                applicationName: "Demo App"
+            ).title,
+            "Demo Window"
         )
         XCTAssertEqual(
-            updated.steps[1].hotspots.first?.targetStepID,
-            updated.steps[2].id
+            CaptureSourceCatalog.windowPresentation(
+                title: "   ",
+                applicationName: "Demo App"
+            ).title,
+            "Demo App"
         )
-        XCTAssertEqual(updated.steps[0].hotspots.first?.x, 0.1)
-        XCTAssertEqual(updated.steps[1].hotspots.first?.x, 0.3)
-    }
-
-    private func makeImage() throws -> CGImage {
-        let context = try XCTUnwrap(
-            CGContext(
-                data: nil,
-                width: 1,
-                height: 1,
-                bitsPerComponent: 8,
-                bytesPerRow: 4,
-                space: CGColorSpaceCreateDeviceRGB(),
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-            )
-        )
-        return try XCTUnwrap(context.makeImage())
-    }
-
-    private func image(color: NSColor) -> NSImage {
-        let image = NSImage(size: NSSize(width: 8, height: 8))
-        image.lockFocus()
-        color.setFill()
-        NSRect(x: 0, y: 0, width: 8, height: 8).fill()
-        image.unlockFocus()
-        return image
-    }
-
-    private func cgImage(color: NSColor) throws -> CGImage {
-        let image = image(color: color)
-        return try XCTUnwrap(
-            image.cgImage(
-                forProposedRect: nil,
-                context: nil,
-                hints: nil
-            )
-        )
-    }
-}
-
-private extension CGImage {
-    var storybirdTestImage: NSImage {
-        NSImage(
-            cgImage: self,
-            size: NSSize(width: width, height: height)
-        )
+        XCTAssertEqual(CaptureSourceCatalog.maximumWindowCount, 30)
     }
 }
