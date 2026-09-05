@@ -14,6 +14,7 @@ final class MCPFeatureParityTests: XCTestCase {
             StorybirdMCPService.toolDefinitions.map(\.name)
         )
         let required = Set([
+            "storybird_abort_session",
             "storybird_create_project",
             "storybird_split_clip",
             "storybird_trim_clip",
@@ -21,9 +22,13 @@ final class MCPFeatureParityTests: XCTestCase {
             "storybird_move_clip",
             "storybird_set_clip_speed",
             "storybird_insert_freeze",
+            "storybird_create_click",
             "storybird_delete_click",
             "storybird_delete_subtitle",
-            "storybird_create_effect",
+            "storybird_create_spotlight",
+            "storybird_create_pan_zoom",
+            "storybird_insert_title",
+            "storybird_insert_cta",
             "storybird_update_effect",
             "storybird_delete_effect",
             "storybird_update_suggestion",
