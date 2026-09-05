@@ -268,10 +268,10 @@ struct VideoTimelineEditorView: View {
                         )
                     }
                     .scaleEffect(
-                        activeCamera.scale,
+                        CGFloat(activeCamera.scale),
                         anchor: UnitPoint(
-                            x: activeCamera.x,
-                            y: activeCamera.y
+                            x: CGFloat(activeCamera.x),
+                            y: CGFloat(activeCamera.y)
                         )
                     )
                     VideoScreenOverlayCanvas(
@@ -318,32 +318,10 @@ struct VideoTimelineEditorView: View {
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
     }
 
-    private var activeCamera: (x: CGFloat, y: CGFloat, scale: CGFloat) {
-        guard let effect = project.effects.compactMap({
-            if case let .panZoom(value) = $0,
-               value.startTime <= playback.currentTime,
-               playback.currentTime <= value.endTime {
-                return value
-            }
-            return nil
-        }).first else {
-            return (0.5, 0.5, 1)
-        }
-        let progress = min(
-            max(
-                (playback.currentTime - effect.startTime)
-                    / max(effect.endTime - effect.startTime, 0.001),
-                0
-            ),
-            1
-        )
-        return (
-            CGFloat(effect.startX + (effect.endX - effect.startX) * progress),
-            CGFloat(effect.startY + (effect.endY - effect.startY) * progress),
-            CGFloat(
-                effect.startScale
-                    + (effect.endScale - effect.startScale) * progress
-            )
+    private var activeCamera: VideoCameraPresentation {
+        VideoOverlayPresentation.camera(
+            in: project,
+            at: playback.currentTime
         )
     }
 
@@ -756,24 +734,16 @@ private struct VideoOverlayCanvas: View {
                 $0.indicator.startTime <= time
                     && time <= $0.indicator.endTime
             }) { click in
+                let presentation = VideoOverlayPresentation.clickRing(
+                    for: click,
+                    at: time,
+                    camera: .identity
+                )
                 let point = VideoOverlayLayout.clickPoint(
-                    x: click.x,
-                    y: click.y,
+                    x: presentation.point.x,
+                    y: presentation.point.y,
                     in: imageFrame,
                     axis: .topDown
-                )
-                let progress = min(
-                    max(
-                        (
-                            time - click.time
-                                + VideoOverlayTiming.clickLead
-                        ) / (
-                            VideoOverlayTiming.clickLead
-                                + VideoOverlayTiming.clickTail
-                        ),
-                        0
-                    ),
-                    1
                 )
                 Circle()
                     .fill(Color(hex: click.indicator.colorHex).opacity(0.18))
@@ -786,12 +756,13 @@ private struct VideoOverlayCanvas: View {
                     )
                     .frame(
                         width: metrics.clickRingDiameter * click.indicator.size
-                            * (0.65 + 0.7 * progress),
+                            * CGFloat(presentation.diameterScale),
                         height: metrics.clickRingDiameter * click.indicator.size
-                            * (0.65 + 0.7 * progress)
+                            * CGFloat(presentation.diameterScale)
                     )
                     .opacity(
-                        click.indicator.opacity * (1 - progress * 0.85)
+                        click.indicator.opacity
+                            * presentation.opacityScale
                     )
                     .position(point)
             }
@@ -860,9 +831,19 @@ private struct VideoScreenOverlayCanvas: View {
                             style: FillStyle(eoFill: true)
                         )
                 case let .title(value):
-                    card(title: value.title, secondary: value.subtitle)
+                    card(
+                        title: value.title,
+                        secondary: value.subtitle,
+                        style: value.style,
+                        metrics: metrics
+                    )
                 case let .cta(value):
-                    card(title: value.title, secondary: value.buttonLabel)
+                    card(
+                        title: value.title,
+                        secondary: value.buttonLabel,
+                        style: value.style,
+                        metrics: metrics
+                    )
                 case .panZoom:
                     EmptyView()
                 }
@@ -877,21 +858,49 @@ private struct VideoScreenOverlayCanvas: View {
         }
     }
 
-    private func card(title: String, secondary: String) -> some View {
+    private func card(
+        title: String,
+        secondary: String,
+        style: TextOverlayStyle,
+        metrics: VideoOverlayMetrics
+    ) -> some View {
         ZStack {
-            Color.black.opacity(0.88)
+            Color(hex: style.backgroundHex)
+                .opacity(style.backgroundOpacity)
             VStack(spacing: 12) {
                 Text(title)
-                    .font(.system(size: 32, weight: .bold))
+                    .font(
+                        .system(
+                            size: VideoOverlayPresentation
+                                .cardTitleFontSize(
+                                    style: style,
+                                    metrics: metrics
+                                ),
+                            weight: .bold
+                        )
+                    )
                 if !secondary.isEmpty {
                     Text(secondary)
-                        .font(.headline)
+                        .font(
+                            .system(
+                                size: VideoOverlayPresentation
+                                    .cardSecondaryFontSize(
+                                        style: style,
+                                        metrics: metrics
+                                    ),
+                                weight: .semibold
+                            )
+                        )
                         .padding(.horizontal, 18)
                         .padding(.vertical, 9)
-                        .background(.white.opacity(0.15), in: Capsule())
+                        .background(
+                            Color(hex: style.foregroundHex)
+                                .opacity(0.15),
+                            in: Capsule()
+                        )
                 }
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(Color(hex: style.foregroundHex))
         }
         .frame(width: imageFrame.width, height: imageFrame.height)
         .position(x: imageFrame.midX, y: imageFrame.midY)
@@ -931,7 +940,10 @@ private struct VideoSubtitleOverlay: View {
             VideoOverlayLabel(
                 text: subtitle.text,
                 style: subtitle.style,
-                fontSize: metrics.subtitleFontSize,
+                fontSize: VideoOverlayPresentation.fontSize(
+                    style: subtitle.style,
+                    metrics: metrics
+                ),
                 metrics: metrics
             )
             .frame(
@@ -979,7 +991,10 @@ private struct VideoClickCaptionOverlay: View {
         VideoOverlayLabel(
             text: click.caption,
             style: click.captionStyle,
-            fontSize: metrics.captionFontSize,
+            fontSize: VideoOverlayPresentation.fontSize(
+                style: click.captionStyle,
+                metrics: metrics
+            ),
             metrics: metrics
         )
         .frame(width: width)

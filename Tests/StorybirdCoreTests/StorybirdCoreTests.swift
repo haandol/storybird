@@ -624,6 +624,173 @@ final class StorybirdCoreTests: XCTestCase {
         )
     }
 
+    func test_videoOverlayPresentation_customDescriptionSeparatesClickAndCaptionCoordinates() {
+        var click = TimedPointerClick(
+            time: 1,
+            x: 0.2,
+            y: 0.3,
+            caption: "Description"
+        )
+        click.description.position = .custom
+        click.description.x = 0.8
+        click.description.y = 0.7
+        let camera = VideoCameraPresentation.identity
+
+        let ring = VideoOverlayPresentation.clickPoint(
+            for: click,
+            camera: camera
+        )
+        let description = VideoOverlayPresentation.descriptionPoint(
+            for: click,
+            camera: camera
+        )
+
+        XCTAssertEqual(ring.x, 0.2, accuracy: 0.001)
+        XCTAssertEqual(ring.y, 0.3, accuracy: 0.001)
+        XCTAssertEqual(description.x, 0.8, accuracy: 0.001)
+        XCTAssertEqual(description.y, 0.7, accuracy: 0.001)
+    }
+
+    func test_videoOverlayPresentation_clickRingAnimationMatchesPreviewCurve() {
+        let click = TimedPointerClick(time: 2, x: 0.5, y: 0.5)
+        let camera = VideoCameraPresentation.identity
+        let start = VideoOverlayPresentation.clickRing(
+            for: click,
+            at: click.time - VideoOverlayTiming.clickLead,
+            camera: camera
+        )
+        let middle = VideoOverlayPresentation.clickRing(
+            for: click,
+            at: (
+                click.time - VideoOverlayTiming.clickLead
+                    + click.time + VideoOverlayTiming.clickTail
+            ) / 2,
+            camera: camera
+        )
+        let end = VideoOverlayPresentation.clickRing(
+            for: click,
+            at: click.time + VideoOverlayTiming.clickTail,
+            camera: camera
+        )
+
+        XCTAssertEqual(start.diameterScale, 0.65, accuracy: 0.001)
+        XCTAssertEqual(start.opacityScale, 1, accuracy: 0.001)
+        XCTAssertEqual(middle.diameterScale, 1, accuracy: 0.001)
+        XCTAssertEqual(middle.opacityScale, 0.575, accuracy: 0.001)
+        XCTAssertEqual(end.diameterScale, 1.35, accuracy: 0.001)
+        XCTAssertEqual(end.opacityScale, 0.15, accuracy: 0.001)
+    }
+
+    func test_videoOverlayPresentation_visibleLayerIDs_includeAnyActiveCueComponent() {
+        var click = TimedPointerClick(
+            time: 0.5,
+            x: 0.5,
+            y: 0.5,
+            caption: "Description"
+        )
+        click.indicator.startTime = 0
+        click.indicator.endTime = 1
+        click.description.startTime = 2
+        click.description.endTime = 3
+        click.cueSubtitle.text = "Cue subtitle"
+        click.cueSubtitle.startTime = 4
+        click.cueSubtitle.endTime = 5
+        let project = DemoProject(
+            name: "Visibility",
+            recording: VideoRecordingAsset(
+                filename: "recording.mp4",
+                duration: 6,
+                width: 640,
+                height: 480
+            ),
+            clicks: [click]
+        )
+
+        XCTAssertEqual(
+            VideoOverlayPresentation.visibleLayerIDs(
+                in: project,
+                at: 2.5
+            ),
+            [click.id]
+        )
+        XCTAssertEqual(
+            VideoOverlayPresentation.visibleLayerIDs(
+                in: project,
+                at: 4.5
+            ),
+            [click.id]
+        )
+        XCTAssertTrue(
+            VideoOverlayPresentation.visibleLayerIDs(
+                in: project,
+                at: 5.5
+            ).isEmpty
+        )
+    }
+
+    func test_videoOverlayPresentation_cameraInterpolatesAndTransformsPoint() {
+        let project = DemoProject(
+            name: "Camera",
+            recording: VideoRecordingAsset(
+                filename: "recording.mp4",
+                duration: 10,
+                width: 640,
+                height: 480
+            ),
+            effects: [
+                .panZoom(
+                    PanZoomEffect(
+                        startTime: 0,
+                        endTime: 10,
+                        startX: 0.2,
+                        startY: 0.3,
+                        startScale: 1,
+                        endX: 0.8,
+                        endY: 0.7,
+                        endScale: 3
+                    )
+                ),
+            ]
+        )
+
+        let camera = VideoOverlayPresentation.camera(
+            in: project,
+            at: 5
+        )
+        let transformed = camera.transform(x: 0.6, y: 0.5)
+
+        XCTAssertEqual(camera.x, 0.5, accuracy: 0.001)
+        XCTAssertEqual(camera.y, 0.5, accuracy: 0.001)
+        XCTAssertEqual(camera.scale, 2, accuracy: 0.001)
+        XCTAssertEqual(transformed.x, 0.7, accuracy: 0.001)
+        XCTAssertEqual(transformed.y, 0.5, accuracy: 0.001)
+    }
+
+    func test_videoOverlayPresentation_fontSizeUsesPersistedStyle() {
+        let metrics = VideoOverlayMetrics(
+            frameSize: CGSize(width: 720, height: 720)
+        )
+        let style = TextOverlayStyle(fontSize: 30)
+
+        XCTAssertEqual(
+            VideoOverlayPresentation.fontSize(
+                style: style,
+                metrics: metrics
+            ),
+            30,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            VideoOverlayPresentation.fontSize(
+                style: style,
+                metrics: metrics,
+                contentScale: 2
+            ),
+            60,
+            accuracy: 0.001
+        )
+    }
+
     private func validVideoProject() -> DemoProject {
         DemoProject(
             name: "Video",

@@ -232,12 +232,10 @@ actor LayeredVideoExporter {
         projectTime: Double
     ) async throws -> Data {
         try VideoProjectValidator.validate(project)
+        let schedule = VideoTimelineSchedule(project: project)
         guard projectTime >= 0,
               projectTime < project.timelineDuration,
-              let sourceTime = VideoTimelineEditor.sourceTime(
-                in: project,
-                at: projectTime
-              )
+              let sourceTime = schedule.sourceFrameTime(at: projectTime)
         else {
             throw LayeredVideoExportError.recordingMetadataMismatch
         }
@@ -442,7 +440,10 @@ actor LayeredVideoExporter {
         let metrics = VideoOverlayMetrics(frameSize: frame.size)
         let time = CMTimeGetSeconds(presentationTime)
         guard time.isFinite else { return source }
-        let camera = activeCamera(in: project, at: time)
+        let camera = VideoOverlayPresentation.camera(
+            in: project,
+            at: time
+        )
         var result = applyCamera(camera, to: source, frame: frame)
 
         if let spotlight = project.effects.compactMap({
@@ -463,31 +464,27 @@ actor LayeredVideoExporter {
         for click in project.clicks where
             click.indicator.startTime <= time
                 && time <= click.indicator.endTime {
-            let descriptionX = click.description.position == .custom
-                ? click.description.x
-                : click.x
-            let descriptionY = click.description.position == .custom
-                ? click.description.y
-                : click.y
-            let transformed = cameraPoint(
-                x: descriptionX,
-                y: descriptionY,
+            let presentation = VideoOverlayPresentation.clickRing(
+                for: click,
+                at: time,
                 camera: camera
             )
             let center = VideoOverlayLayout.clickPoint(
-                x: transformed.x,
-                y: transformed.y,
+                x: presentation.point.x,
+                y: presentation.point.y,
                 in: frame,
                 axis: .bottomUp
             )
             let diameter = metrics.clickRingDiameter
                 * click.indicator.size
-                * camera.scale
+                * CGFloat(camera.scale)
+                * CGFloat(presentation.diameterScale)
             if let ring = makeRingImage(
                 size: CGSize(width: diameter, height: diameter),
                 color: color(
                     hex: click.indicator.colorHex,
                     opacity: click.indicator.opacity
+                        * presentation.opacityScale
                 )
             ) {
                 result = CIImage(cgImage: ring)
@@ -507,12 +504,15 @@ actor LayeredVideoExporter {
             ).isEmpty
                 && click.description.startTime <= time
                 && time <= click.description.endTime {
-            let transformed = cameraPoint(
-                x: click.x,
-                y: click.y,
+            let transformed = VideoOverlayPresentation.descriptionPoint(
+                for: click,
                 camera: camera
             )
-            let fontSize = metrics.captionFontSize * camera.scale
+            let fontSize = VideoOverlayPresentation.fontSize(
+                style: click.description.style,
+                metrics: metrics,
+                contentScale: camera.scale
+            )
             let geometry = labelGeometry(
                 text: click.caption,
                 fontSize: fontSize,
@@ -617,40 +617,8 @@ actor LayeredVideoExporter {
         return result
     }
 
-    private static func activeCamera(
-        in project: DemoProject,
-        at time: Double
-    ) -> (x: Double, y: Double, scale: CGFloat) {
-        guard let effect = project.effects.compactMap({
-            if case let .panZoom(value) = $0,
-               value.startTime <= time,
-               time <= value.endTime {
-                return value
-            }
-            return nil
-        }).first else {
-            return (0.5, 0.5, 1)
-        }
-        let progress = min(
-            max(
-                (time - effect.startTime)
-                    / max(effect.endTime - effect.startTime, 0.001),
-                0
-            ),
-            1
-        )
-        return (
-            effect.startX + (effect.endX - effect.startX) * progress,
-            effect.startY + (effect.endY - effect.startY) * progress,
-            CGFloat(
-                effect.startScale
-                    + (effect.endScale - effect.startScale) * progress
-            )
-        )
-    }
-
     private static func applyCamera(
-        _ camera: (x: Double, y: Double, scale: CGFloat),
+        _ camera: VideoCameraPresentation,
         to source: CIImage,
         frame: CGRect
     ) -> CIImage {
@@ -668,20 +636,12 @@ actor LayeredVideoExporter {
             translationX: frame.midX,
             y: frame.midY
         )
-        .scaledBy(x: camera.scale, y: camera.scale)
+        .scaledBy(
+            x: CGFloat(camera.scale),
+            y: CGFloat(camera.scale)
+        )
         .translatedBy(x: -center.x, y: -center.y)
         return source.transformed(by: transform).cropped(to: frame)
-    }
-
-    private static func cameraPoint(
-        x: Double,
-        y: Double,
-        camera: (x: Double, y: Double, scale: CGFloat)
-    ) -> (x: Double, y: Double) {
-        (
-            0.5 + (x - camera.x) * Double(camera.scale),
-            0.5 + (y - camera.y) * Double(camera.scale)
-        )
     }
 
     private static func compositeSubtitleText(
@@ -692,7 +652,10 @@ actor LayeredVideoExporter {
         frame: CGRect,
         metrics: VideoOverlayMetrics
     ) -> CIImage {
-        let fontSize = CGFloat(style.fontSize) * metrics.scale
+        let fontSize = VideoOverlayPresentation.fontSize(
+            style: style,
+            metrics: metrics
+        )
         let geometry = labelGeometry(
             text: text,
             fontSize: fontSize,
@@ -759,6 +722,7 @@ actor LayeredVideoExporter {
         over source: CIImage,
         frame: CGRect
     ) -> CIImage {
+        let metrics = VideoOverlayMetrics(frameSize: frame.size)
         let background = CIImage(
             color: CIColor(
                 cgColor: color(
@@ -770,7 +734,10 @@ actor LayeredVideoExporter {
         var result = background.composited(over: source)
         result = compositeTextRaster(
             title,
-            fontSize: max(CGFloat(style.fontSize) * 2, 24),
+            fontSize: VideoOverlayPresentation.cardTitleFontSize(
+                style: style,
+                metrics: metrics
+            ),
             in: CGRect(
                 x: frame.width * 0.15,
                 y: frame.height * 0.48,
@@ -781,9 +748,28 @@ actor LayeredVideoExporter {
             over: result
         )
         if !secondary.isEmpty {
+            let labelRect = CGRect(
+                x: frame.width * 0.25,
+                y: frame.height * 0.31,
+                width: frame.width * 0.5,
+                height: frame.height * 0.14
+            )
+            let labelBackground = CIImage(
+                color: CIColor(
+                    cgColor: color(
+                        hex: style.foregroundHex,
+                        opacity: 0.15
+                    )
+                )
+            ).cropped(to: labelRect)
+            result = labelBackground.composited(over: result)
             result = compositeTextRaster(
                 secondary,
-                fontSize: max(CGFloat(style.fontSize), 14),
+                fontSize:
+                    VideoOverlayPresentation.cardSecondaryFontSize(
+                        style: style,
+                        metrics: metrics
+                    ),
                 in: CGRect(
                     x: frame.width * 0.25,
                     y: frame.height * 0.33,

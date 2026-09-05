@@ -550,16 +550,10 @@ final class StorybirdExternalControlHost {
         in project: DemoProject,
         at time: Double
     ) -> [String] {
-        let clickIDs = project.clicks.filter {
-            $0.indicator.startTime <= time && time <= $0.indicator.endTime
-        }.map { $0.id.uuidString }
-        let subtitleIDs = project.subtitles.filter {
-            $0.startTime <= time && time <= $0.endTime
-        }.map { $0.id.uuidString }
-        let effectIDs = project.effects.filter {
-            $0.startTime <= time && time <= $0.endTime
-        }.map { $0.id.uuidString }
-        return clickIDs + subtitleIDs + effectIDs
+        VideoOverlayPresentation.visibleLayerIDs(
+            in: project,
+            at: time
+        ).map(\.uuidString)
     }
 
     /// Adds or updates one bounded subtitle through the app-owned project writer.

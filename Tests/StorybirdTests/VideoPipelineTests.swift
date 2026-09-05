@@ -211,6 +211,132 @@ final class VideoPipelineTests: XCTestCase {
         XCTAssertLessThan(center.blue, 255)
     }
 
+    func test_layeredVideoExporter_customDescription_keepsRingAtClickPosition() async throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let raw = root.appendingPathComponent("raw.mp4")
+        let writer = try ScreenVideoWriter(outputURL: raw)
+        for frame in 0..<30 {
+            writer.append(
+                try sampleBuffer(
+                    red: 0,
+                    green: 0,
+                    blue: 255,
+                    width: 320,
+                    height: 180,
+                    presentationTime: CMTime(
+                        value: CMTimeValue(frame),
+                        timescale: 30
+                    )
+                )
+            )
+        }
+        let result = try await writer.finish()
+        var click = TimedPointerClick(
+            time: 0.4,
+            x: 0.2,
+            y: 0.5,
+            caption: "Custom description"
+        ).bounded(to: result.duration)
+        click.indicator.colorHex = "#FF0000"
+        click.description.position = .custom
+        click.description.x = 0.9
+        click.description.y = 0.5
+        let project = DemoProject(
+            name: "Custom description",
+            recording: VideoRecordingAsset(
+                filename: raw.lastPathComponent,
+                duration: result.duration,
+                width: result.width,
+                height: result.height
+            ),
+            clicks: [click]
+        )
+
+        let data = try await LayeredVideoExporter().previewPNG(
+            project: project,
+            sourceURL: raw,
+            projectTime: 0.45
+        )
+        let source = try XCTUnwrap(
+            CGImageSourceCreateWithData(data as CFData, nil)
+        )
+        let image = try XCTUnwrap(
+            CGImageSourceCreateImageAtIndex(source, 0, nil)
+        )
+        let bounds = try XCTUnwrap(redDominantBounds(in: image))
+
+        XCTAssertLessThan(
+            bounds.midX / CGFloat(image.width),
+            0.4
+        )
+    }
+
+    func test_layeredVideoExporter_titleCardPreview_rendersCardStyle() async throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let raw = root.appendingPathComponent("raw.mp4")
+        let writer = try ScreenVideoWriter(outputURL: raw)
+        for frame in 0..<30 {
+            writer.append(
+                try sampleBuffer(
+                    red: 0,
+                    green: 0,
+                    blue: 255,
+                    width: 320,
+                    height: 180,
+                    presentationTime: CMTime(
+                        value: CMTimeValue(frame),
+                        timescale: 30
+                    )
+                )
+            )
+        }
+        let result = try await writer.finish()
+        var project = DemoProject(
+            name: "Title preview",
+            recording: VideoRecordingAsset(
+                filename: raw.lastPathComponent,
+                duration: result.duration,
+                width: result.width,
+                height: result.height
+            )
+        )
+        project = try DemoEffectEditor.insertTitle(
+            in: project,
+            after: nil,
+            duration: 1,
+            title: "Welcome"
+        )
+        guard case var .title(title) = project.effects[0] else {
+            return XCTFail("Expected title")
+        }
+        title.style = TextOverlayStyle(
+            backgroundHex: "#FF0000",
+            backgroundOpacity: 1,
+            foregroundHex: "#00FF00",
+            fontSize: 24
+        )
+        project.effects[0] = .title(title)
+
+        let data = try await LayeredVideoExporter().previewPNG(
+            project: project,
+            sourceURL: raw,
+            projectTime: 0.5
+        )
+        let source = try XCTUnwrap(
+            CGImageSourceCreateWithData(data as CFData, nil)
+        )
+        let image = try XCTUnwrap(
+            CGImageSourceCreateImageAtIndex(source, 0, nil)
+        )
+        let corner = try pixel(in: image, x: 4, y: 4)
+
+        XCTAssertGreaterThan(corner.red, 220)
+        XCTAssertLessThan(corner.green, 60)
+        XCTAssertLessThan(corner.blue, 60)
+    }
+
     func test_layeredVideoExporter_invalidSource_preservesExistingOutput() async throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -690,6 +816,63 @@ final class VideoPipelineTests: XCTestCase {
                     : 0
             )
         }
+    }
+
+    private func redDominantBounds(
+        in image: CGImage
+    ) throws -> CGRect? {
+        var data = [UInt8](
+            repeating: 0,
+            count: image.width * image.height * 4
+        )
+        let context = try XCTUnwrap(
+            CGContext(
+                data: &data,
+                width: image.width,
+                height: image.height,
+                bitsPerComponent: 8,
+                bytesPerRow: image.width * 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            )
+        )
+        context.draw(
+            image,
+            in: CGRect(
+                x: 0,
+                y: 0,
+                width: image.width,
+                height: image.height
+            )
+        )
+        var minimumX = image.width
+        var minimumY = image.height
+        var maximumX = -1
+        var maximumY = -1
+        for y in 0..<image.height {
+            for x in 0..<image.width {
+                let offset = (y * image.width + x) * 4
+                let red = Int(data[offset])
+                let green = Int(data[offset + 1])
+                let blue = Int(data[offset + 2])
+                guard red > green + 40, red > blue + 40 else {
+                    continue
+                }
+                minimumX = min(minimumX, x)
+                minimumY = min(minimumY, y)
+                maximumX = max(maximumX, x)
+                maximumY = max(maximumY, y)
+            }
+        }
+        guard maximumX >= minimumX, maximumY >= minimumY else {
+            return nil
+        }
+        return CGRect(
+            x: minimumX,
+            y: minimumY,
+            width: maximumX - minimumX + 1,
+            height: maximumY - minimumY + 1
+        )
     }
 
     private func temporaryDirectory() -> URL {

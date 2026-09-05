@@ -151,6 +151,38 @@ public struct VideoTimelineSchedule: Sendable {
         return nil
     }
 
+    /// Resolves a source frame for composited preview, including full-screen card segments.
+    public func sourceFrameTime(at projectTime: Double) -> Double? {
+        guard projectTime >= 0 else { return nil }
+        for item in items {
+            switch item {
+            case let .card(card):
+                if projectTime >= card.projectStart,
+                   projectTime < card.projectEnd {
+                    return card.sourceFrameTime
+                }
+            case let .clip(clip):
+                let isFinalEndpoint =
+                    Self.matches(projectTime, duration)
+                        && Self.matches(clip.projectEnd, duration)
+                guard projectTime >= clip.projectStart,
+                      projectTime < clip.projectEnd || isFinalEndpoint
+                else {
+                    continue
+                }
+                switch clip.clip.kind {
+                case .video:
+                    return clip.clip.sourceStart
+                        + (projectTime - clip.projectStart)
+                            * clip.clip.playbackRate
+                case .freeze:
+                    return clip.clip.sourceStart
+                }
+            }
+        }
+        return nil
+    }
+
     /// Returns the boundary after a clip and any existing cards attached to that boundary.
     public func insertionTime(after clipID: UUID?) -> Double? {
         guard let clipID else { return 0 }
