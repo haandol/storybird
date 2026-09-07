@@ -208,17 +208,118 @@ public struct StorybirdMCPService: Sendable {
                 annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false)
             ),
             Tool(
+                name: "storybird_split_clip",
+                title: "Split a video clip",
+                description: "Split one source-backed clip at an immutable recording time and return the new revision and clip IDs.",
+                inputSchema: Self.revisionedProjectSchema(
+                    properties: [
+                        "clip_id": .object(["type": "string"]),
+                        "source_time": .object([
+                            "type": "number",
+                            "minimum": 0.0,
+                        ]),
+                    ],
+                    required: ["clip_id", "source_time"]
+                ),
+                annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false)
+            ),
+            Tool(
+                name: "storybird_trim_clip",
+                title: "Trim a video clip",
+                description: "Keep one source-time range from a clip and remove linked layers outside that range.",
+                inputSchema: Self.revisionedProjectSchema(
+                    properties: [
+                        "clip_id": .object(["type": "string"]),
+                        "source_start": .object([
+                            "type": "number",
+                            "minimum": 0.0,
+                        ]),
+                        "source_end": .object([
+                            "type": "number",
+                            "minimum": 0.0,
+                        ]),
+                    ],
+                    required: ["clip_id", "source_start", "source_end"]
+                ),
+                annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false)
+            ),
+            Tool(
+                name: "storybird_delete_clip",
+                title: "Delete a timeline clip",
+                description: "Remove one clip from the edited timeline without changing the original recording.",
+                inputSchema: Self.revisionedProjectSchema(
+                    properties: [
+                        "clip_id": .object(["type": "string"]),
+                    ],
+                    required: ["clip_id"]
+                ),
+                annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false)
+            ),
+            Tool(
+                name: "storybird_move_clip",
+                title: "Move a timeline clip",
+                description: "Move one clip to a zero-based destination index and remap its linked layers.",
+                inputSchema: Self.revisionedProjectSchema(
+                    properties: [
+                        "clip_id": .object(["type": "string"]),
+                        "destination": .object([
+                            "type": "integer",
+                            "minimum": 0,
+                        ]),
+                    ],
+                    required: ["clip_id", "destination"]
+                ),
+                annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false)
+            ),
+            Tool(
+                name: "storybird_set_clip_speed",
+                title: "Set clip playback speed",
+                description: "Set one video clip from 0.25× through 4× and remap linked layers to the edited clock.",
+                inputSchema: Self.revisionedProjectSchema(
+                    properties: [
+                        "clip_id": .object(["type": "string"]),
+                        "rate": .object([
+                            "type": "number",
+                            "minimum": 0.25,
+                            "maximum": 4.0,
+                        ]),
+                    ],
+                    required: ["clip_id", "rate"]
+                ),
+                annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false)
+            ),
+            Tool(
+                name: "storybird_insert_freeze",
+                title: "Insert a freeze frame",
+                description: "Insert a positive-duration still frame after one clip at a source recording time.",
+                inputSchema: Self.revisionedProjectSchema(
+                    properties: [
+                        "clip_id": .object(["type": "string"]),
+                        "source_time": .object([
+                            "type": "number",
+                            "minimum": 0.0,
+                        ]),
+                        "duration": .object([
+                            "type": "number",
+                            "exclusiveMinimum": 0.0,
+                        ]),
+                    ],
+                    required: ["clip_id", "source_time", "duration"]
+                ),
+                annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false)
+            ),
+            Tool(
                 name: "storybird_undo_project",
                 title: "Undo one project edit",
                 description: "Undo one complete Storybird project edit.",
-                inputSchema: Self.projectIDSchema(),
+                inputSchema: Self.revisionedProjectSchema(),
                 annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false)
             ),
             Tool(
                 name: "storybird_redo_project",
                 title: "Redo one project edit",
                 description: "Redo one previously undone Storybird project edit.",
-                inputSchema: Self.projectIDSchema(),
+                inputSchema: Self.revisionedProjectSchema(),
                 annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false)
             ),
             Tool(
@@ -466,6 +567,29 @@ public struct StorybirdMCPService: Sendable {
                 ]),
             ],
             required: ["project_id"]
+        )
+    }
+
+    /// Builds the optimistic-concurrency envelope shared by project mutations.
+    private static func revisionedProjectSchema(
+        properties extraProperties: [String: Value] = [:],
+        required extraRequired: [String] = []
+    ) -> Value {
+        var properties: [String: Value] = [
+            "project_id": .object([
+                "type": "string",
+                "description": "Storybird project UUID.",
+            ]),
+            "expected_revision": .object([
+                "type": "integer",
+                "minimum": 0,
+                "description": "Revision returned by the latest project read or edit.",
+            ]),
+        ]
+        properties.merge(extraProperties) { _, replacement in replacement }
+        return objectSchema(
+            properties: properties,
+            required: ["project_id", "expected_revision"] + extraRequired
         )
     }
 

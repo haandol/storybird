@@ -188,7 +188,10 @@ public enum VideoTimelineEditor {
                 mappedClicks.append(mapped)
             }
         }
-        result.clicks = mappedClicks.sorted { $0.time < $1.time }
+        let timelineDuration = result.timelineDuration
+        result.clicks = mappedClicks.map {
+            boundedClickWindows($0, timelineDuration: timelineDuration)
+        }.sorted { $0.time < $1.time }
         let clickByID = Dictionary(
             uniqueKeysWithValues: result.clicks.map { ($0.id, $0) }
         )
@@ -206,6 +209,43 @@ public enum VideoTimelineEditor {
             moved.panZoom.endTime += offset
             return moved
         }
+        return result
+    }
+
+    /// Keeps all remapped Click Cue windows valid when an edit shortens the output timeline.
+    private static func boundedClickWindows(
+        _ click: TimedPointerClick,
+        timelineDuration: Double
+    ) -> TimedPointerClick {
+        var result = click
+        let minimumEnd = min(
+            max(click.time + 0.001, 0.001),
+            timelineDuration
+        )
+        result.indicator.startTime = min(
+            max(result.indicator.startTime, 0),
+            click.time
+        )
+        result.indicator.endTime = min(
+            max(result.indicator.endTime, minimumEnd),
+            timelineDuration
+        )
+        result.description.startTime = min(
+            max(result.description.startTime, 0),
+            click.time
+        )
+        result.description.endTime = min(
+            max(result.description.endTime, minimumEnd),
+            timelineDuration
+        )
+        result.cueSubtitle.startTime = min(
+            max(result.cueSubtitle.startTime, 0),
+            click.time
+        )
+        result.cueSubtitle.endTime = min(
+            max(result.cueSubtitle.endTime, minimumEnd),
+            timelineDuration
+        )
         return result
     }
 }

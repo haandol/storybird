@@ -32,6 +32,16 @@ final class StorybirdExternalControlHost {
         }
     }
 
+    private struct TimelineMutationResponse: Encodable {
+        let revision: Int
+        let clipIDs: [UUID]
+
+        private enum CodingKeys: String, CodingKey {
+            case revision
+            case clipIDs = "clip_ids"
+        }
+    }
+
     private unowned let store: AppStore
     private let recordingSession = StorybirdControlSession()
     private var server: StorybirdLocalControlServer?
@@ -87,6 +97,12 @@ final class StorybirdExternalControlHost {
             case "storybird_list_projects",
                  "storybird_get_project",
                  "storybird_replace_project",
+                 "storybird_split_clip",
+                 "storybird_trim_clip",
+                 "storybird_delete_clip",
+                 "storybird_move_clip",
+                 "storybird_set_clip_speed",
+                 "storybird_insert_freeze",
                  "storybird_undo_project",
                  "storybird_redo_project",
                  "storybird_update_project",
@@ -275,11 +291,105 @@ final class StorybirdExternalControlHost {
                     expectedRevision: expectedRevision
                 )
             )
+        case "storybird_split_clip":
+            let clipID = try Self.uuid("clip_id", in: arguments)
+            let sourceTime = try Self.double("source_time", in: arguments)
+            return try saveTimelineMutation(arguments) { project in
+                let existingIDs = Set(project.clips.map(\.id))
+                let edited = try VideoTimelineEditor.split(
+                    project: project,
+                    clipID: clipID,
+                    sourceTime: sourceTime
+                )
+                let insertedIDs = edited.clips.compactMap {
+                    existingIDs.contains($0.id) ? nil : $0.id
+                }
+                return (edited, [clipID] + insertedIDs)
+            }
+        case "storybird_trim_clip":
+            let clipID = try Self.uuid("clip_id", in: arguments)
+            let sourceStart = try Self.double(
+                "source_start",
+                in: arguments
+            )
+            let sourceEnd = try Self.double("source_end", in: arguments)
+            return try saveTimelineMutation(arguments) { project in
+                (
+                    try VideoTimelineEditor.trim(
+                        project: project,
+                        clipID: clipID,
+                        sourceStart: sourceStart,
+                        sourceEnd: sourceEnd
+                    ),
+                    [clipID]
+                )
+            }
+        case "storybird_delete_clip":
+            let clipID = try Self.uuid("clip_id", in: arguments)
+            return try saveTimelineMutation(arguments) { project in
+                (
+                    try VideoTimelineEditor.delete(
+                        project: project,
+                        clipID: clipID
+                    ),
+                    [clipID]
+                )
+            }
+        case "storybird_move_clip":
+            let clipID = try Self.uuid("clip_id", in: arguments)
+            let destination = try Self.requiredInt(
+                "destination",
+                in: arguments
+            )
+            return try saveTimelineMutation(arguments) { project in
+                (
+                    try VideoTimelineEditor.move(
+                        project: project,
+                        clipID: clipID,
+                        destination: destination
+                    ),
+                    [clipID]
+                )
+            }
+        case "storybird_set_clip_speed":
+            let clipID = try Self.uuid("clip_id", in: arguments)
+            let rate = try Self.double("rate", in: arguments)
+            return try saveTimelineMutation(arguments) { project in
+                (
+                    try VideoTimelineEditor.setSpeed(
+                        project: project,
+                        clipID: clipID,
+                        rate: rate
+                    ),
+                    [clipID]
+                )
+            }
+        case "storybird_insert_freeze":
+            let clipID = try Self.uuid("clip_id", in: arguments)
+            let sourceTime = try Self.double("source_time", in: arguments)
+            let duration = try Self.double("duration", in: arguments)
+            return try saveTimelineMutation(arguments) { project in
+                let existingIDs = Set(project.clips.map(\.id))
+                let edited = try VideoTimelineEditor.insertFreeze(
+                    project: project,
+                    after: clipID,
+                    sourceTime: sourceTime,
+                    duration: duration
+                )
+                let insertedIDs = edited.clips.compactMap {
+                    existingIDs.contains($0.id) ? nil : $0.id
+                }
+                return (edited, insertedIDs)
+            }
         case "storybird_undo_project":
             return try Self.jsonResponse(
                 try store.undo(
                     projectID: try Self.uuid(
                         "project_id",
+                        in: arguments
+                    ),
+                    expectedRevision: try Self.requiredInt(
+                        "expected_revision",
                         in: arguments
                     )
                 )
@@ -289,6 +399,10 @@ final class StorybirdExternalControlHost {
                 try store.redo(
                     projectID: try Self.uuid(
                         "project_id",
+                        in: arguments
+                    ),
+                    expectedRevision: try Self.requiredInt(
+                        "expected_revision",
                         in: arguments
                     )
                 )
@@ -408,6 +522,29 @@ final class StorybirdExternalControlHost {
         default:
             throw StorybirdControlWireError.invalidMessage
         }
+    }
+
+    /// Applies one native timeline command and returns its revision and changed clip IDs.
+    private func saveTimelineMutation(
+        _ arguments: [String: Any],
+        edit: (DemoProject) throws -> (DemoProject, [UUID])
+    ) throws -> StorybirdControlResponse {
+        let current = try project(from: arguments)
+        let expectedRevision = try Self.requiredInt(
+            "expected_revision",
+            in: arguments
+        )
+        let (edited, changedClipIDs) = try edit(current)
+        let saved = try store.saveProject(
+            edited,
+            expectedRevision: expectedRevision
+        )
+        return try Self.jsonResponse(
+            TimelineMutationResponse(
+                revision: saved.revision,
+                clipIDs: changedClipIDs
+            )
+        )
     }
 
     /// Handles synchronous and job-based MP4 export commands on one state machine.

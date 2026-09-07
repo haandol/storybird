@@ -96,10 +96,13 @@ Run the `.app` bundle rather than `swift run` when testing permissions.
 4. Storybird records the screen continuously and timestamps valid left/right
    clicks inside the selected source.
 5. Click **Stop** in the floating Storybird control.
-6. Select click layers on the timeline to edit their captions, positions,
+6. Use the aligned Video, Clicks, Subtitles, Effects, and Suggestions tracks to
+   see which layers overlap at the current playhead.
+7. Select a video block to split it, remove content before or after the
+   playhead, delete it, or apply the **1×**, **2×**, and **4×** speed presets.
+8. Select click and subtitle layers to edit their text, timing, position,
    colors, and opacity.
-7. Add top or bottom subtitles at the current playhead and edit their time range.
-8. Click **Export** and choose an MP4 destination.
+9. Click **Export** and choose an MP4 destination.
 
 Every recording creates a new project. Storybird does not append a new session
 to the currently selected project. Clicks outside the selected source are
@@ -135,7 +138,8 @@ one video project with non-duplicated timed clicks. The selected source PNG may
 be returned to the connected MCP client; that client controls any onward model
 or network disclosure.
 
-The companion also supports project listing, click-layer edits, subtitle
+The companion also supports project listing, revision-checked clip split, trim,
+delete, move, speed, and freeze-frame edits, click-layer edits, subtitle
 upsert, opening the timeline editor, MP4 export, and native-confirmed project
 deletion.
 

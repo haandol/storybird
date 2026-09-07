@@ -75,6 +75,14 @@ final class VideoPlaybackModel: ObservableObject {
     /// Replaces the player item with the current non-destructive clip composition.
     func rebuild(url: URL, project: DemoProject) {
         let resumeTime = min(currentTime, project.timelineDuration)
+        guard !project.clips.isEmpty else {
+            player.pause()
+            player.replaceCurrentItem(with: nil)
+            duration = 0
+            currentTime = 0
+            isPlaying = false
+            return
+        }
         Task {
             do {
                 let result = try await EditedVideoAssetBuilder.build(
@@ -125,6 +133,100 @@ private enum TimelineLayerSelection: Equatable {
     case suggestion(UUID)
 }
 
+struct TimelineTrackSpan: Identifiable, Equatable {
+    let id: UUID
+    let start: Double
+    let end: Double
+}
+
+enum TimelineTrackLayout {
+    /// Uses the canonical edited schedule so cards and speed changes leave every track aligned.
+    static func clipSpans(in project: DemoProject) -> [TimelineTrackSpan] {
+        VideoTimelineSchedule(project: project).items.compactMap { item in
+            guard case let .clip(value) = item else { return nil }
+            return TimelineTrackSpan(
+                id: value.clip.id,
+                start: value.projectStart,
+                end: value.projectEnd
+            )
+        }
+    }
+
+    /// Shows the complete Click Cue lifetime as one selectable timeline block.
+    static func clickSpans(in project: DemoProject) -> [TimelineTrackSpan] {
+        project.clicks.map { click in
+            boundedSpan(
+                id: click.id,
+                start: min(
+                    click.indicator.startTime,
+                    click.description.startTime,
+                    click.cueSubtitle.startTime
+                ),
+                end: max(
+                    click.indicator.endTime,
+                    click.description.endTime,
+                    click.cueSubtitle.endTime
+                ),
+                duration: project.timelineDuration
+            )
+        }
+    }
+
+    static func subtitleSpans(in project: DemoProject) -> [TimelineTrackSpan] {
+        project.subtitles.map {
+            boundedSpan(
+                id: $0.id,
+                start: $0.startTime,
+                end: $0.endTime,
+                duration: project.timelineDuration
+            )
+        }
+    }
+
+    static func effectSpans(in project: DemoProject) -> [TimelineTrackSpan] {
+        project.effects.map {
+            boundedSpan(
+                id: $0.id,
+                start: $0.startTime,
+                end: $0.endTime,
+                duration: project.timelineDuration
+            )
+        }
+    }
+
+    static func suggestionSpans(
+        in project: DemoProject
+    ) -> [TimelineTrackSpan] {
+        project.suggestions.map {
+            boundedSpan(
+                id: $0.id,
+                start: $0.splitTime,
+                end: $0.splitTime + 0.12,
+                duration: project.timelineDuration
+            )
+        }
+    }
+
+    private static func boundedSpan(
+        id: UUID,
+        start: Double,
+        end: Double,
+        duration: Double
+    ) -> TimelineTrackSpan {
+        let upperBound = max(duration, 0.001)
+        let boundedStart = min(max(start, 0), upperBound)
+        let boundedEnd = min(
+            max(end, boundedStart + 0.001),
+            upperBound
+        )
+        return TimelineTrackSpan(
+            id: id,
+            start: boundedStart,
+            end: max(boundedEnd, boundedStart)
+        )
+    }
+}
+
 struct VideoTimelineEditorView: View {
     @ObservedObject var store: AppStore
     @Binding var project: DemoProject
@@ -133,6 +235,12 @@ struct VideoTimelineEditorView: View {
     private let videoURL: URL
     @State private var selection: TimelineLayerSelection?
     @State private var isInspectorPresented = false
+
+    private static let timelineLabelWidth: CGFloat = 104
+    private static let timelineRulerHeight: CGFloat = 26
+    private static let timelineTrackHeight: CGFloat = 38
+    private static let timelineTrackSpacing: CGFloat = 6
+    private static let timelinePointsPerSecond: CGFloat = 48
 
     private var selectedClickID: UUID? {
         guard case let .click(id) = selection else { return nil }
@@ -157,6 +265,10 @@ struct VideoTimelineEditorView: View {
     private var selectedSuggestionID: UUID? {
         guard case let .suggestion(id) = selection else { return nil }
         return id
+    }
+
+    private var selectedClip: VideoClip? {
+        project.clips.first { $0.id == selectedClipID }
     }
 
     /// Binds one immutable raw video to the project's independently editable timeline layers.
@@ -327,10 +439,77 @@ struct VideoTimelineEditorView: View {
 
     private var timeline: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
+            timelineToolbar
+            timelineTrackEditor
+
+            if project.clips.isEmpty
+                && project.clicks.isEmpty
+                && project.subtitles.isEmpty
+                && project.effects.isEmpty
+                && project.suggestions.isEmpty {
+                Text("Recorded clips and layers will appear here.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(14)
+        .frame(minHeight: 286, alignment: .top)
+        .background(.bar.opacity(0.65))
+    }
+
+    private var timelineToolbar: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 8) {
                 Text("Timeline layers")
                     .font(.headline)
-                Spacer()
+
+                if selectedClip != nil {
+                    Divider()
+                        .frame(height: 20)
+                    Button {
+                        splitSelectedClip()
+                    } label: {
+                        Label("Split", systemImage: "scissors")
+                    }
+                    .disabled(!canSplitSelectedClip)
+
+                    Menu {
+                        Button("Remove before playhead") {
+                            trimSelectedClip(beforePlayhead: true)
+                        }
+                        .disabled(!canTrimSelectedClipBeforePlayhead)
+                        Button("Remove after playhead") {
+                            trimSelectedClip(beforePlayhead: false)
+                        }
+                        .disabled(!canTrimSelectedClipAfterPlayhead)
+                    } label: {
+                        Label("Trim", systemImage: "crop")
+                    }
+                    .disabled(selectedClip?.kind != .video)
+
+                    Menu {
+                        Button("1× Normal") { setSelectedClipSpeed(1) }
+                        Button("2× Faster") { setSelectedClipSpeed(2) }
+                        Button("4× Faster") { setSelectedClipSpeed(4) }
+                    } label: {
+                        Label(
+                            selectedClip.map {
+                                Self.speed($0.playbackRate)
+                            } ?? "Speed",
+                            systemImage: "gauge.with.dots.needle.67percent"
+                        )
+                    }
+                    .disabled(selectedClip?.kind != .video)
+
+                    Button(role: .destructive) {
+                        deleteSelectedClip()
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
+                }
+
+                Spacer(minLength: 12)
+
                 Button {
                     do {
                         project = try store.undo(projectID: project.id)
@@ -353,11 +532,11 @@ struct VideoTimelineEditorView: View {
                     Button("Split selected clip") {
                         splitSelectedClip()
                     }
-                    .disabled(selectedClipID == nil)
+                    .disabled(!canSplitSelectedClip)
                     Button("Freeze current frame") {
                         addFreeze()
                     }
-                    .disabled(selectedClipID == nil)
+                    .disabled(selectedClipSourceTimeAtPlayhead == nil)
                     Divider()
                     Button("Spotlight") { addEffect(.spotlight) }
                     Button("Pan & Zoom") { addEffect(.panZoom) }
@@ -370,88 +549,338 @@ struct VideoTimelineEditorView: View {
                     Label("Add Subtitle", systemImage: "captions.bubble")
                 }
             }
+        }
+        .scrollIndicators(.hidden)
+    }
+
+    private var timelineTrackEditor: some View {
+        HStack(alignment: .top, spacing: 0) {
+            VStack(spacing: Self.timelineTrackSpacing) {
+                Color.clear
+                    .frame(height: Self.timelineRulerHeight)
+                timelineTrackLabel(
+                    "Video",
+                    systemImage: "film",
+                    count: project.clips.count
+                )
+                timelineTrackLabel(
+                    "Clicks",
+                    systemImage: "cursorarrow.click",
+                    count: project.clicks.count
+                )
+                timelineTrackLabel(
+                    "Subtitles",
+                    systemImage: "captions.bubble.fill",
+                    count: project.subtitles.count
+                )
+                timelineTrackLabel(
+                    "Effects",
+                    systemImage: "wand.and.stars",
+                    count: project.effects.count
+                )
+                timelineTrackLabel(
+                    "Suggestions",
+                    systemImage: "sparkles",
+                    count: project.suggestions.count
+                )
+            }
+            .frame(width: Self.timelineLabelWidth)
+            .padding(.trailing, 8)
+
+            Divider()
 
             ScrollView(.horizontal) {
-                HStack(spacing: 8) {
-                    ForEach(project.clips) { clip in
-                        layerButton(
-                            title: clip.kind == .video ? "Video clip" : "Freeze",
-                            time: clip.sourceStart,
-                            systemImage: "film",
-                            isSelected: selectedClipID == clip.id
-                        ) {
-                            selection = .clip(clip.id)
-                        }
-                    }
+                timelineCanvas(width: timelineCanvasWidth)
+            }
+            .scrollIndicators(.visible)
+        }
+        .frame(height: timelineCanvasHeight)
+        .background(
+            Color(nsColor: .controlBackgroundColor).opacity(0.45),
+            in: RoundedRectangle(cornerRadius: 10)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
 
-                    ForEach(project.clicks) { click in
-                        layerButton(
-                            title: click.button == .left
-                                ? "Click"
-                                : "Right click",
-                            time: click.time,
-                            systemImage: "cursorarrow.click",
-                            isSelected: selectedClickID == click.id
-                        ) {
-                            selection = .click(click.id)
-                            playback.seek(to: click.time)
-                        }
-                    }
+    private func timelineTrackLabel(
+        _ title: String,
+        systemImage: String,
+        count: Int
+    ) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: systemImage)
+                .frame(width: 16)
+            Text(title)
+                .lineLimit(1)
+            Spacer(minLength: 2)
+            Text("\(count)")
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.secondary)
+        }
+        .font(.caption)
+        .frame(height: Self.timelineTrackHeight)
+        .padding(.leading, 8)
+    }
 
-                    ForEach(project.subtitles) { subtitle in
-                        layerButton(
-                            title: subtitle.text.isEmpty
-                                ? "Subtitle"
-                                : subtitle.text,
-                            time: subtitle.startTime,
-                            systemImage: "captions.bubble.fill",
-                            isSelected: selectedSubtitleID == subtitle.id
-                        ) {
-                            selection = .subtitle(subtitle.id)
-                            playback.seek(to: subtitle.startTime)
-                        }
-                    }
+    private func timelineCanvas(width: CGFloat) -> some View {
+        let clipSpans = TimelineTrackLayout.clipSpans(in: project)
+        let clickSpans = TimelineTrackLayout.clickSpans(in: project)
+        let subtitleSpans = TimelineTrackLayout.subtitleSpans(in: project)
+        let effectSpans = TimelineTrackLayout.effectSpans(in: project)
+        let suggestionSpans = TimelineTrackLayout.suggestionSpans(in: project)
 
-                    ForEach(project.effects) { effect in
-                        layerButton(
-                            title: effect.displayName,
-                            time: effect.startTime,
-                            systemImage: "wand.and.stars",
-                            isSelected: selectedEffectID == effect.id
-                        ) {
-                            selection = .effect(effect.id)
-                            playback.seek(to: effect.startTime)
-                        }
-                    }
-
-                    ForEach(project.suggestions) { suggestion in
-                        layerButton(
-                            title: "Suggestion · \(suggestion.state.rawValue)",
-                            time: suggestion.splitTime,
-                            systemImage: "sparkles",
-                            isSelected: selectedSuggestionID == suggestion.id
-                        ) {
-                            selection = .suggestion(suggestion.id)
-                            playback.seek(to: suggestion.splitTime)
+        return ZStack(alignment: .topLeading) {
+            VStack(spacing: Self.timelineTrackSpacing) {
+                timelineRuler(width: width)
+                timelineTrackRow {
+                    ForEach(clipSpans) { span in
+                        if let clip = project.clips.first(where: {
+                            $0.id == span.id
+                        }) {
+                            timelineBlock(
+                                title: clip.kind == .freeze
+                                    ? "Freeze"
+                                    : "Clip · \(Self.speed(clip.playbackRate))",
+                                systemImage: clip.kind == .freeze
+                                    ? "pause.rectangle"
+                                    : "film",
+                                span: span,
+                                canvasWidth: width,
+                                color: .blue,
+                                isSelected: selectedClipID == clip.id
+                            ) {
+                                selection = .clip(clip.id)
+                                playback.seek(to: span.start)
+                            }
                         }
                     }
                 }
-                .padding(.vertical, 2)
+                timelineTrackRow {
+                    ForEach(clickSpans) { span in
+                        if let click = project.clicks.first(where: {
+                            $0.id == span.id
+                        }) {
+                            timelineBlock(
+                                title: click.button == .left
+                                    ? "Click"
+                                    : "Right click",
+                                systemImage: "cursorarrow.click",
+                                span: span,
+                                canvasWidth: width,
+                                color: .orange,
+                                isSelected: selectedClickID == click.id
+                            ) {
+                                selection = .click(click.id)
+                                playback.seek(to: click.time)
+                            }
+                        }
+                    }
+                }
+                timelineTrackRow {
+                    ForEach(subtitleSpans) { span in
+                        if let subtitle = project.subtitles.first(where: {
+                            $0.id == span.id
+                        }) {
+                            timelineBlock(
+                                title: subtitle.text.isEmpty
+                                    ? "Subtitle"
+                                    : subtitle.text,
+                                systemImage: "captions.bubble.fill",
+                                span: span,
+                                canvasWidth: width,
+                                color: .green,
+                                isSelected: selectedSubtitleID == subtitle.id
+                            ) {
+                                selection = .subtitle(subtitle.id)
+                                playback.seek(to: subtitle.startTime)
+                            }
+                        }
+                    }
+                }
+                timelineTrackRow {
+                    ForEach(effectSpans) { span in
+                        if let effect = project.effects.first(where: {
+                            $0.id == span.id
+                        }) {
+                            timelineBlock(
+                                title: effect.displayName,
+                                systemImage: "wand.and.stars",
+                                span: span,
+                                canvasWidth: width,
+                                color: .purple,
+                                isSelected: selectedEffectID == effect.id
+                            ) {
+                                selection = .effect(effect.id)
+                                playback.seek(to: effect.startTime)
+                            }
+                        }
+                    }
+                }
+                timelineTrackRow {
+                    ForEach(suggestionSpans) { span in
+                        if let suggestion = project.suggestions.first(where: {
+                            $0.id == span.id
+                        }) {
+                            timelineBlock(
+                                title: suggestion.state.rawValue.capitalized,
+                                systemImage: "sparkles",
+                                span: span,
+                                canvasWidth: width,
+                                color: .pink,
+                                isSelected:
+                                    selectedSuggestionID == suggestion.id
+                            ) {
+                                selection = .suggestion(suggestion.id)
+                                playback.seek(to: suggestion.splitTime)
+                            }
+                        }
+                    }
+                }
             }
 
-            if project.clips.isEmpty
-                && project.clicks.isEmpty
-                && project.subtitles.isEmpty
-                && project.effects.isEmpty
-                && project.suggestions.isEmpty {
-                Text("Recorded clicks and subtitles will appear here.")
-                    .font(.caption)
+            let playheadX = timelineX(
+                for: playback.currentTime,
+                width: width
+            )
+            Rectangle()
+                .fill(Color.accentColor)
+                .frame(width: 2, height: timelineCanvasHeight)
+                .offset(x: playheadX)
+                .allowsHitTesting(false)
+            Circle()
+                .fill(Color.accentColor)
+                .frame(width: 8, height: 8)
+                .offset(x: playheadX - 3, y: 2)
+                .allowsHitTesting(false)
+        }
+        .frame(width: width, height: timelineCanvasHeight)
+    }
+
+    private func timelineRuler(width: CGFloat) -> some View {
+        ZStack(alignment: .topLeading) {
+            Color.clear
+            ForEach(timelineTickValues, id: \.self) { second in
+                let x = timelineX(for: Double(second), width: width)
+                Rectangle()
+                    .fill(Color.secondary.opacity(0.4))
+                    .frame(width: 1, height: 7)
+                    .offset(x: x)
+                Text(Self.shortTime(Double(second)))
+                    .font(.caption2.monospacedDigit())
                     .foregroundStyle(.secondary)
+                    .offset(x: x + 4, y: 7)
             }
         }
-        .padding(14)
-        .frame(minHeight: 128, alignment: .top)
-        .background(.bar.opacity(0.65))
+        .frame(width: width, height: Self.timelineRulerHeight)
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged {
+                    playback.seek(
+                        to: timelineTime(for: $0.location.x, width: width)
+                    )
+                }
+        )
+    }
+
+    private func timelineTrackRow<Content: View>(
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        ZStack(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 7)
+                .fill(Color.secondary.opacity(0.055))
+            content()
+        }
+        .frame(height: Self.timelineTrackHeight)
+    }
+
+    private func timelineBlock(
+        title: String,
+        systemImage: String,
+        span: TimelineTrackSpan,
+        canvasWidth: CGFloat,
+        color: Color,
+        isSelected: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        let x = timelineX(for: span.start, width: canvasWidth)
+        let endX = timelineX(for: span.end, width: canvasWidth)
+        let availableWidth = max(canvasWidth - x, 1)
+        let width = min(max(endX - x, 30), availableWidth)
+
+        return Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: systemImage)
+                Text(title)
+                    .lineLimit(1)
+            }
+            .font(.caption2.weight(.medium))
+            .padding(.horizontal, 7)
+            .frame(width: width, height: Self.timelineTrackHeight - 8)
+            .background(
+                color.opacity(isSelected ? 0.34 : 0.18),
+                in: RoundedRectangle(cornerRadius: 6)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(
+                        isSelected ? Color.accentColor : color.opacity(0.55),
+                        lineWidth: isSelected ? 2 : 1
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+        .offset(x: x)
+        .help(
+            "\(title) · \(Self.time(span.start))–\(Self.time(span.end))"
+        )
+    }
+
+    private var timelineCanvasWidth: CGFloat {
+        max(
+            720,
+            CGFloat(max(project.timelineDuration, 1))
+                * Self.timelinePointsPerSecond
+        )
+    }
+
+    private var timelineCanvasHeight: CGFloat {
+        Self.timelineRulerHeight
+            + Self.timelineTrackHeight * 5
+            + Self.timelineTrackSpacing * 5
+    }
+
+    private var timelineTickValues: [Int] {
+        let duration = max(project.timelineDuration, 0)
+        let interval: Int
+        if duration <= 30 {
+            interval = 1
+        } else if duration <= 120 {
+            interval = 5
+        } else {
+            interval = 10
+        }
+        return Array(
+            stride(
+                from: 0,
+                through: Int(ceil(duration)),
+                by: interval
+            )
+        )
+    }
+
+    private func timelineX(for time: Double, width: CGFloat) -> CGFloat {
+        CGFloat(
+            min(
+                max(time / max(project.timelineDuration, 0.001), 0),
+                1
+            )
+        ) * width
+    }
+
+    private func timelineTime(for x: CGFloat, width: CGFloat) -> Double {
+        Double(min(max(x / max(width, 1), 0), 1))
+            * project.timelineDuration
     }
 
     private var inspector: some View {
@@ -470,9 +899,7 @@ struct VideoTimelineEditorView: View {
                         moveClip(at: index, to: index + 1)
                     },
                     onDelete: {
-                        project.clips.remove(at: index)
-                        project = VideoTimelineEditor.remapContentLayers(project)
-                        selection = nil
+                        deleteSelectedClip()
                     }
                 )
             } else if let index = project.clicks.firstIndex(where: {
@@ -568,32 +995,84 @@ struct VideoTimelineEditorView: View {
         }
     }
 
-    /// Creates a compact timeline card that also seeks the preview to the layer time.
-    private func layerButton(
-        title: String,
-        time: Double,
-        systemImage: String,
-        isSelected: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 4) {
-                Label(title, systemImage: systemImage)
-                    .lineLimit(1)
-                Text(Self.time(time))
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.secondary)
+    private var selectedClipSourceTimeAtPlayhead: Double? {
+        guard let selectedClipID else { return nil }
+        for item in VideoTimelineSchedule(project: project).items {
+            guard case let .clip(value) = item,
+                  value.clip.id == selectedClipID,
+                  playback.currentTime >= value.projectStart,
+                  playback.currentTime <= value.projectEnd,
+                  value.clip.kind == .video
+            else {
+                continue
             }
-            .frame(width: 142, alignment: .leading)
-            .padding(9)
-            .background(
-                isSelected
-                    ? Color.accentColor.opacity(0.18)
-                    : Color.secondary.opacity(0.08),
-                in: RoundedRectangle(cornerRadius: 9)
-            )
+            return value.clip.sourceStart
+                + (playback.currentTime - value.projectStart)
+                    * value.clip.playbackRate
         }
-        .buttonStyle(.plain)
+        return nil
+    }
+
+    private var canSplitSelectedClip: Bool {
+        guard let clip = selectedClip,
+              let sourceTime = selectedClipSourceTimeAtPlayhead
+        else {
+            return false
+        }
+        return sourceTime > clip.sourceStart + 0.001
+            && sourceTime < clip.sourceEnd - 0.001
+    }
+
+    private var canTrimSelectedClipBeforePlayhead: Bool {
+        canSplitSelectedClip
+    }
+
+    private var canTrimSelectedClipAfterPlayhead: Bool {
+        canSplitSelectedClip
+    }
+
+    private func trimSelectedClip(beforePlayhead: Bool) {
+        guard let clip = selectedClip,
+              let sourceTime = selectedClipSourceTimeAtPlayhead
+        else {
+            return
+        }
+        do {
+            project = try VideoTimelineEditor.trim(
+                project: project,
+                clipID: clip.id,
+                sourceStart: beforePlayhead ? sourceTime : clip.sourceStart,
+                sourceEnd: beforePlayhead ? clip.sourceEnd : sourceTime
+            )
+        } catch {
+            store.errorMessage = error.localizedDescription
+        }
+    }
+
+    private func setSelectedClipSpeed(_ rate: Double) {
+        guard let selectedClipID else { return }
+        do {
+            project = try VideoTimelineEditor.setSpeed(
+                project: project,
+                clipID: selectedClipID,
+                rate: rate
+            )
+        } catch {
+            store.errorMessage = error.localizedDescription
+        }
+    }
+
+    private func deleteSelectedClip() {
+        guard let selectedClipID else { return }
+        do {
+            project = try VideoTimelineEditor.delete(
+                project: project,
+                clipID: selectedClipID
+            )
+            selection = nil
+        } catch {
+            store.errorMessage = error.localizedDescription
+        }
     }
 
     /// Adds one bounded subtitle at the playhead so invalid time ranges never reach persistence.
@@ -621,18 +1100,19 @@ struct VideoTimelineEditorView: View {
     /// Splits the selected source clip at the frame represented by the project playhead.
     private func splitSelectedClip() {
         guard let selectedClipID,
-              let sourceTime = VideoTimelineEditor.sourceTime(
-                in: project,
-                at: playback.currentTime
-              )
+              let sourceTime = selectedClipSourceTimeAtPlayhead
         else { return }
         do {
-            project = try VideoTimelineEditor.split(
+            let edited = try VideoTimelineEditor.split(
                 project: project,
                 clipID: selectedClipID,
                 sourceTime: sourceTime
             )
-            selection = nil
+            project = edited
+            selection = edited.clips.first {
+                $0.kind == .video
+                    && abs($0.sourceStart - sourceTime) <= 0.001
+            }.map { .clip($0.id) }
         } catch {
             store.errorMessage = error.localizedDescription
         }
@@ -641,18 +1121,20 @@ struct VideoTimelineEditorView: View {
     /// Inserts one editable one-second freeze segment after the selected clip.
     private func addFreeze() {
         guard let selectedClipID,
-              let sourceTime = VideoTimelineEditor.sourceTime(
-                in: project,
-                at: playback.currentTime
-              )
+              let sourceTime = selectedClipSourceTimeAtPlayhead
         else { return }
         do {
-            project = try VideoTimelineEditor.insertFreeze(
+            let existingIDs = Set(project.clips.map(\.id))
+            let edited = try VideoTimelineEditor.insertFreeze(
                 project: project,
                 after: selectedClipID,
                 sourceTime: sourceTime,
                 duration: 1
             )
+            project = edited
+            selection = edited.clips.first {
+                !existingIDs.contains($0.id)
+            }.map { .clip($0.id) }
         } catch {
             store.errorMessage = error.localizedDescription
         }
@@ -719,6 +1201,18 @@ struct VideoTimelineEditorView: View {
         let minutes = Int(bounded) / 60
         let remainder = bounded - Double(minutes * 60)
         return String(format: "%d:%05.2f", minutes, remainder)
+    }
+
+    private static func shortTime(_ seconds: Double) -> String {
+        let total = max(Int(seconds.rounded()), 0)
+        return String(format: "%d:%02d", total / 60, total % 60)
+    }
+
+    private static func speed(_ rate: Double) -> String {
+        if abs(rate.rounded() - rate) <= 0.001 {
+            return "\(Int(rate.rounded()))×"
+        }
+        return String(format: "%.2g×", rate)
     }
 }
 
@@ -1198,6 +1692,15 @@ private struct ClipLayerInspector: View {
                 TextField("Source start", value: $clip.sourceStart, format: .number)
                 TextField("Source end", value: $clip.sourceEnd, format: .number)
                 if clip.kind == .video {
+                    HStack {
+                        Button("1×") { clip.playbackRate = 1 }
+                        Button("2×") { clip.playbackRate = 2 }
+                        Button("4×") { clip.playbackRate = 4 }
+                        Spacer()
+                        Text(String(format: "%.2g×", clip.playbackRate))
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
                     Slider(value: $clip.playbackRate, in: 0.25...4) {
                         Text("Speed")
                     }

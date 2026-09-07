@@ -146,10 +146,19 @@ final class AppStore: ObservableObject {
     }
 
     /// Restores one complete project edit while keeping revision monotonic.
-    func undo(projectID: UUID) throws -> DemoProject {
+    func undo(
+        projectID: UUID,
+        expectedRevision: Int? = nil
+    ) throws -> DemoProject {
+        guard let current = project(id: projectID) else {
+            throw RecordingStoreError.projectNotFound
+        }
+        if let expectedRevision,
+           current.revision != expectedRevision {
+            throw RecordingStoreError.revisionConflict(current.revision)
+        }
         guard var history = undoHistory[projectID],
-              let previous = history.popLast(),
-              let current = project(id: projectID)
+              let previous = history.popLast()
         else {
             throw RecordingStoreError.noUndo
         }
@@ -165,10 +174,19 @@ final class AppStore: ObservableObject {
     }
 
     /// Reapplies one previously undone project edit.
-    func redo(projectID: UUID) throws -> DemoProject {
+    func redo(
+        projectID: UUID,
+        expectedRevision: Int? = nil
+    ) throws -> DemoProject {
+        guard let current = project(id: projectID) else {
+            throw RecordingStoreError.projectNotFound
+        }
+        if let expectedRevision,
+           current.revision != expectedRevision {
+            throw RecordingStoreError.revisionConflict(current.revision)
+        }
         guard var history = redoHistory[projectID],
-              let next = history.popLast(),
-              let current = project(id: projectID)
+              let next = history.popLast()
         else {
             throw RecordingStoreError.noRedo
         }

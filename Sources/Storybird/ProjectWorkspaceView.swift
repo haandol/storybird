@@ -21,8 +21,7 @@ struct ProjectWorkspaceView: View {
                 ProjectHeader(project: projectBinding)
                 Divider()
 
-                if let recording = project.recording,
-                   !project.clips.isEmpty {
+                if let recording = project.recording {
                     let videoURL = store.repository.assetURL(
                         projectID: project.id,
                         filename: recording.filename

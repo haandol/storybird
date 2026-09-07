@@ -164,6 +164,31 @@ final class AppStoreTests: XCTestCase {
         XCTAssertGreaterThan(redone.revision, undone.revision)
     }
 
+    func test_undo_staleExpectedRevision_preservesUndoHistory() throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repository = ProjectRepository(rootURL: root)
+        let project = DemoProject(name: "Before")
+        try repository.saveProjects([project])
+        let store = AppStore(repository: repository)
+        var edited = project
+        edited.name = "After"
+        let saved = try store.saveProject(edited, expectedRevision: 0)
+
+        XCTAssertThrowsError(
+            try store.undo(
+                projectID: project.id,
+                expectedRevision: 0
+            )
+        )
+        let undone = try store.undo(
+            projectID: project.id,
+            expectedRevision: saved.revision
+        )
+
+        XCTAssertEqual(undone.name, "Before")
+    }
+
     func test_saveProject_terminalSuggestionCannotReturnToPending() throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

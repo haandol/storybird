@@ -6,9 +6,34 @@ import XCTest
 
 @MainActor
 final class MCPFeatureParityTests: XCTestCase {
-    func test_toolDefinitions_nativeEditingOperations_areExposed() {
+    func test_toolDefinitions_clipEditingOperations_areExposed() {
+        let available = Set(
+            StorybirdMCPService.toolDefinitions.map(\.name)
+        )
+        let required = Set([
+            "storybird_split_clip",
+            "storybird_trim_clip",
+            "storybird_delete_clip",
+            "storybird_move_clip",
+            "storybird_set_clip_speed",
+            "storybird_insert_freeze",
+        ])
+
+        XCTAssertEqual(required.subtracting(available), [])
+        for name in required {
+            XCTAssertEqual(
+                StorybirdMCPService.toolDefinitions.first {
+                    $0.name == name
+                }?.annotations.destructiveHint,
+                false,
+                "\(name) preserves the original recording and is undoable."
+            )
+        }
+    }
+
+    func test_toolDefinitions_remainingNativeEditingOperations_areExposed() {
         XCTExpectFailure(
-            "Dedicated MCP domain tools are not implemented yet."
+            "Non-clip dedicated MCP domain tools are not implemented yet."
         )
         let available = Set(
             StorybirdMCPService.toolDefinitions.map(\.name)
@@ -16,12 +41,6 @@ final class MCPFeatureParityTests: XCTestCase {
         let required = Set([
             "storybird_abort_session",
             "storybird_create_project",
-            "storybird_split_clip",
-            "storybird_trim_clip",
-            "storybird_delete_clip",
-            "storybird_move_clip",
-            "storybird_set_clip_speed",
-            "storybird_insert_freeze",
             "storybird_create_click",
             "storybird_delete_click",
             "storybird_delete_subtitle",
@@ -44,11 +63,14 @@ final class MCPFeatureParityTests: XCTestCase {
     }
 
     func test_toolDefinitions_mutatingProjectTools_requireExpectedRevision() throws {
-        XCTExpectFailure(
-            "Undo and redo do not accept an expected revision yet."
-        )
         let mutationTools = [
             "storybird_replace_project",
+            "storybird_split_clip",
+            "storybird_trim_clip",
+            "storybird_delete_clip",
+            "storybird_move_clip",
+            "storybird_set_clip_speed",
+            "storybird_insert_freeze",
             "storybird_undo_project",
             "storybird_redo_project",
             "storybird_update_project",
@@ -161,9 +183,6 @@ final class MCPFeatureParityTests: XCTestCase {
     }
 
     func test_externalControl_setClipSpeed_matchesNativeTimelineEditor() async throws {
-        XCTExpectFailure(
-            "MCP does not expose the native clip-speed command yet."
-        )
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let repository = ProjectRepository(rootURL: root)
@@ -207,6 +226,141 @@ final class MCPFeatureParityTests: XCTestCase {
         XCTAssertEqual(stored.clips, expected.clips)
         XCTAssertEqual(stored.clicks, expected.clicks)
         XCTAssertEqual(stored.revision, 1)
+    }
+
+    func test_externalControl_clipCommands_matchNativeTimelineEditor() async throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repository = ProjectRepository(rootURL: root)
+        let project = validVideoProject()
+        try repository.saveProjects([project])
+        let store = AppStore(repository: repository)
+        let host = StorybirdExternalControlHost(store: store)
+        let originalClipID = try XCTUnwrap(project.clips.first?.id)
+
+        var response = try await request(
+            host,
+            name: "storybird_split_clip",
+            arguments: [
+                "project_id": project.id.uuidString,
+                "expected_revision": 0,
+                "clip_id": originalClipID.uuidString,
+                "source_time": 2.5,
+            ]
+        )
+        XCTAssertFalse(response.isError, response.text)
+        var stored = try XCTUnwrap(store.project(id: project.id))
+        XCTAssertEqual(stored.clips.count, 2)
+        XCTAssertEqual(stored.revision, 1)
+
+        let firstClipID = stored.clips[0].id
+        let secondClipID = stored.clips[1].id
+        let stale = try await request(
+            host,
+            name: "storybird_trim_clip",
+            arguments: [
+                "project_id": project.id.uuidString,
+                "expected_revision": 0,
+                "clip_id": secondClipID.uuidString,
+                "source_start": 3.0,
+                "source_end": 5.0,
+            ]
+        )
+        XCTAssertTrue(stale.isError)
+        XCTAssertEqual(store.project(id: project.id)?.revision, 1)
+
+        response = try await request(
+            host,
+            name: "storybird_trim_clip",
+            arguments: [
+                "project_id": project.id.uuidString,
+                "expected_revision": 1,
+                "clip_id": secondClipID.uuidString,
+                "source_start": 3.0,
+                "source_end": 5.0,
+            ]
+        )
+        XCTAssertFalse(response.isError, response.text)
+        stored = try XCTUnwrap(store.project(id: project.id))
+        XCTAssertEqual(stored.clips[1].sourceStart, 3.0)
+        XCTAssertEqual(stored.revision, 2)
+
+        response = try await request(
+            host,
+            name: "storybird_move_clip",
+            arguments: [
+                "project_id": project.id.uuidString,
+                "expected_revision": 2,
+                "clip_id": secondClipID.uuidString,
+                "destination": 0,
+            ]
+        )
+        XCTAssertFalse(response.isError, response.text)
+        stored = try XCTUnwrap(store.project(id: project.id))
+        XCTAssertEqual(stored.clips.first?.id, secondClipID)
+        XCTAssertEqual(stored.revision, 3)
+
+        response = try await request(
+            host,
+            name: "storybird_insert_freeze",
+            arguments: [
+                "project_id": project.id.uuidString,
+                "expected_revision": 3,
+                "clip_id": secondClipID.uuidString,
+                "source_time": 3.5,
+                "duration": 1.0,
+            ]
+        )
+        XCTAssertFalse(response.isError, response.text)
+        stored = try XCTUnwrap(store.project(id: project.id))
+        let freezeID = try XCTUnwrap(
+            stored.clips.first { $0.kind == .freeze }?.id
+        )
+        XCTAssertEqual(stored.revision, 4)
+
+        response = try await request(
+            host,
+            name: "storybird_delete_clip",
+            arguments: [
+                "project_id": project.id.uuidString,
+                "expected_revision": 4,
+                "clip_id": freezeID.uuidString,
+            ]
+        )
+        XCTAssertFalse(response.isError, response.text)
+        stored = try XCTUnwrap(store.project(id: project.id))
+        XCTAssertFalse(stored.clips.contains { $0.id == freezeID })
+        XCTAssertTrue(stored.clips.contains { $0.id == firstClipID })
+        XCTAssertEqual(stored.revision, 5)
+    }
+
+    func test_timelineTrackLayout_usesCanonicalEditedClock() throws {
+        var project = validVideoProject()
+        let originalClipID = try XCTUnwrap(project.clips.first?.id)
+        project = try VideoTimelineEditor.split(
+            project: project,
+            clipID: originalClipID,
+            sourceTime: 2
+        )
+        let firstClipID = project.clips[0].id
+        project = try VideoTimelineEditor.setSpeed(
+            project: project,
+            clipID: firstClipID,
+            rate: 2
+        )
+        project = try DemoEffectEditor.insertTitle(
+            in: project,
+            after: nil,
+            duration: 1
+        )
+
+        let spans = TimelineTrackLayout.clipSpans(in: project)
+
+        XCTAssertEqual(spans.count, 2)
+        XCTAssertEqual(spans[0].start, 1, accuracy: 0.001)
+        XCTAssertEqual(spans[0].end, 2, accuracy: 0.001)
+        XCTAssertEqual(spans[1].start, 2, accuracy: 0.001)
+        XCTAssertEqual(spans[1].end, 5, accuracy: 0.001)
     }
 
     func test_externalControl_applySuggestion_matchesNativeSuggestionEditor() async throws {
@@ -300,5 +454,22 @@ final class MCPFeatureParityTests: XCTestCase {
     private func temporaryDirectory() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    }
+
+    private func request(
+        _ host: StorybirdExternalControlHost,
+        name: String,
+        arguments: [String: Any]
+    ) async throws -> StorybirdControlResponse {
+        let data = try JSONSerialization.data(
+            withJSONObject: arguments,
+            options: [.sortedKeys]
+        )
+        return await host.handle(
+            StorybirdControlRequest(
+                name: name,
+                argumentsJSON: data
+            )
+        )
     }
 }

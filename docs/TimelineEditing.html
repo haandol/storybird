@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Storybird 타임라인 편집</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+    body {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 32px 24px 64px;
+    }
+    h1, h2 { line-height: 1.25; }
+    section {
+      margin: 28px 0;
+      padding: 20px;
+      border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+      border-radius: 14px;
+      background: color-mix(in srgb, Canvas 94%, CanvasText 6%);
+    }
+    code, pre {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    pre.source {
+      overflow-x: auto;
+      padding: 16px;
+      border-radius: 10px;
+      background: color-mix(in srgb, CanvasText 10%, Canvas);
+      white-space: pre-wrap;
+    }
+    .tracks {
+      display: grid;
+      grid-template-columns: 110px 1fr;
+      gap: 8px 12px;
+      align-items: center;
+    }
+    .track {
+      min-height: 34px;
+      border-radius: 7px;
+      background: color-mix(in srgb, CanvasText 8%, Canvas);
+      padding: 5px;
+    }
+    .block {
+      display: inline-block;
+      margin-right: 5px;
+      padding: 4px 10px;
+      border: 1px solid #5b7cfa;
+      border-radius: 6px;
+      background: color-mix(in srgb, #5b7cfa 24%, Canvas);
+    }
+  </style>
+</head>
+<body>
+  <h1>Storybird의 간단한 영상 편집 흐름</h1>
+  <p>
+    원본 MP4는 바꾸지 않고, 프로젝트에 “어느 구간을 어떤 순서와 속도로 재생할지”를 저장합니다.
+    UI와 MCP(Model Context Protocol, 외부 도구 연결 규약)는 같은 편집 규칙을 사용합니다.
+  </p>
+
+  <section>
+    <h2>화면에서 보이는 구조</h2>
+    <div class="tracks">
+      <strong>Video</strong>
+      <div class="track"><span class="block">Clip 1 · 1×</span><span class="block">Clip 2 · 4×</span></div>
+      <strong>Clicks</strong>
+      <div class="track"><span class="block">Click Cue</span></div>
+      <strong>Subtitles</strong>
+      <div class="track"><span class="block">설명 자막</span></div>
+      <strong>Effects</strong>
+      <div class="track"><span class="block">Spotlight</span></div>
+      <strong>Suggestions</strong>
+      <div class="track"><span class="block">편집 제안</span></div>
+    </div>
+    <p>
+      모든 블록은 같은 가로 시간축에 놓입니다. 세로 재생 헤드가 현재 프리뷰 시각을 나타내며,
+      눈금자를 클릭하거나 드래그하면 해당 시각으로 이동합니다.
+    </p>
+  </section>
+
+  <section>
+    <h2>사람이 편집하는 순서</h2>
+    <ol>
+      <li>Video 트랙의 클립을 선택합니다.</li>
+      <li>재생 헤드를 수정할 위치로 옮깁니다.</li>
+      <li><strong>Split</strong>으로 둘로 나누거나, <strong>Trim</strong>으로 앞·뒤 구간을 제거합니다.</li>
+      <li><strong>1× / 2× / 4×</strong> 속도를 고르거나 필요 없는 클립을 삭제합니다.</li>
+      <li>Click Cue와 자막이 같은 장면에 남아 있는지 프리뷰로 확인합니다.</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>UI와 MCP가 공유하는 데이터 흐름</h2>
+    <div class="mermaid">
+sequenceDiagram
+    actor Editor as 사람 UI 또는 MCP
+    participant Storybird
+    participant Timeline as 비파괴 타임라인
+    participant Library as 로컬 프로젝트
+    participant Preview as 프리뷰·내보내기
+
+    Editor->>Storybird: 분할·트림·삭제·이동·속도 요청
+    Storybird->>Timeline: 원본 범위와 현재 revision 검증
+    Timeline->>Timeline: 클립과 연결 레이어 시간을 함께 변환
+    Timeline->>Library: 프로젝트를 원자적으로 저장
+    Library-->>Editor: 새 revision과 변경된 클립 ID
+    Library-->>Preview: 같은 편집 상태 제공
+    Preview-->>Editor: 원본을 보존한 편집 결과
+    </div>
+    <h3>Mermaid 원문</h3>
+    <pre class="source">sequenceDiagram
+    actor Editor as 사람 UI 또는 MCP
+    participant Storybird
+    participant Timeline as 비파괴 타임라인
+    participant Library as 로컬 프로젝트
+    participant Preview as 프리뷰·내보내기
+
+    Editor-&gt;&gt;Storybird: 분할·트림·삭제·이동·속도 요청
+    Storybird-&gt;&gt;Timeline: 원본 범위와 현재 revision 검증
+    Timeline-&gt;&gt;Timeline: 클립과 연결 레이어 시간을 함께 변환
+    Timeline-&gt;&gt;Library: 프로젝트를 원자적으로 저장
+    Library--&gt;&gt;Editor: 새 revision과 변경된 클립 ID
+    Library--&gt;&gt;Preview: 같은 편집 상태 제공
+    Preview--&gt;&gt;Editor: 원본을 보존한 편집 결과</pre>
+  </section>
+
+  <section>
+    <h2>MCP 편집에서 기억할 점</h2>
+    <p>
+      변경 명령에는 마지막으로 읽은 <code>expected_revision</code>을 넣습니다.
+      사람이 먼저 수정해 revision이 달라졌다면 Storybird는 MCP 요청을 거부합니다.
+      MCP 클라이언트는 최신 프로젝트를 다시 읽고 편집 위치를 다시 계산해야 합니다.
+    </p>
+    <p>
+      제공 명령: <code>storybird_split_clip</code>, <code>storybird_trim_clip</code>,
+      <code>storybird_delete_clip</code>, <code>storybird_move_clip</code>,
+      <code>storybird_set_clip_speed</code>, <code>storybird_insert_freeze</code>.
+    </p>
+  </section>
+
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({ startOnLoad: true, theme: "default" });
+  </script>
+</body>
+</html>

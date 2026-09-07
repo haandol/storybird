@@ -190,6 +190,19 @@ final class StorybirdCoreTests: XCTestCase {
 
         XCTAssertEqual(edited.timelineDuration, 2.5, accuracy: 0.001)
         XCTAssertEqual(edited.clicks[0].time, 1, accuracy: 0.001)
+        XCTAssertLessThanOrEqual(
+            edited.clicks[0].indicator.endTime,
+            edited.timelineDuration
+        )
+        XCTAssertLessThanOrEqual(
+            edited.clicks[0].description.endTime,
+            edited.timelineDuration
+        )
+        XCTAssertLessThanOrEqual(
+            edited.clicks[0].cueSubtitle.endTime,
+            edited.timelineDuration
+        )
+        XCTAssertNoThrow(try VideoProjectValidator.validate(edited))
     }
 
     func test_videoTimelineSchedule_mapsTitleClipAndCTAOnOneClock() throws {
