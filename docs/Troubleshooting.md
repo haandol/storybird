@@ -102,7 +102,8 @@ voice synthesis works offline.
 For better clone quality, use a clean MP3/WAV containing several seconds of
 natural speech and enter the transcript exactly as spoken. Background noise and
 transcript mismatches are reproduced by the clone. Guided microphone profiles
-enforce at least three seconds; rerecord the prompt in a quiet room.
+show a live waveform and enforce at least ten seconds; rerecord the prosody
+prompt in a quiet room if the input level barely moves.
 
 ## Add Click does not create a Click Cue
 

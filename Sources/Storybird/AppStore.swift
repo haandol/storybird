@@ -113,7 +113,9 @@ final class AppStore: ObservableObject {
             throw VoiceProfileError.invalidInput
         }
         let duration = try await Self.audioDuration(at: sourceURL)
-        guard source != .microphone || duration >= 3 else {
+        guard source != .microphone
+                || duration >= VoiceRecordingRequirements.minimumDuration
+        else {
             throw VoiceProfileError.referenceTooShort
         }
         let profileID = UUID()
@@ -746,7 +748,7 @@ enum VoiceProfileError: LocalizedError {
         case .invalidInput:
             return "Provide a valid MP3/WAV, matching transcript, name, and voice-use consent."
         case .referenceTooShort:
-            return "The reference voice must contain at least 3 seconds of speech."
+            return "The guided microphone recording must contain at least 10 seconds of speech."
         case .profileNotFound:
             return "The selected voice profile no longer exists."
         case .microphonePermissionDenied:

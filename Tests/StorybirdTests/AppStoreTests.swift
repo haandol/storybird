@@ -164,7 +164,7 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(store.voiceProfiles.map(\.id), [profile.id])
     }
 
-    func test_importVoiceProfile_microphoneRequiresThreeSeconds() async throws {
+    func test_importVoiceProfile_microphoneRequiresTenSeconds() async throws {
         let root = temporaryDirectory()
         let sourceRoot = temporaryDirectory()
         defer {
@@ -173,8 +173,8 @@ final class AppStoreTests: XCTestCase {
         }
         let short = sourceRoot.appendingPathComponent("short-mic.wav")
         let long = sourceRoot.appendingPathComponent("long-mic.wav")
-        try TestVideoFactory.makeToneWAV(at: short, duration: 1)
-        try TestVideoFactory.makeToneWAV(at: long, duration: 3.2)
+        try TestVideoFactory.makeToneWAV(at: short, duration: 9.9)
+        try TestVideoFactory.makeToneWAV(at: long, duration: 10.1)
         let store = AppStore(
             repository: ProjectRepository(rootURL: root)
         )
@@ -198,6 +198,150 @@ final class AppStoreTests: XCTestCase {
             consentConfirmed: true
         )
         XCTAssertEqual(store.voiceProfiles.map(\.id), [profile.id])
+    }
+
+    func test_voiceRecordingPresentation_enforcesBoundaryAndMeterRange() {
+        XCTAssertEqual(VoiceRecordingRequirements.minimumDuration, 10)
+        XCTAssertEqual(
+            VoiceRecordingPresentation.remainingDuration(elapsed: 0),
+            10
+        )
+        XCTAssertEqual(
+            VoiceRecordingPresentation.remainingDuration(elapsed: 9.9),
+            0.1,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            VoiceRecordingPresentation.remainingDuration(elapsed: 9.99),
+            0.1,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            VoiceRecordingPresentation.remainingDuration(elapsed: 10),
+            0
+        )
+        XCTAssertEqual(
+            VoiceRecordingPresentation.normalizedLevel(decibels: -80),
+            0
+        )
+        XCTAssertEqual(
+            VoiceRecordingPresentation.normalizedLevel(decibels: -25),
+            0.5,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            VoiceRecordingPresentation.normalizedLevel(decibels: 0),
+            1
+        )
+        XCTAssertEqual(
+            VoiceRecordingPresentation.formattedDuration(9.99),
+            "00:09.9"
+        )
+    }
+
+    func test_voiceRecordingPrompt_coversQuestionsEmphasisAndCalmNarration() {
+        let prompt = VoiceStudioView.recordingPrompt
+
+        XCTAssertGreaterThanOrEqual(
+            prompt.filter { $0 == "?" }.count,
+            1
+        )
+        XCTAssertTrue(prompt.contains("걱정하지 마세요"))
+        XCTAssertTrue(prompt.contains("중요한 기능은 또렷하게"))
+        XCTAssertTrue(prompt.contains("차분하고 자연스럽게"))
+    }
+
+    func test_voiceInputPermissionPolicy_requiresConsentBeforeSensitiveInput() {
+        XCTAssertFalse(
+            VoiceInputPermissionPolicy.canStart(
+                consentConfirmed: false,
+                hasSession: false,
+                isWorking: false
+            )
+        )
+        XCTAssertTrue(
+            VoiceInputPermissionPolicy.canStart(
+                consentConfirmed: true,
+                hasSession: false,
+                isWorking: false
+            )
+        )
+        XCTAssertFalse(
+            VoiceInputPermissionPolicy.canStart(
+                consentConfirmed: true,
+                hasSession: true,
+                isWorking: false
+            )
+        )
+        XCTAssertFalse(
+            VoiceInputPermissionPolicy.canStart(
+                consentConfirmed: true,
+                hasSession: false,
+                isWorking: true
+            )
+        )
+        XCTAssertFalse(
+            VoiceInputPermissionPolicy.consentIsLocked(
+                hasSession: false,
+                isWorking: false
+            )
+        )
+        XCTAssertTrue(
+            VoiceInputPermissionPolicy.consentIsLocked(
+                hasSession: true,
+                isWorking: false
+            )
+        )
+        XCTAssertTrue(
+            VoiceInputPermissionPolicy.canRestart(
+                consentConfirmed: true,
+                isWorking: false
+            )
+        )
+        XCTAssertFalse(
+            VoiceInputPermissionPolicy.canRestart(
+                consentConfirmed: false,
+                isWorking: false
+            )
+        )
+        XCTAssertFalse(
+            VoiceInputPermissionPolicy.canRestart(
+                consentConfirmed: true,
+                isWorking: true
+            )
+        )
+    }
+
+    func test_voiceRecordingPrompt_defaultKoreanSpeechFitsTargetDuration() async throws {
+        let output = temporaryDirectory()
+            .appendingPathComponent("guided-prompt.aiff")
+        defer {
+            try? FileManager.default.removeItem(
+                at: output.deletingLastPathComponent()
+            )
+        }
+        try FileManager.default.createDirectory(
+            at: output.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/say")
+        process.arguments = [
+            "-v", "Yuna",
+            "-o", output.path,
+            VoiceStudioView.recordingPrompt,
+        ]
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw XCTSkip("The macOS Yuna Korean voice is unavailable.")
+        }
+
+        let duration = CMTimeGetSeconds(
+            try await AVURLAsset(url: output).load(.duration)
+        )
+        XCTAssertGreaterThanOrEqual(duration, 10)
+        XCTAssertLessThanOrEqual(duration, 15)
     }
 
     func test_importVoiceProfile_acceptsMP3() async throws {

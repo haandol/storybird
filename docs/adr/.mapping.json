@@ -154,7 +154,7 @@
         {
           "path": "docs/adr/voice-narration/0001-local-cloned-voice-narration.md",
           "status": "Accepted (2026-09-08)",
-          "summary": "사용자가 승인한 본인 음성을 로컬 MLX 모델로 복제해 프로젝트 소유 문장별 내레이션을 만들고 에이전트가 편집·내보내기한다"
+          "summary": "사용자가 승인한 음성을 10초 이상 상태가 보이는 안내 녹음 또는 파일로 등록하고 로컬 MLX 내레이션을 편집·내보내기한다"
         }
       ],
       "dependsOn": [

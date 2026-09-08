@@ -133,7 +133,10 @@ Importing does not require Screen Recording or Input Monitoring permission.
 1. Open **Voice** and approve preparation of the local Qwen3-TTS 1.7B Base
    8-bit MLX model.
 2. Create a profile from an MP3/WAV plus its exact transcript, or read the
-   guided prompt for at least three seconds.
+   guided prompt for at least ten seconds. The recording view shows the full
+   script, live input waveform, elapsed time, and the minimum-duration status.
+   Confirm voice ownership or permission before file import or microphone
+   recording becomes available.
 3. Choose a project, voice profile, narration text, and project start time.
 4. Generate the sentence, then edit its start time and volume on the Narration
    timeline track. Change its text and choose **Regenerate This Narration** to

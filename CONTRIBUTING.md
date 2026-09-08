@@ -106,10 +106,14 @@ ScreenCaptureKit and TCC behavior require a real signed bundle:
     the network, and confirm generation does not download the model again.
 13. Import synthetic MP3 and WAV voice references with their exact transcripts.
     Confirm a short but valid external file is accepted, while missing
-    voice-rights consent is rejected without creating a profile.
-14. Grant Microphone access, record the prompted text for at least 3 seconds,
-    preview it, and save it as a voice profile. Deny the permission once and
-    confirm Storybird shows recovery guidance without changing a project.
+    voice-rights consent keeps both import and recording disabled and creates
+    no profile.
+14. Grant Microphone access and confirm the guided recording view shows the
+    full prosody prompt, recording state, live waveform, elapsed time, and the
+    10-second boundary. Pause and resume once, then preview and save a recording
+    of at least 10 seconds. Confirm a shorter sample cannot be finalized.
+    Deny the permission once and confirm Storybird shows recovery guidance
+    without changing a project.
 15. Generate two non-overlapping narration clips, preview them, adjust one
     start time and volume, then export. Confirm the final MP4 contains one AAC
     track with the imported source audio and narration at the expected times.

@@ -145,9 +145,12 @@ Capture changes require a manual smoke test:
    but no audio track. Import a synthetic narrated MP4 or MOV and confirm its
    export contains one synchronized AAC track.
 7. Create a local voice profile from MP3/WAV and from the guided microphone
-   prompt, generate a narration through UI and MCP, and confirm export mixes it
-   at the selected time. Change one sentence and confirm only its WAV is
-   regenerated. Delete the profile and confirm project narration remains.
+   prompt. Confirm both entry buttons stay disabled until voice-use consent is
+   checked. Confirm the recording screen shows the full script, live input
+   waveform, elapsed time, pause/resume, and the 10-second boundary. Generate
+   a narration through UI and MCP, and confirm export mixes it at the selected
+   time. Change one sentence and confirm only its WAV is regenerated. Delete
+   the profile and confirm project narration remains.
 8. Rebuild with the same signing identity and confirm permissions persist.
 
 MCP control changes additionally require a signed companion smoke test:
