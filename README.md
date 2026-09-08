@@ -14,6 +14,8 @@ explanations and subtitles before exporting an H.264 MP4.
 
 ## How it works
 
+![Storybird editor with synthetic empty state](docs/images/welcome.png)
+
 ```mermaid
 flowchart LR
     Source["Choose one display or window"] --> Record["Record continuous video"]
@@ -40,9 +42,10 @@ flowchart LR
 - Stable Apple Development signing support for repeatable macOS permissions.
 
 Storybird does not record keyboard input or audio during screen capture.
-Imported videos may contain narration, and users may explicitly record a short
-microphone sample to create an on-device cloned voice profile. Voice synthesis
-and generated narration remain local after the user-approved model download.
+Imported videos may contain narration, and users may explicitly record a guided
+10-second microphone sample to create an on-device cloned voice profile. Voice
+synthesis and generated narration remain local after the user-approved model
+download.
 
 ## Requirements
 
@@ -51,12 +54,14 @@ and generated narration remain local after the user-approved model download.
 - Screen Recording permission
 - Input Monitoring permission for human mouse clicks
 - Accessibility permission for approved MCP pointer control
+- Microphone permission only for an explicit guided voice-profile recording
 
 | Permission | Why it is needed | What Storybird does not do |
 |---|---|---|
 | Screen Recording | Record the selected display or window and show source thumbnails | It does not upload the recording |
 | Input Monitoring | Observe global left/right mouse-down events and timestamp them | It does not observe keyboard events |
 | Accessibility | Move, click, and scroll the real pointer after native MCP approval | It does not read or generate keyboard events |
+| Microphone | Record a user-started local voice-profile sample | It does not record microphone audio during screen capture or expose recording to MCP |
 
 The MCP companion itself receives no TCC permission. Storybird performs capture
 and pointer input after authenticating the local companion.
@@ -129,6 +134,8 @@ To edit an existing video:
 Importing does not require Screen Recording or Input Monitoring permission.
 
 ## Generate narration with your cloned voice
+
+![Storybird local voice narration setup](docs/images/voice-narration.png)
 
 1. Open **Voice** and approve preparation of the local Qwen3-TTS 1.7B Base
    8-bit MLX model.

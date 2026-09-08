@@ -21,7 +21,7 @@ body:
     id: privacy
     attributes:
       label: Permission, privacy, or storage impact
-      description: Note any new capture, network, export, or data-retention boundary.
+      description: Note any new capture, microphone, voice-reference, model-download, network, export, or data-retention boundary.
     validations:
       required: true
   - type: textarea

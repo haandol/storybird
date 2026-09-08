@@ -21,6 +21,8 @@ Storybird is a local-first SwiftUI macOS application.
 - `Resources/`: bundle metadata, entitlements, editable SVG app icon.
 - `docs/adr/`: ADR registry and decision records.
 - `.agents/skills/prepare-storybird-release/`: release audit harness.
+- `Tests/StorybirdTests/DocumentationScreenshotTests.swift`: opt-in synthetic
+  README screenshot harness.
 
 Generated artifacts belong in `.build/`, `build/`, and `dist/`. Never edit or
 commit them as source.
@@ -164,6 +166,16 @@ MCP control changes additionally require a signed companion smoke test:
    non-duplicated timed clicks.
 5. Deny Accessibility or use an out-of-range coordinate and confirm no pointer
    event or library change occurs.
+
+UI documentation changes use synthetic views only:
+
+```bash
+STORYBIRD_UPDATE_DOC_SCREENSHOTS=1 \
+  swift test --filter DocumentationScreenshotTests/test_generateSyntheticReadmeScreenshots
+```
+
+Review `docs/images/welcome.png` and `docs/images/voice-narration.png`; never
+substitute a customer recording or real project library.
 
 ## Commit & Pull Request Guidelines
 

@@ -7,11 +7,12 @@
 - [ ] `swift build -c debug`
 - [ ] `swift test`
 - [ ] Relevant manual smoke test from `AGENTS.md`
+- [ ] Synthetic documentation screenshots regenerated when README UI changed
 
 ## Impact
 
-Describe permission, storage, project-format, export, or signing changes. Write
-`None` when there is no impact.
+Describe permission, storage, project-format, export, signing, voice-reference,
+or model-download changes. Write `None` when there is no impact.
 
 ## UI Evidence
 

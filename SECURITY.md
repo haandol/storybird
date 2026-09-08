@@ -13,17 +13,24 @@ Report privately through GitHub Security Advisories:
 `https://github.com/haandol/storybird/security/advisories/new`
 
 Include the impact, reproduction steps, Storybird version, and macOS version.
-Do not attach raw recordings, exported videos, project libraries, credentials,
-or private click/subtitle data.
+Do not attach raw recordings, voice references, reference transcripts,
+generated narration, exported videos, project libraries, credentials, or
+private click/subtitle data.
 
 ## In Scope
 
-Storybird holds Screen Recording, Input Monitoring, and pointer-only
-Accessibility permission. Its bundled MCP companion has no TCC permission and
-uses authenticated local IPC. Important failures include:
+Storybird holds Screen Recording, Input Monitoring, Microphone, and pointer-only
+Accessibility permission. Microphone access is limited to an explicit native
+voice-profile recording and is never part of screen capture. Its bundled MCP
+companion has no TCC permission and uses authenticated local IPC. Important
+failures include:
 
 - recordings, thumbnails, click coordinates, subtitles, or projects leaving the Mac
   outside an explicitly approved MCP stdio session or export;
+- reference audio, exact reference transcripts, voice profiles, or generated
+  narration leaving the Mac outside the user-approved initial model download;
+- file selection or microphone activation before the user confirms ownership
+  or permission to use the reference voice;
 - keyboard input being collected despite the mouse-only permission boundary;
 - capturing outside the display or window explicitly selected by the user;
 - another process borrowing Storybird's permissions or recording session;
@@ -36,8 +43,8 @@ uses authenticated local IPC. Important failures include:
   the approved recording;
 - exported text causing code execution or file-system interpretation;
 - accidental inclusion of Storybird's editor or HUD in captures;
-- keyboard, system audio, or microphone data being collected despite the
-  mouse-only and silent-video boundary;
+- keyboard or system audio being collected, or microphone data being collected
+  outside an explicit native voice-profile recording;
 - unstable signing that disconnects the app from an existing TCC grant.
 
 ## Out of Scope
@@ -51,6 +58,10 @@ uses authenticated local IPC. Important failures include:
 - The selected source PNG intentionally returned to the connected local MCP
   client during a user-approved session. The client controls onward model or
   network processing.
+- The user-approved first download of the local MLX voice model. Reference
+  audio, transcripts, and generated narration are not part of that request.
+- A generated narration WAV intentionally included in a user-triggered preview
+  or MP4 export.
 - Data surviving app deletion under Application Support.
 - Issues requiring an attacker who already has local code execution as the
   logged-in user.

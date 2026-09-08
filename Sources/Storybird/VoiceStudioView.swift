@@ -251,6 +251,7 @@ struct VoiceStudioView: View {
     @ObservedObject var store: AppStore
     @StateObject private var recorder = VoiceSampleRecorder()
     @Environment(\.dismiss) private var dismiss
+    private let refreshRuntimeOnAppear: Bool
 
     @State private var profileName = "My voice"
     @State private var transcript = ""
@@ -261,6 +262,14 @@ struct VoiceStudioView: View {
     @State private var isWorking = false
     @State private var showPrepareConfirmation = false
     @State private var profilePendingDeletion: UUID?
+
+    init(
+        store: AppStore,
+        refreshRuntimeOnAppear: Bool = true
+    ) {
+        self.store = store
+        self.refreshRuntimeOnAppear = refreshRuntimeOnAppear
+    }
 
     var body: some View {
         NavigationStack {
@@ -303,7 +312,9 @@ struct VoiceStudioView: View {
             Text("Storybird will install a local MLX runtime and download the approximately 2 GB Qwen3-TTS 1.7B Base 8-bit model. Voice synthesis stays on this Mac afterward.")
         }
         .task {
-            await store.refreshVoiceRuntimeState()
+            if refreshRuntimeOnAppear {
+                await store.refreshVoiceRuntimeState()
+            }
         }
         .onDisappear {
             recorder.discard()

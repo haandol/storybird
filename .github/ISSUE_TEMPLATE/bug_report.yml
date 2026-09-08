@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Do not attach real customer captures, credentials, private messages, or exported customer demos. Use synthetic content.
+        Do not attach real customer captures, voice references, reference transcripts, credentials, private messages, or exported customer demos. Use synthetic content.
   - type: input
     id: version
     attributes:

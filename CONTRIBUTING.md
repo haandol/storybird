@@ -138,6 +138,20 @@ ScreenCaptureKit and TCC behavior require a real signed bundle:
 Use synthetic content. Never put customer dashboards, messages, credentials, or
 other private captures in issues, commits, or pull request attachments.
 
+## Documentation Screenshots
+
+README screenshots are rendered from the real SwiftUI views with an empty
+temporary Storybird library. Regenerate them without opening customer projects:
+
+```bash
+STORYBIRD_UPDATE_DOC_SCREENSHOTS=1 \
+  swift test --filter DocumentationScreenshotTests/test_generateSyntheticReadmeScreenshots
+```
+
+The harness writes `docs/images/welcome.png` and
+`docs/images/voice-narration.png`. Review both images before committing them.
+Do not replace the synthetic state with an actual recording or project library.
+
 ## Coding Style
 
 Use four spaces and standard Swift API naming. Prefer one primary type per file,
