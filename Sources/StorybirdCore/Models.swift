@@ -12,11 +12,14 @@ public struct DemoProject: Codable, Identifiable, Hashable, Sendable {
     public var clicks: [TimedPointerClick]
     public var subtitles: [TimedSubtitle]
     public var effects: [DemoEffect]
+    public var narrations: [NarrationClip]
     public var suggestions: [ClickEditSuggestion]
     public var steps: [DemoStep]
     public var events: [AnalyticsEvent]
     public var theme: DemoTheme
 
+    /// Creates one versioned editing project while preserving legacy defaults
+    /// and keeping narration on the same canonical project timeline.
     public init(
         id: UUID = UUID(),
         revision: Int = 0,
@@ -29,6 +32,7 @@ public struct DemoProject: Codable, Identifiable, Hashable, Sendable {
         clicks: [TimedPointerClick] = [],
         subtitles: [TimedSubtitle] = [],
         effects: [DemoEffect] = [],
+        narrations: [NarrationClip] = [],
         suggestions: [ClickEditSuggestion] = [],
         steps: [DemoStep] = [],
         events: [AnalyticsEvent] = [],
@@ -54,6 +58,7 @@ public struct DemoProject: Codable, Identifiable, Hashable, Sendable {
         self.clicks = clicks
         self.subtitles = subtitles
         self.effects = effects
+        self.narrations = narrations
         self.suggestions = suggestions
         self.steps = steps
         self.events = events
@@ -72,6 +77,7 @@ public struct DemoProject: Codable, Identifiable, Hashable, Sendable {
         case clicks
         case subtitles
         case effects
+        case narrations
         case suggestions
         case steps
         case events
@@ -107,6 +113,10 @@ public struct DemoProject: Codable, Identifiable, Hashable, Sendable {
             [DemoEffect].self,
             forKey: .effects
         ) ?? []
+        narrations = try container.decodeIfPresent(
+            [NarrationClip].self,
+            forKey: .narrations
+        ) ?? []
         suggestions = try container.decodeIfPresent(
             [ClickEditSuggestion].self,
             forKey: .suggestions
@@ -136,22 +146,92 @@ public struct DemoProject: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
+public struct VoiceProfile: Codable, Identifiable, Hashable, Sendable {
+    public var id: UUID
+    public var name: String
+    public var referenceFilename: String
+    public var referenceText: String
+    public var language: String
+    public var consentConfirmed: Bool
+    public var createdAt: Date
+
+    /// Creates a consent-bearing local voice profile whose reference audio and
+    /// exact transcript remain outside project-owned generated assets.
+    public init(
+        id: UUID = UUID(),
+        name: String,
+        referenceFilename: String,
+        referenceText: String,
+        language: String = "korean",
+        consentConfirmed: Bool,
+        createdAt: Date = Date()
+    ) {
+        self.id = id
+        self.name = name
+        self.referenceFilename = referenceFilename
+        self.referenceText = referenceText
+        self.language = language
+        self.consentConfirmed = consentConfirmed
+        self.createdAt = createdAt
+    }
+}
+
+public struct NarrationClip: Codable, Identifiable, Hashable, Sendable {
+    public var id: UUID
+    public var voiceProfileID: UUID
+    public var filename: String
+    public var text: String
+    public var language: String
+    public var startTime: Double
+    public var duration: Double
+    public var volume: Double
+
+    /// Creates one project-time narration layer that references a complete
+    /// project-owned WAV and retains the profile identity used to generate it.
+    public init(
+        id: UUID = UUID(),
+        voiceProfileID: UUID,
+        filename: String,
+        text: String,
+        language: String = "korean",
+        startTime: Double,
+        duration: Double,
+        volume: Double = 1
+    ) {
+        self.id = id
+        self.voiceProfileID = voiceProfileID
+        self.filename = filename
+        self.text = text
+        self.language = language
+        self.startTime = startTime
+        self.duration = duration
+        self.volume = volume
+    }
+
+    public var endTime: Double {
+        startTime + duration
+    }
+}
+
 public struct VideoRecordingAsset: Codable, Hashable, Sendable {
     public var filename: String
     public var duration: Double
     public var width: Int
     public var height: Int
+    public var mediaStartTime: Double?
 
     public init(
         filename: String,
         duration: Double,
         width: Int,
-        height: Int
+        height: Int,
+        mediaStartTime: Double? = nil
     ) {
         self.filename = filename
         self.duration = max(duration, 0)
         self.width = max(width, 1)
         self.height = max(height, 1)
+        self.mediaStartTime = mediaStartTime
     }
 }
 
@@ -290,6 +370,7 @@ public struct TimedPointerClick: Codable, Identifiable, Hashable, Sendable {
     public var indicator: ClickIndicatorStyle
     public var description: ClickDescription
     public var cueSubtitle: CueSubtitle
+    public var sourceAnchor: ClickSourceAnchor?
 
     public init(
         id: UUID = UUID(),
@@ -299,7 +380,8 @@ public struct TimedPointerClick: Codable, Identifiable, Hashable, Sendable {
         y: Double,
         button: PointerButton = .left,
         caption: String = "",
-        captionStyle: TextOverlayStyle = .default
+        captionStyle: TextOverlayStyle = .default,
+        sourceAnchor: ClickSourceAnchor? = nil
     ) {
         self.id = id
         self.sourceTime = max(sourceTime ?? time, 0)
@@ -307,6 +389,7 @@ public struct TimedPointerClick: Codable, Identifiable, Hashable, Sendable {
         self.x = min(max(x, 0), 1)
         self.y = min(max(y, 0), 1)
         self.button = button
+        self.sourceAnchor = sourceAnchor
         let start = max(time - 0.15, 0)
         let end = time + 1.85
         self.indicator = ClickIndicatorStyle(
@@ -354,6 +437,22 @@ public struct TimedPointerClick: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
+public struct ClickSourceAnchor: Codable, Hashable, Sendable {
+    public var clipID: UUID
+    public var clipKind: VideoClipKind
+    public var clipOffset: Double
+
+    public init(
+        clipID: UUID,
+        clipKind: VideoClipKind,
+        clipOffset: Double
+    ) {
+        self.clipID = clipID
+        self.clipKind = clipKind
+        self.clipOffset = max(clipOffset, 0)
+    }
+}
+
 public struct TimedSubtitle: Codable, Identifiable, Hashable, Sendable {
     public var id: UUID
     public var startTime: Double
@@ -388,6 +487,7 @@ public struct SpotlightEffect: Codable, Identifiable, Hashable, Sendable {
     public var width: Double
     public var height: Double
     public var dimOpacity: Double
+    public var sourceAnchor: ContentEffectAnchor?
 
     public init(
         id: UUID = UUID(),
@@ -397,7 +497,8 @@ public struct SpotlightEffect: Codable, Identifiable, Hashable, Sendable {
         y: Double,
         width: Double,
         height: Double,
-        dimOpacity: Double = 0.55
+        dimOpacity: Double = 0.55,
+        sourceAnchor: ContentEffectAnchor? = nil
     ) {
         self.id = id
         self.startTime = startTime
@@ -407,6 +508,7 @@ public struct SpotlightEffect: Codable, Identifiable, Hashable, Sendable {
         self.width = width
         self.height = height
         self.dimOpacity = min(max(dimOpacity, 0), 1)
+        self.sourceAnchor = sourceAnchor
     }
 }
 
@@ -420,6 +522,7 @@ public struct PanZoomEffect: Codable, Identifiable, Hashable, Sendable {
     public var endX: Double
     public var endY: Double
     public var endScale: Double
+    public var sourceAnchor: ContentEffectAnchor?
 
     public init(
         id: UUID = UUID(),
@@ -430,7 +533,8 @@ public struct PanZoomEffect: Codable, Identifiable, Hashable, Sendable {
         startScale: Double = 1,
         endX: Double,
         endY: Double,
-        endScale: Double
+        endScale: Double,
+        sourceAnchor: ContentEffectAnchor? = nil
     ) {
         self.id = id
         self.startTime = startTime
@@ -441,6 +545,32 @@ public struct PanZoomEffect: Codable, Identifiable, Hashable, Sendable {
         self.endX = endX
         self.endY = endY
         self.endScale = endScale
+        self.sourceAnchor = sourceAnchor
+    }
+}
+
+public struct ContentEffectAnchor: Codable, Hashable, Sendable {
+    public var clipID: UUID
+    public var clipKind: VideoClipKind
+    public var sourceStart: Double
+    public var sourceEnd: Double
+    public var clipStartOffset: Double
+    public var clipEndOffset: Double
+
+    public init(
+        clipID: UUID,
+        clipKind: VideoClipKind,
+        sourceStart: Double,
+        sourceEnd: Double,
+        clipStartOffset: Double,
+        clipEndOffset: Double
+    ) {
+        self.clipID = clipID
+        self.clipKind = clipKind
+        self.sourceStart = sourceStart
+        self.sourceEnd = sourceEnd
+        self.clipStartOffset = max(clipStartOffset, 0)
+        self.clipEndOffset = max(clipEndOffset, self.clipStartOffset)
     }
 }
 

@@ -95,15 +95,40 @@ ScreenCaptureKit and TCC behavior require a real signed bundle:
 8. Add top and bottom subtitles and edit click-caption styles.
 9. Export an MP4, play it locally, and confirm the overlays are burned in and
    no audio track exists.
-10. Rebuild and confirm the same signing identity keeps permissions.
-11. On first launch after renaming, confirm an OpenLane library is copied while
+10. Import a synthetic narrated MP4 or MOV without granting capture permissions.
+    Confirm it creates a new project, **Add Click** places a Cue at the selected
+    playhead and frame position, and the external source remains unchanged.
+11. Trim or speed-change the imported clip, export it, and confirm one AAC track
+    stays synchronized with the edited video. Confirm freeze and full-screen
+    card intervals are silent.
+12. Open **Voice**, approve the roughly 2 GB model preparation, and confirm the
+    1.7B 8-bit MLX runtime becomes Ready. Quit and reopen Storybird, disconnect
+    the network, and confirm generation does not download the model again.
+13. Import synthetic MP3 and WAV voice references with their exact transcripts.
+    Confirm a short but valid external file is accepted, while missing
+    voice-rights consent is rejected without creating a profile.
+14. Grant Microphone access, record the prompted text for at least 3 seconds,
+    preview it, and save it as a voice profile. Deny the permission once and
+    confirm Storybird shows recovery guidance without changing a project.
+15. Generate two non-overlapping narration clips, preview them, adjust one
+    start time and volume, then export. Confirm the final MP4 contains one AAC
+    track with the imported source audio and narration at the expected times.
+16. Delete a voice profile and confirm existing project-owned narration still
+    plays and exports. Delete a narration clip and confirm its project-owned WAV
+    is removed.
+17. Rebuild and confirm the same signing identity keeps permissions.
+18. On first launch after renaming, confirm an OpenLane library is copied while
     the original remains untouched.
-12. Configure an MCP client to launch the signed `StorybirdMCP` companion.
-13. Start one synthetic source session with explicit acknowledgement, observe
+19. Configure an MCP client to launch the signed `StorybirdMCP` companion.
+20. Start one synthetic source session with explicit acknowledgement, observe
     its PNG, then move, click, and scroll.
-14. Stop and confirm Storybird creates one video project with ordered,
+21. Stop and confirm Storybird creates one video project with ordered,
     non-duplicated click timestamps.
-15. Deny Accessibility or submit an out-of-range coordinate and confirm no
+22. Using an existing voice profile, have MCP create, update, and delete
+    narration with project revision checks, then export the result. Confirm MCP
+    exposes no tool for profile import, microphone recording, model preparation,
+    or profile deletion.
+23. Deny Accessibility or submit an out-of-range coordinate and confirm no
     pointer input or library mutation occurs.
 
 Use synthetic content. Never put customer dashboards, messages, credentials, or

@@ -54,7 +54,82 @@ public struct StorybirdMCPService: Sendable {
 
     /// Defines the public computer-use surface and its side-effect hints.
     static var toolDefinitions: [Tool] {
-        sourceTools + projectTools + exportTools
+        sourceTools + projectTools + voiceTools + exportTools
+    }
+
+    private static var voiceTools: [Tool] {
+        [
+            Tool(
+                name: "storybird_list_voice_profiles",
+                title: "List local Storybird voice profiles",
+                description: "List user-created local voice profiles without returning reference audio bytes.",
+                inputSchema: Self.objectSchema(),
+                annotations: .init(readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false)
+            ),
+            Tool(
+                name: "storybird_generate_narration",
+                title: "Generate cloned-voice narration",
+                description: "Use an existing local voice profile to generate one project-owned narration WAV and revisioned timeline layer.",
+                inputSchema: Self.objectSchema(
+                    properties: [
+                        "project_id": .object(["type": "string"]),
+                        "expected_revision": .object(["type": "integer", "minimum": 0]),
+                        "voice_profile_id": .object(["type": "string"]),
+                        "text": .object(["type": "string"]),
+                        "language": .object(["type": "string"]),
+                        "start_time": .object(["type": "number", "minimum": 0]),
+                    ],
+                    required: [
+                        "project_id",
+                        "expected_revision",
+                        "voice_profile_id",
+                        "text",
+                        "start_time",
+                    ]
+                ),
+                annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false)
+            ),
+            Tool(
+                name: "storybird_update_narration",
+                title: "Update or regenerate narration",
+                description: "Update timing or volume, or regenerate only this narration WAV when text is supplied, against the current project revision.",
+                inputSchema: Self.objectSchema(
+                    properties: [
+                        "project_id": .object(["type": "string"]),
+                        "expected_revision": .object(["type": "integer", "minimum": 0]),
+                        "narration_id": .object(["type": "string"]),
+                        "text": .object(["type": "string"]),
+                        "language": .object(["type": "string"]),
+                        "start_time": .object(["type": "number", "minimum": 0]),
+                        "volume": .object(["type": "number", "minimum": 0, "maximum": 2]),
+                    ],
+                    required: [
+                        "project_id",
+                        "expected_revision",
+                        "narration_id",
+                    ]
+                ),
+                annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false)
+            ),
+            Tool(
+                name: "storybird_delete_narration",
+                title: "Delete one narration layer",
+                description: "Delete one project-owned narration layer and its generated WAV.",
+                inputSchema: Self.objectSchema(
+                    properties: [
+                        "project_id": .object(["type": "string"]),
+                        "expected_revision": .object(["type": "integer", "minimum": 0]),
+                        "narration_id": .object(["type": "string"]),
+                    ],
+                    required: [
+                        "project_id",
+                        "expected_revision",
+                        "narration_id",
+                    ]
+                ),
+                annotations: .init(readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false)
+            ),
+        ]
     }
 
     private static var sourceTools: [Tool] {

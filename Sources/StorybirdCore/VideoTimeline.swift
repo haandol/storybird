@@ -7,6 +7,7 @@ public enum VideoTimelineEditError: LocalizedError, Equatable {
     case invalidSpeed
     case invalidFreeze
     case invalidDestination
+    case invalidClickPlacement
 
     public var errorDescription: String? {
         switch self {
@@ -16,6 +17,8 @@ public enum VideoTimelineEditError: LocalizedError, Equatable {
         case .invalidSpeed: "Playback speed must be between 0.25× and 4×."
         case .invalidFreeze: "A freeze duration must be greater than zero."
         case .invalidDestination: "The destination index is outside the timeline."
+        case .invalidClickPlacement:
+            "A Click Cue must use a playable video time and a position inside the frame."
         }
     }
 }
@@ -27,6 +30,47 @@ public enum VideoTimelineEditor {
         at projectTime: Double
     ) -> Double? {
         VideoTimelineSchedule(project: project).sourceTime(at: projectTime)
+    }
+
+    /// Adds one incomplete Click Cue at a playable project frame, preserving the
+    /// source-time link needed for later trim, reorder, and speed remapping.
+    public static func addClickCue(
+        to project: DemoProject,
+        at projectTime: Double,
+        x: Double,
+        y: Double
+    ) throws -> DemoProject {
+        let timelineDuration = project.timelineDuration
+        guard projectTime.isFinite,
+              projectTime >= 0,
+              projectTime < timelineDuration,
+              x.isFinite,
+              y.isFinite,
+              (0...1).contains(x),
+              (0...1).contains(y),
+              let location = VideoTimelineSchedule(
+                  project: project
+              ).sourceLocation(at: projectTime)
+        else {
+            throw VideoTimelineEditError.invalidClickPlacement
+        }
+        var result = project
+        let click = TimedPointerClick(
+            sourceTime: location.sourceTime,
+            time: projectTime,
+            x: x,
+            y: y,
+            sourceAnchor: ClickSourceAnchor(
+                clipID: location.clipID,
+                clipKind: location.clipKind,
+                clipOffset: location.clipOffset
+            )
+        ).bounded(to: timelineDuration)
+        result.clicks.append(click)
+        result.clicks.sort { $0.time < $1.time }
+        result.suggestions = ClickSuggestionGenerator.generate(for: result)
+        try VideoProjectValidator.validate(result)
+        return result
     }
 
     /// Splits one source-backed clip while preserving one unambiguous owner for boundary cues.
@@ -46,21 +90,41 @@ public enum VideoTimelineEditor {
         else {
             throw VideoTimelineEditError.invalidSplit
         }
+        let left = VideoClip(
+            sourceStart: clip.sourceStart,
+            sourceEnd: sourceTime,
+            playbackRate: clip.playbackRate
+        )
+        let right = VideoClip(
+            sourceStart: sourceTime,
+            sourceEnd: clip.sourceEnd,
+            playbackRate: clip.playbackRate
+        )
         result.clips.replaceSubrange(
             index...index,
-            with: [
-                VideoClip(
-                    sourceStart: clip.sourceStart,
-                    sourceEnd: sourceTime,
-                    playbackRate: clip.playbackRate
-                ),
-                VideoClip(
-                    sourceStart: sourceTime,
-                    sourceEnd: clip.sourceEnd,
-                    playbackRate: clip.playbackRate
-                ),
-            ]
+            with: [left, right]
         )
+        for clickIndex in result.clicks.indices
+        where result.clicks[clickIndex].sourceAnchor?.clipID == clipID {
+            let child = result.clicks[clickIndex].sourceTime < sourceTime
+                ? left
+                : right
+            result.clicks[clickIndex].sourceAnchor = ClickSourceAnchor(
+                clipID: child.id,
+                clipKind: .video,
+                clipOffset:
+                    (result.clicks[clickIndex].sourceTime
+                        - child.sourceStart) / child.playbackRate
+            )
+        }
+        result.effects = result.effects.flatMap {
+            transferEffect(
+                $0,
+                from: clipID,
+                to: left,
+                or: right
+            )
+        }
         return remapContentLayers(result)
     }
 
@@ -162,42 +226,27 @@ public enum VideoTimelineEditor {
         return remapContentLayers(result)
     }
 
-    /// Converts source-time Click Cues into project time and drops cues outside the edited timeline.
+    /// Remaps anchored Click Cues only through their exact owning clip; split
+    /// transfers anchors before this pass, while legacy unanchored Cues use source time.
     public static func remapContentLayers(_ project: DemoProject) -> DemoProject {
         var result = project
-        var projectCursor = 0.0
-        var mappedClicks: [TimedPointerClick] = []
-
-        for clip in result.clips {
-            defer { projectCursor += clip.outputDuration }
-            guard clip.kind == .video else { continue }
-            for click in result.clicks where
-                click.sourceTime >= clip.sourceStart
-                    && click.sourceTime < clip.sourceEnd {
-                var mapped = click
-                let newTime = projectCursor
-                    + (click.sourceTime - clip.sourceStart) / clip.playbackRate
-                let offset = newTime - click.time
-                mapped.time = newTime
-                mapped.indicator.startTime += offset
-                mapped.indicator.endTime += offset
-                mapped.description.startTime += offset
-                mapped.description.endTime += offset
-                mapped.cueSubtitle.startTime += offset
-                mapped.cueSubtitle.endTime += offset
-                mappedClicks.append(mapped)
-            }
+        let schedule = VideoTimelineSchedule(project: result)
+        let mappedClicks = result.clicks.compactMap {
+            remappedClick($0, in: schedule)
         }
         let timelineDuration = result.timelineDuration
         result.clicks = mappedClicks.map {
             boundedClickWindows($0, timelineDuration: timelineDuration)
         }.sorted { $0.time < $1.time }
+        result.effects = result.effects.compactMap {
+            remappedEffect($0, in: schedule)
+        }
         let clickByID = Dictionary(
             uniqueKeysWithValues: result.clicks.map { ($0.id, $0) }
         )
         result.suggestions = result.suggestions.compactMap { suggestion in
             guard let click = clickByID[suggestion.clickID] else {
-                return suggestion.state == .applied ? suggestion : nil
+                return nil
             }
             guard suggestion.state == .pending else { return suggestion }
             var moved = suggestion
@@ -210,6 +259,359 @@ public enum VideoTimelineEditor {
             return moved
         }
         return result
+    }
+
+    /// Anchors a spotlight or pan/zoom draft to the clip visible at one project time.
+    public static func anchorContentEffect(
+        _ effect: DemoEffect,
+        in project: DemoProject,
+        at projectTime: Double
+    ) -> DemoEffect {
+        let schedule = VideoTimelineSchedule(project: project)
+        let scheduledClips: [
+            VideoTimelineSchedule.ScheduledClip
+        ] = schedule.items.compactMap {
+            guard case let .clip(value) = $0 else { return nil }
+            return value
+        }
+        guard let location = schedule.sourceLocation(at: projectTime),
+              let scheduled = scheduledClips.first(
+                  where: { $0.clip.id == location.clipID }
+              )
+        else {
+            return effect
+        }
+        let startOffset = max(effect.startTime - scheduled.projectStart, 0)
+        let endOffset = min(
+            max(effect.endTime - scheduled.projectStart, startOffset),
+            scheduled.clip.outputDuration
+        )
+        let anchor: ContentEffectAnchor
+        switch scheduled.clip.kind {
+        case .video:
+            anchor = ContentEffectAnchor(
+                clipID: scheduled.clip.id,
+                clipKind: .video,
+                sourceStart: scheduled.clip.sourceStart
+                    + startOffset * scheduled.clip.playbackRate,
+                sourceEnd: scheduled.clip.sourceStart
+                    + endOffset * scheduled.clip.playbackRate,
+                clipStartOffset: startOffset,
+                clipEndOffset: endOffset
+            )
+        case .freeze:
+            anchor = ContentEffectAnchor(
+                clipID: scheduled.clip.id,
+                clipKind: .freeze,
+                sourceStart: scheduled.clip.sourceStart,
+                sourceEnd: scheduled.clip.sourceStart,
+                clipStartOffset: startOffset,
+                clipEndOffset: endOffset
+            )
+        }
+        return effectWithAnchor(effect, anchor)
+    }
+
+    /// Rebuilds content anchors only for effects whose editable project-time bounds
+    /// changed, preserving style edits and rejecting ranges without a playable owner.
+    public static func reanchorChangedContentEffectTimes(
+        from current: DemoProject,
+        to draft: DemoProject
+    ) -> DemoProject {
+        var result = draft
+        let currentByID = Dictionary(
+            uniqueKeysWithValues: current.effects.map { ($0.id, $0) }
+        )
+        result.effects = result.effects.map { effect in
+            guard let previous = currentByID[effect.id],
+                  let previousAnchor = effectAnchor(previous),
+                  abs(previous.startTime - effect.startTime) > 0.000_001
+                    || abs(previous.endTime - effect.endTime) > 0.000_001
+            else {
+                return effect
+            }
+            guard effect.startTime.isFinite,
+                  effect.endTime.isFinite,
+                  effect.startTime >= 0,
+                  effect.startTime < effect.endTime,
+                  effect.endTime <= result.timelineDuration
+            else {
+                return effectWithTimesAndAnchor(
+                    effect,
+                    previous.startTime,
+                    previous.endTime,
+                    previousAnchor
+                )
+            }
+            let schedule = VideoTimelineSchedule(project: result)
+            let endProbe = max(
+                effect.startTime,
+                effect.endTime - 0.000_001
+            )
+            guard let startLocation = schedule.sourceLocation(
+                at: effect.startTime
+            ),
+                let endLocation = schedule.sourceLocation(at: endProbe),
+                startLocation.clipID == endLocation.clipID
+            else {
+                return effectWithTimesAndAnchor(
+                    effect,
+                    previous.startTime,
+                    previous.endTime,
+                    previousAnchor
+                )
+            }
+            let anchorTime = min(
+                max(
+                    (effect.startTime + effect.endTime) / 2,
+                    0
+                ),
+                max(result.timelineDuration - 0.000_001, 0)
+            )
+            let reanchored = anchorContentEffect(
+                effect,
+                in: result,
+                at: anchorTime
+            )
+            guard effectAnchor(reanchored) != nil,
+                  abs(reanchored.startTime - effect.startTime) <= 0.000_001,
+                  abs(reanchored.endTime - effect.endTime) <= 0.000_001
+            else {
+                return effectWithTimesAndAnchor(
+                    effect,
+                    previous.startTime,
+                    previous.endTime,
+                    previousAnchor
+                )
+            }
+            return reanchored
+        }
+        return result
+    }
+
+    /// Resolves anchored Cues against their exact owner and removes them when that
+    /// owner is gone; source-time adoption is reserved for legacy unanchored Cues.
+    private static func remappedClick(
+        _ click: TimedPointerClick,
+        in schedule: VideoTimelineSchedule
+    ) -> TimedPointerClick? {
+        let scheduledClips: [
+            VideoTimelineSchedule.ScheduledClip
+        ] = schedule.items.compactMap {
+            guard case let .clip(value) = $0 else { return nil }
+            return value
+        }
+        let scheduled: VideoTimelineSchedule.ScheduledClip?
+        if let anchor = click.sourceAnchor,
+           let exact = scheduledClips.first(
+               where: { $0.clip.id == anchor.clipID }
+           ) {
+            guard exact.clip.kind == anchor.clipKind else {
+                return nil
+            }
+            switch exact.clip.kind {
+            case .video:
+                guard click.sourceTime >= exact.clip.sourceStart,
+                      click.sourceTime < exact.clip.sourceEnd
+                else {
+                    return nil
+                }
+            case .freeze:
+                guard anchor.clipOffset < exact.clip.outputDuration else {
+                    return nil
+                }
+            }
+            scheduled = exact
+        } else if click.sourceAnchor == nil {
+            scheduled = scheduledClips.first {
+                $0.clip.kind == VideoClipKind.video
+                    && click.sourceTime >= $0.clip.sourceStart
+                    && click.sourceTime < $0.clip.sourceEnd
+            }
+        } else {
+            scheduled = nil
+        }
+        guard let scheduled else { return nil }
+
+        var mapped = click
+        let newTime: Double
+        switch scheduled.clip.kind {
+        case .video:
+            newTime = scheduled.projectStart
+                + (click.sourceTime - scheduled.clip.sourceStart)
+                    / scheduled.clip.playbackRate
+        case .freeze:
+            newTime = scheduled.projectStart
+                + (click.sourceAnchor?.clipOffset ?? 0)
+        }
+        let offset = newTime - click.time
+        mapped.time = newTime
+        mapped.indicator.startTime += offset
+        mapped.indicator.endTime += offset
+        mapped.description.startTime += offset
+        mapped.description.endTime += offset
+        mapped.cueSubtitle.startTime += offset
+        mapped.cueSubtitle.endTime += offset
+        mapped.sourceAnchor = ClickSourceAnchor(
+            clipID: scheduled.clip.id,
+            clipKind: scheduled.clip.kind,
+            clipOffset: newTime - scheduled.projectStart
+        )
+        return mapped
+    }
+
+    /// Maps one anchored content effect through its exact clip, clipping trimmed
+    /// source ranges and dropping effects whose owning clip was removed.
+    private static func remappedEffect(
+        _ effect: DemoEffect,
+        in schedule: VideoTimelineSchedule
+    ) -> DemoEffect? {
+        guard let anchor = effectAnchor(effect) else { return effect }
+        let scheduled: VideoTimelineSchedule.ScheduledClip? =
+            schedule.items.compactMap {
+                guard case let .clip(value) = $0 else { return nil }
+                return value
+            }.first { $0.clip.id == anchor.clipID }
+        guard let scheduled, scheduled.clip.kind == anchor.clipKind else {
+            return nil
+        }
+        var updated = anchor
+        let start: Double
+        let end: Double
+        switch scheduled.clip.kind {
+        case .video:
+            updated.sourceStart = max(anchor.sourceStart, scheduled.clip.sourceStart)
+            updated.sourceEnd = min(anchor.sourceEnd, scheduled.clip.sourceEnd)
+            guard updated.sourceStart < updated.sourceEnd else { return nil }
+            start = scheduled.projectStart
+                + (updated.sourceStart - scheduled.clip.sourceStart)
+                    / scheduled.clip.playbackRate
+            end = scheduled.projectStart
+                + (updated.sourceEnd - scheduled.clip.sourceStart)
+                    / scheduled.clip.playbackRate
+        case .freeze:
+            updated.clipStartOffset = min(
+                anchor.clipStartOffset,
+                scheduled.clip.outputDuration
+            )
+            updated.clipEndOffset = min(
+                anchor.clipEndOffset,
+                scheduled.clip.outputDuration
+            )
+            guard updated.clipStartOffset < updated.clipEndOffset else { return nil }
+            start = scheduled.projectStart + updated.clipStartOffset
+            end = scheduled.projectStart + updated.clipEndOffset
+        }
+        return effectWithTimesAndAnchor(effect, start, end, updated)
+    }
+
+    /// Partitions an anchored video effect across zero, one, or two split children,
+    /// assigning a distinct ID when both child-owned source intervals remain.
+    private static func transferEffect(
+        _ effect: DemoEffect,
+        from oldClipID: UUID,
+        to left: VideoClip,
+        or right: VideoClip
+    ) -> [DemoEffect] {
+        guard let anchor = effectAnchor(effect),
+              anchor.clipID == oldClipID,
+              anchor.clipKind == .video else {
+            return [effect]
+        }
+        let leftStart = max(anchor.sourceStart, left.sourceStart)
+        let leftEnd = min(anchor.sourceEnd, left.sourceEnd)
+        let rightStart = max(anchor.sourceStart, right.sourceStart)
+        let rightEnd = min(anchor.sourceEnd, right.sourceEnd)
+        var transferred: [DemoEffect] = []
+        if leftStart < leftEnd {
+            var leftAnchor = anchor
+            leftAnchor.clipID = left.id
+            leftAnchor.sourceStart = leftStart
+            leftAnchor.sourceEnd = leftEnd
+            transferred.append(effectWithAnchor(effect, leftAnchor))
+        }
+        if rightStart < rightEnd {
+            var rightAnchor = anchor
+            rightAnchor.clipID = right.id
+            rightAnchor.sourceStart = rightStart
+            rightAnchor.sourceEnd = rightEnd
+            let rightEffect = transferred.isEmpty
+                ? effect
+                : reidentifiedEffect(effect)
+            transferred.append(effectWithAnchor(rightEffect, rightAnchor))
+        }
+        return transferred
+    }
+
+    /// Reads content ownership only from spotlight and pan/zoom effects; full-screen
+    /// title and CTA cards remain project-time anchored.
+    private static func effectAnchor(
+        _ effect: DemoEffect
+    ) -> ContentEffectAnchor? {
+        switch effect {
+        case let .spotlight(value): value.sourceAnchor
+        case let .panZoom(value): value.sourceAnchor
+        case .title, .cta: nil
+        }
+    }
+
+    /// Replaces one content effect's ownership metadata without changing its
+    /// current project-time interval or visual properties.
+    private static func effectWithAnchor(
+        _ effect: DemoEffect,
+        _ anchor: ContentEffectAnchor
+    ) -> DemoEffect {
+        switch effect {
+        case var .spotlight(value):
+            value.sourceAnchor = anchor
+            return .spotlight(value)
+        case var .panZoom(value):
+            value.sourceAnchor = anchor
+            return .panZoom(value)
+        case .title, .cta:
+            return effect
+        }
+    }
+
+    /// Gives a split-off effect segment a distinct identity while preserving every
+    /// visual property and its current project-time interval.
+    private static func reidentifiedEffect(
+        _ effect: DemoEffect
+    ) -> DemoEffect {
+        switch effect {
+        case var .spotlight(value):
+            value.id = UUID()
+            return .spotlight(value)
+        case var .panZoom(value):
+            value.id = UUID()
+            return .panZoom(value)
+        case .title, .cta:
+            return effect
+        }
+    }
+
+    /// Applies a remapped project-time interval and matching ownership metadata
+    /// while preserving the effect's visual properties and identifier.
+    private static func effectWithTimesAndAnchor(
+        _ effect: DemoEffect,
+        _ start: Double,
+        _ end: Double,
+        _ anchor: ContentEffectAnchor
+    ) -> DemoEffect {
+        switch effect {
+        case var .spotlight(value):
+            value.startTime = start
+            value.endTime = end
+            value.sourceAnchor = anchor
+            return .spotlight(value)
+        case var .panZoom(value):
+            value.startTime = start
+            value.endTime = end
+            value.sourceAnchor = anchor
+            return .panZoom(value)
+        case .title, .cta:
+            return effect
+        }
     }
 
     /// Keeps all remapped Click Cue windows valid when an edit shortens the output timeline.
@@ -449,27 +851,49 @@ public enum ClickSuggestionGenerator {
             }
             let start = max(click.time - 0.25, 0)
             let end = min(click.time + 1.25, project.timelineDuration)
+            let spotlight = SpotlightEffect(
+                id: existing[click.id]?.spotlight.id ?? UUID(),
+                startTime: start,
+                endTime: max(end, start + 0.01),
+                x: max(click.x - 0.12, 0),
+                y: max(click.y - 0.08, 0),
+                width: min(0.24, 1 - max(click.x - 0.12, 0)),
+                height: min(0.16, 1 - max(click.y - 0.08, 0))
+            )
+            let panZoom = PanZoomEffect(
+                id: existing[click.id]?.panZoom.id ?? UUID(),
+                startTime: start,
+                endTime: max(end, start + 0.01),
+                endX: click.x,
+                endY: click.y,
+                endScale: 1.5
+            )
+            let anchoredSpotlight = VideoTimelineEditor.anchorContentEffect(
+                .spotlight(spotlight),
+                in: project,
+                at: click.time
+            )
+            let anchoredPanZoom = VideoTimelineEditor.anchorContentEffect(
+                .panZoom(panZoom),
+                in: project,
+                at: click.time
+            )
+            guard case let .spotlight(spotlightValue) = anchoredSpotlight,
+                  case let .panZoom(panZoomValue) = anchoredPanZoom
+            else {
+                return existing[click.id] ?? ClickEditSuggestion(
+                    clickID: click.id,
+                    splitTime: click.time,
+                    spotlight: spotlight,
+                    panZoom: panZoom
+                )
+            }
             return ClickEditSuggestion(
                 id: existing[click.id]?.id ?? UUID(),
                 clickID: click.id,
                 splitTime: click.time,
-                spotlight: SpotlightEffect(
-                    id: existing[click.id]?.spotlight.id ?? UUID(),
-                    startTime: start,
-                    endTime: max(end, start + 0.01),
-                    x: max(click.x - 0.12, 0),
-                    y: max(click.y - 0.08, 0),
-                    width: min(0.24, 1 - max(click.x - 0.12, 0)),
-                    height: min(0.16, 1 - max(click.y - 0.08, 0))
-                ),
-                panZoom: PanZoomEffect(
-                    id: existing[click.id]?.panZoom.id ?? UUID(),
-                    startTime: start,
-                    endTime: max(end, start + 0.01),
-                    endX: click.x,
-                    endY: click.y,
-                    endScale: 1.5
-                )
+                spotlight: spotlightValue,
+                panZoom: panZoomValue
             )
         }
     }
@@ -494,7 +918,8 @@ public enum ClickSuggestionGenerator {
         ) else {
             throw ClickSuggestionError.clickNotFound
         }
-        if let clip = result.clips.first(where: {
+        if click.sourceAnchor?.clipKind != .freeze,
+           let clip = result.clips.first(where: {
             $0.kind == .video
                 && click.sourceTime > $0.sourceStart
                 && click.sourceTime < $0.sourceEnd
@@ -505,15 +930,34 @@ public enum ClickSuggestionGenerator {
                 sourceTime: click.sourceTime
             )
         }
-        result.effects.append(.spotlight(suggestion.spotlight))
-        result.effects.append(.panZoom(suggestion.panZoom))
+        let currentClick = result.clicks.first {
+            $0.id == suggestion.clickID
+        } ?? click
+        let spotlight = VideoTimelineEditor.anchorContentEffect(
+            DemoEffect.spotlight(suggestion.spotlight),
+            in: result,
+            at: currentClick.time
+        )
+        let panZoom = VideoTimelineEditor.anchorContentEffect(
+            DemoEffect.panZoom(suggestion.panZoom),
+            in: result,
+            at: currentClick.time
+        )
+        result.effects.append(spotlight)
+        result.effects.append(panZoom)
         guard let remappedIndex = result.suggestions.firstIndex(
             where: { $0.id == suggestionID }
         ) else {
             throw ClickSuggestionError.suggestionNotFound
         }
         result.suggestions[remappedIndex].state = .applied
-        return result
+        if case let .spotlight(value) = spotlight {
+            result.suggestions[remappedIndex].spotlight = value
+        }
+        if case let .panZoom(value) = panZoom {
+            result.suggestions[remappedIndex].panZoom = value
+        }
+        return VideoTimelineEditor.remapContentLayers(result)
     }
 
     /// Rejects one pending suggestion without changing output clips or effects.

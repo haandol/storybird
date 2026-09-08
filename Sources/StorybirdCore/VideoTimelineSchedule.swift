@@ -37,6 +37,13 @@ public struct VideoTimelineSchedule: Sendable {
         }
     }
 
+    public struct SourceLocation: Sendable {
+        public let clipID: UUID
+        public let clipKind: VideoClipKind
+        public let sourceTime: Double
+        public let clipOffset: Double
+    }
+
     public let items: [Item]
     public let duration: Double
     public let isStructurallyValid: Bool
@@ -121,6 +128,14 @@ public struct VideoTimelineSchedule: Sendable {
 
     /// Maps project time to the immutable source frame, returning nil for full-screen cards.
     public func sourceTime(at projectTime: Double) -> Double? {
+        sourceLocation(at: projectTime)?.sourceTime
+    }
+
+    /// Maps project time to one owning clip so repeated source frames, such as
+    /// freeze segments, keep distinct Click Cue ownership.
+    public func sourceLocation(
+        at projectTime: Double
+    ) -> SourceLocation? {
         guard projectTime >= 0 else { return nil }
         for item in items {
             switch item {
@@ -140,11 +155,21 @@ public struct VideoTimelineSchedule: Sendable {
                 }
                 switch clip.clip.kind {
                 case .video:
-                    return clip.clip.sourceStart
-                        + (projectTime - clip.projectStart)
-                            * clip.clip.playbackRate
+                    return SourceLocation(
+                        clipID: clip.clip.id,
+                        clipKind: .video,
+                        sourceTime: clip.clip.sourceStart
+                            + (projectTime - clip.projectStart)
+                                * clip.clip.playbackRate,
+                        clipOffset: projectTime - clip.projectStart
+                    )
                 case .freeze:
-                    return clip.clip.sourceStart
+                    return SourceLocation(
+                        clipID: clip.clip.id,
+                        clipKind: .freeze,
+                        sourceTime: clip.clip.sourceStart,
+                        clipOffset: projectTime - clip.projectStart
+                    )
                 }
             }
         }

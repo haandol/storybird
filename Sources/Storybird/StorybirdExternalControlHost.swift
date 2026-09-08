@@ -123,6 +123,14 @@ final class StorybirdExternalControlHost {
                     request.name,
                     arguments: arguments
                 )
+            case "storybird_list_voice_profiles",
+                 "storybird_generate_narration",
+                 "storybird_update_narration",
+                 "storybird_delete_narration":
+                return try await handleVoiceCommand(
+                    request.name,
+                    arguments: arguments
+                )
             default:
                 return StorybirdControlResponse(
                     text: "Unknown Storybird tool: \(request.name)",
@@ -134,6 +142,77 @@ final class StorybirdExternalControlHost {
                 text: error.localizedDescription,
                 isError: true
             )
+        }
+    }
+
+    /// Uses only existing user-created profiles while keeping registration,
+    /// microphone capture, model preparation, and profile deletion out of MCP.
+    private func handleVoiceCommand(
+        _ name: String,
+        arguments: [String: Any]
+    ) async throws -> StorybirdControlResponse {
+        switch name {
+        case "storybird_list_voice_profiles":
+            return try Self.jsonResponse(
+                store.voiceProfiles.map(ExternalVoiceProfile.init)
+            )
+        case "storybird_generate_narration":
+            let projectID = try Self.uuid("project_id", in: arguments)
+            let revision = try Self.requiredInt(
+                "expected_revision",
+                in: arguments
+            )
+            let profileID = try Self.uuid(
+                "voice_profile_id",
+                in: arguments
+            )
+            let text = try Self.string("text", in: arguments)
+            let startTime = try Self.double(
+                "start_time",
+                in: arguments
+            )
+            let language = (arguments["language"] as? String) ?? "korean"
+            let saved = try await store.generateNarration(
+                projectID: projectID,
+                expectedRevision: revision,
+                voiceProfileID: profileID,
+                text: text,
+                language: language,
+                startTime: startTime
+            )
+            return try Self.jsonResponse(saved)
+        case "storybird_update_narration":
+            let project = try project(from: arguments)
+            let expectedRevision = try Self.requiredInt(
+                "expected_revision",
+                in: arguments
+            )
+            let id = try Self.uuid("narration_id", in: arguments)
+            let saved = try await store.updateNarration(
+                projectID: project.id,
+                narrationID: id,
+                expectedRevision: expectedRevision,
+                text: arguments["text"] as? String,
+                language: arguments["language"] as? String,
+                startTime: (arguments["start_time"] as? NSNumber)?.doubleValue,
+                volume: (arguments["volume"] as? NSNumber)?.doubleValue
+            )
+            return try Self.jsonResponse(saved)
+        case "storybird_delete_narration":
+            let project = try project(from: arguments)
+            let expectedRevision = try Self.requiredInt(
+                "expected_revision",
+                in: arguments
+            )
+            let id = try Self.uuid("narration_id", in: arguments)
+            let saved = try store.deleteNarration(
+                projectID: project.id,
+                narrationID: id,
+                expectedRevision: expectedRevision
+            )
+            return try Self.jsonResponse(saved)
+        default:
+            throw StorybirdControlWireError.invalidMessage
         }
     }
 
@@ -554,72 +633,75 @@ final class StorybirdExternalControlHost {
     ) async throws -> StorybirdControlResponse {
         switch name {
         case "storybird_start_export":
-            guard !exportJobs.values.contains(where: {
-                $0.state == .validating || $0.state == .rendering
-            }) else {
-                throw LayeredVideoExportError.exportFailed(
-                    "Another export is already active."
-                )
-            }
-            let project = try project(from: arguments)
-            try LayeredVideoExporter.validateForExport(project)
-            let parent = URL(
-                fileURLWithPath: try Self.string(
-                    "parent_directory",
-                    in: arguments
-                )
-            )
-            let jobID = UUID()
-            exportJobs[jobID] = ExportJob(
-                id: jobID,
-                state: .validating,
-                progress: 0
-            )
-            exportTasks[jobID] = Task { [weak self] in
-                guard let self else { return }
-                do {
-                    guard let recording = project.recording else {
-                        throw VideoProjectValidationError.missingRecording
-                    }
-                    self.updateExport(jobID) {
-                        $0.state = .rendering
-                    }
-                    let destination = Self.uniqueVideoDestination(
-                        projectName: project.name,
-                        in: parent
+            let exportID = try store.beginExport()
+            do {
+                let project = try project(from: arguments)
+                try LayeredVideoExporter.validateForExport(project)
+                let parent = URL(
+                    fileURLWithPath: try Self.string(
+                        "parent_directory",
+                        in: arguments
                     )
-                    let result = try await LayeredVideoExporter().export(
-                        project: project,
-                        sourceURL: self.store.repository.assetURL(
-                            projectID: project.id,
-                            filename: recording.filename
-                        ),
-                        destinationURL: destination
-                    ) { progress in
-                        Task { @MainActor [weak self] in
-                            self?.updateExport(jobID) {
-                                $0.progress = progress * 100
+                )
+                let jobID = UUID()
+                exportJobs[jobID] = ExportJob(
+                    id: jobID,
+                    state: .validating,
+                    progress: 0
+                )
+                let store = self.store
+                exportTasks[jobID] = Task { [weak self, store] in
+                    defer {
+                        store.endExport(exportID)
+                    }
+                    guard let self else { return }
+                    do {
+                        guard let recording = project.recording else {
+                            throw VideoProjectValidationError.missingRecording
+                        }
+                        self.updateExport(jobID) {
+                            $0.state = .rendering
+                        }
+                        let destination = Self.uniqueVideoDestination(
+                            projectName: project.name,
+                            in: parent
+                        )
+                        let result = try await LayeredVideoExporter().export(
+                            project: project,
+                            sourceURL: store.repository.assetURL(
+                                projectID: project.id,
+                                filename: recording.filename
+                            ),
+                            destinationURL: destination
+                        ) { progress in
+                            Task { @MainActor [weak self] in
+                                self?.updateExport(jobID) {
+                                    $0.progress = progress * 100
+                                }
                             }
                         }
+                        self.updateExport(jobID) {
+                            $0.state = .completed
+                            $0.progress = 100
+                            $0.outputPath = result.path
+                        }
+                    } catch is CancellationError {
+                        self.updateExport(jobID) {
+                            $0.state = .cancelled
+                        }
+                    } catch {
+                        self.updateExport(jobID) {
+                            $0.state = .failed
+                            $0.error = error.localizedDescription
+                        }
                     }
-                    self.updateExport(jobID) {
-                        $0.state = .completed
-                        $0.progress = 100
-                        $0.outputPath = result.path
-                    }
-                } catch is CancellationError {
-                    self.updateExport(jobID) {
-                        $0.state = .cancelled
-                    }
-                } catch {
-                    self.updateExport(jobID) {
-                        $0.state = .failed
-                        $0.error = error.localizedDescription
-                    }
+                    self.exportTasks[jobID] = nil
                 }
-                self.exportTasks[jobID] = nil
+                return try Self.jsonResponse(exportJobs[jobID]!)
+            } catch {
+                store.endExport(exportID)
+                throw error
             }
-            return try Self.jsonResponse(exportJobs[jobID]!)
         case "storybird_get_export":
             let id = try Self.uuid("job_id", in: arguments)
             return try Self.jsonResponse(
@@ -638,6 +720,10 @@ final class StorybirdExternalControlHost {
             }
             return try Self.jsonResponse(exportJobs[id]!)
         case "storybird_export_project":
+            let exportID = try store.beginExport()
+            defer {
+                store.endExport(exportID)
+            }
             let project = try project(from: arguments)
             let parent = URL(
                 fileURLWithPath: try Self.string(
@@ -889,5 +975,19 @@ final class StorybirdExternalControlHost {
             suffix += 1
         }
         return destination
+    }
+}
+
+private struct ExternalVoiceProfile: Encodable {
+    let id: UUID
+    let name: String
+    let language: String
+
+    /// Reduces the MCP listing to selection metadata so reference filenames,
+    /// exact transcripts, and consent records remain inside Storybird.
+    init(_ profile: VoiceProfile) {
+        id = profile.id
+        name = profile.name
+        language = profile.language
     }
 }

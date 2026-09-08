@@ -31,9 +31,9 @@ struct ProjectSidebar: View {
                     Image(systemName: "rectangle.stack.badge.plus")
                         .font(.system(size: 30, weight: .light))
                         .foregroundStyle(.secondary)
-                    Text("No recordings yet")
+                    Text("No videos yet")
                         .font(.subheadline.weight(.medium))
-                    Text("Create a project or start recording one display or window.")
+                    Text("Import an existing video or record one display or window.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -42,7 +42,7 @@ struct ProjectSidebar: View {
                 .padding(24)
             } else {
                 List(selection: $store.selectedProjectID) {
-                    Section("Recordings") {
+                    Section("Projects") {
                         ForEach(store.projects) { project in
                             ProjectSidebarRow(project: project)
                                 .tag(project.id)
@@ -59,7 +59,7 @@ struct ProjectSidebar: View {
 
             Divider()
 
-            Text("\(store.projects.count) recording\(store.projects.count == 1 ? "" : "s")")
+            Text("\(store.projects.count) project\(store.projects.count == 1 ? "" : "s")")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
                 .frame(maxWidth: .infinity, alignment: .trailing)

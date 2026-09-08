@@ -14,3 +14,10 @@
   기존 데이터를 자동 변환하지 않아야 한다.
 
 <!-- adr-writer:rules-version 0.8.13 — seeded by /adr-new. `adr-structure-lint` warns when this trails the installed plugin; refresh with /adr-new (it re-seeds a stale doc set). Keep this line on re-seed. -->
+## 2026-09-08 — 음성 프로필과 프로젝트 내레이션 자산 수명 분리
+
+- **현재 ADR**: [local-project-library](./0001-local-project-library.md)
+- **변경 유형**: 데이터 수명 규칙 변경
+- **무엇이**: 로컬 음성 프로필 참조 자산과 프로젝트 소유 생성 내레이션을 별도 수명으로
+  저장하고, 프로필 삭제가 기존 프로젝트 음성을 제거하지 않게 했다.
+- **왜**: 민감한 참조 음성을 삭제하면서 완성된 프로젝트와 내보내기 결과를 보존해야 한다.

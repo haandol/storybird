@@ -164,6 +164,68 @@ final class StorybirdCoreTests: XCTestCase {
         XCTAssertEqual(loaded.first?.revision, 0)
     }
 
+    func test_repository_roundTripsVoiceProfiles() throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repository = ProjectRepository(rootURL: root)
+        let profile = VoiceProfile(
+            name: "My voice",
+            referenceFilename: "reference.mp3",
+            referenceText: "안녕하세요. 제 목소리입니다.",
+            consentConfirmed: true
+        )
+
+        try repository.saveVoiceProfiles([profile])
+
+        let loaded = try XCTUnwrap(
+            repository.loadVoiceProfiles().first
+        )
+        XCTAssertEqual(loaded.id, profile.id)
+        XCTAssertEqual(loaded.name, profile.name)
+        XCTAssertEqual(loaded.referenceFilename, profile.referenceFilename)
+        XCTAssertEqual(loaded.referenceText, profile.referenceText)
+        XCTAssertEqual(loaded.language, profile.language)
+        XCTAssertEqual(loaded.consentConfirmed, profile.consentConfirmed)
+    }
+
+    func test_videoProjectValidation_acceptsNonOverlappingNarration() throws {
+        var project = validVideoProject()
+        project.narrations = [
+            NarrationClip(
+                voiceProfileID: UUID(),
+                filename: "narration.wav",
+                text: "서비스를 소개합니다.",
+                startTime: 0.5,
+                duration: 1
+            ),
+        ]
+
+        XCTAssertNoThrow(try VideoProjectValidator.validate(project))
+    }
+
+    func test_videoProjectValidation_rejectsOverlappingNarration() {
+        var project = validVideoProject()
+        let profileID = UUID()
+        project.narrations = [
+            NarrationClip(
+                voiceProfileID: profileID,
+                filename: "first.wav",
+                text: "첫 문장",
+                startTime: 0.5,
+                duration: 1
+            ),
+            NarrationClip(
+                voiceProfileID: profileID,
+                filename: "second.wav",
+                text: "둘째 문장",
+                startTime: 1,
+                duration: 1
+            ),
+        ]
+
+        XCTAssertThrowsError(try VideoProjectValidator.validate(project))
+    }
+
     func test_clickCue_newRecording_hasEmptyDescriptionAndSubtitleSlots() {
         let cue = TimedPointerClick(time: 1, x: 0.25, y: 0.75)
 
@@ -590,6 +652,508 @@ final class StorybirdCoreTests: XCTestCase {
             guard case VideoProjectValidationError.invalidClick = error else {
                 return XCTFail("Expected invalid style rejection, got \(error)")
             }
+        }
+    }
+
+    func test_videoProjectValidation_quickTimeSource_isAccepted() throws {
+        var project = validVideoProject()
+        project.recording?.filename = "imported.mov"
+
+        XCTAssertNoThrow(try VideoProjectValidator.validate(project))
+    }
+
+    func test_videoTimeline_addClickCue_linksProjectAndSourceTime() throws {
+        var project = validVideoProject()
+        project.clicks = []
+        project.suggestions = []
+
+        let edited = try VideoTimelineEditor.addClickCue(
+            to: project,
+            at: 2,
+            x: 0.25,
+            y: 0.75
+        )
+        let click = try XCTUnwrap(edited.clicks.first)
+
+        XCTAssertEqual(click.time, 2, accuracy: 0.001)
+        XCTAssertEqual(click.sourceTime, 2, accuracy: 0.001)
+        XCTAssertEqual(click.x, 0.25, accuracy: 0.001)
+        XCTAssertEqual(click.y, 0.75, accuracy: 0.001)
+        XCTAssertFalse(click.isComplete)
+        XCTAssertEqual(edited.suggestions.first?.clickID, click.id)
+    }
+
+    func test_videoTimeline_addClickCue_outsidePlayableFrame_isRejected() {
+        let project = validVideoProject()
+
+        XCTAssertThrowsError(
+            try VideoTimelineEditor.addClickCue(
+                to: project,
+                at: project.timelineDuration,
+                x: 0.5,
+                y: 0.5
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? VideoTimelineEditError,
+                .invalidClickPlacement
+            )
+        }
+    }
+
+    func test_videoTimeline_addClickCue_invalidCoordinatesAreRejected() {
+        let project = validVideoProject()
+
+        for value in [-0.1, 1.1, .infinity, .nan] {
+            XCTAssertThrowsError(
+                try VideoTimelineEditor.addClickCue(
+                    to: project,
+                    at: 1,
+                    x: value,
+                    y: 0.5
+                )
+            )
+        }
+    }
+
+    func test_videoTimeline_addClickCue_titleCardTimeIsRejected() throws {
+        var project = validVideoProject()
+        project = try DemoEffectEditor.insertTitle(
+            in: project,
+            after: nil,
+            duration: 1,
+            title: "Title"
+        )
+
+        XCTAssertThrowsError(
+            try VideoTimelineEditor.addClickCue(
+                to: project,
+                at: 0.5,
+                x: 0.5,
+                y: 0.5
+            )
+        )
+    }
+
+    func test_videoTimeline_addClickCue_freezeFrameKeepsSourceTime() throws {
+        var project = validVideoProject()
+        let clipID = try XCTUnwrap(project.clips.first?.id)
+        project = try VideoTimelineEditor.insertFreeze(
+            project: project,
+            after: clipID,
+            sourceTime: 4,
+            duration: 1
+        )
+
+        let edited = try VideoTimelineEditor.addClickCue(
+            to: project,
+            at: 5.5,
+            x: 0.4,
+            y: 0.6
+        )
+        let added = try XCTUnwrap(
+            edited.clicks.first { $0.time > 5 }
+        )
+
+        XCTAssertEqual(added.sourceTime, 4, accuracy: 0.001)
+        XCTAssertEqual(added.sourceAnchor?.clipKind, .freeze)
+
+        let persisted = VideoTimelineEditor.remapContentLayers(edited)
+        let persistedClick = try XCTUnwrap(
+            persisted.clicks.first { $0.id == added.id }
+        )
+        XCTAssertEqual(persistedClick.time, 5.5, accuracy: 0.001)
+
+        let freezeID = try XCTUnwrap(
+            persisted.clips.first { $0.kind == .freeze }?.id
+        )
+        let moved = try VideoTimelineEditor.move(
+            project: persisted,
+            clipID: freezeID,
+            destination: 0
+        )
+        let movedClick = try XCTUnwrap(
+            moved.clicks.first { $0.id == added.id }
+        )
+        XCTAssertEqual(movedClick.time, 0.5, accuracy: 0.001)
+        XCTAssertEqual(movedClick.sourceAnchor?.clipID, freezeID)
+    }
+
+    func test_videoTimeline_deleteAnchoredClip_doesNotAdoptCueIntoOverlappingClip() throws {
+        let first = VideoClip(sourceStart: 0, sourceEnd: 5)
+        let second = VideoClip(sourceStart: 0, sourceEnd: 5)
+        let click = TimedPointerClick(
+            sourceTime: 1,
+            time: 1,
+            x: 0.5,
+            y: 0.5,
+            sourceAnchor: ClickSourceAnchor(
+                clipID: first.id,
+                clipKind: .video,
+                clipOffset: 1
+            )
+        ).bounded(to: 10)
+        let project = DemoProject(
+            name: "Overlap",
+            recording: VideoRecordingAsset(
+                filename: "recording.mp4",
+                duration: 5,
+                width: 640,
+                height: 480
+            ),
+            clips: [first, second],
+            clicks: [click]
+        )
+
+        let edited = try VideoTimelineEditor.delete(
+            project: project,
+            clipID: first.id
+        )
+
+        XCTAssertTrue(edited.clicks.isEmpty)
+    }
+
+    func test_videoTimeline_splitTransfersAnchoredAndLegacyCuesExactlyOnce() throws {
+        let clip = VideoClip(sourceStart: 0, sourceEnd: 5)
+        let anchored = TimedPointerClick(
+            sourceTime: 2,
+            time: 2,
+            x: 0.4,
+            y: 0.4,
+            sourceAnchor: ClickSourceAnchor(
+                clipID: clip.id,
+                clipKind: .video,
+                clipOffset: 2
+            )
+        ).bounded(to: 5)
+        let legacy = TimedPointerClick(
+            sourceTime: 3,
+            time: 3,
+            x: 0.6,
+            y: 0.6
+        ).bounded(to: 5)
+        let project = DemoProject(
+            name: "Split anchors",
+            recording: VideoRecordingAsset(
+                filename: "recording.mp4",
+                duration: 5,
+                width: 640,
+                height: 480
+            ),
+            clips: [clip],
+            clicks: [anchored, legacy]
+        )
+
+        let edited = try VideoTimelineEditor.split(
+            project: project,
+            clipID: clip.id,
+            sourceTime: 2
+        )
+
+        XCTAssertEqual(edited.clicks.count, 2)
+        XCTAssertEqual(Set(edited.clicks.map(\.id)).count, 2)
+        let anchoredResult = try XCTUnwrap(
+            edited.clicks.first { $0.id == anchored.id }
+        )
+        XCTAssertEqual(anchoredResult.sourceAnchor?.clipID, edited.clips[1].id)
+        let legacyResult = try XCTUnwrap(
+            edited.clicks.first { $0.id == legacy.id }
+        )
+        XCTAssertEqual(legacyResult.sourceAnchor?.clipID, edited.clips[1].id)
+    }
+
+    func test_videoTimeline_contentEffectsFollowMoveAndSpeed() throws {
+        let first = VideoClip(sourceStart: 0, sourceEnd: 2)
+        let second = VideoClip(sourceStart: 2, sourceEnd: 4)
+        var project = DemoProject(
+            name: "Effects",
+            recording: VideoRecordingAsset(
+                filename: "recording.mp4",
+                duration: 4,
+                width: 640,
+                height: 480
+            ),
+            clips: [first, second]
+        )
+        project.effects = [
+            VideoTimelineEditor.anchorContentEffect(
+                .spotlight(
+                    SpotlightEffect(
+                        startTime: 0.5,
+                        endTime: 1.5,
+                        x: 0.2,
+                        y: 0.2,
+                        width: 0.3,
+                        height: 0.3
+                    )
+                ),
+                in: project,
+                at: 0.5
+            ),
+            VideoTimelineEditor.anchorContentEffect(
+                .panZoom(
+                    PanZoomEffect(
+                        startTime: 0.5,
+                        endTime: 1.5,
+                        endX: 0.5,
+                        endY: 0.5,
+                        endScale: 1.5
+                    )
+                ),
+                in: project,
+                at: 0.5
+            ),
+        ]
+
+        let moved = try VideoTimelineEditor.move(
+            project: project,
+            clipID: first.id,
+            destination: 1
+        )
+        XCTAssertEqual(moved.effects[0].startTime, 2.5, accuracy: 0.001)
+        XCTAssertEqual(moved.effects[1].endTime, 3.5, accuracy: 0.001)
+
+        let sped = try VideoTimelineEditor.setSpeed(
+            project: project,
+            clipID: first.id,
+            rate: 2
+        )
+        XCTAssertEqual(sped.effects[0].startTime, 0.25, accuracy: 0.001)
+        XCTAssertEqual(sped.effects[1].endTime, 0.75, accuracy: 0.001)
+    }
+
+    func test_videoTimeline_contentEffectsTrimDeleteAndSplitWithOwner() throws {
+        let clip = VideoClip(sourceStart: 0, sourceEnd: 4)
+        var project = DemoProject(
+            name: "Effects",
+            recording: VideoRecordingAsset(
+                filename: "recording.mp4",
+                duration: 4,
+                width: 640,
+                height: 480
+            ),
+            clips: [clip]
+        )
+        project.effects = [
+            VideoTimelineEditor.anchorContentEffect(
+                .spotlight(
+                    SpotlightEffect(
+                        startTime: 0.5,
+                        endTime: 1.5,
+                        x: 0.2,
+                        y: 0.2,
+                        width: 0.3,
+                        height: 0.3
+                    )
+                ),
+                in: project,
+                at: 0.5
+            ),
+        ]
+
+        let trimmed = try VideoTimelineEditor.trim(
+            project: project,
+            clipID: clip.id,
+            sourceStart: 1,
+            sourceEnd: 4
+        )
+        XCTAssertEqual(trimmed.effects[0].startTime, 0, accuracy: 0.001)
+        XCTAssertEqual(trimmed.effects[0].endTime, 0.5, accuracy: 0.001)
+
+        let split = try VideoTimelineEditor.split(
+            project: project,
+            clipID: clip.id,
+            sourceTime: 2
+        )
+        guard case let .spotlight(splitEffect) = split.effects[0] else {
+            return XCTFail("Expected spotlight")
+        }
+        XCTAssertEqual(splitEffect.sourceAnchor?.clipID, split.clips[0].id)
+
+        let deleted = try VideoTimelineEditor.delete(
+            project: project,
+            clipID: clip.id
+        )
+        XCTAssertTrue(deleted.effects.isEmpty)
+    }
+
+    func test_videoTimeline_splitPartitionsSpanningContentEffectsWithoutGap() throws {
+        let clip = VideoClip(sourceStart: 0, sourceEnd: 4)
+        var project = DemoProject(
+            name: "Spanning effects",
+            recording: VideoRecordingAsset(
+                filename: "recording.mp4",
+                duration: 4,
+                width: 640,
+                height: 480
+            ),
+            clips: [clip]
+        )
+        project.effects = [
+            VideoTimelineEditor.anchorContentEffect(
+                .spotlight(
+                    SpotlightEffect(
+                        startTime: 0.5,
+                        endTime: 3.5,
+                        x: 0.2,
+                        y: 0.2,
+                        width: 0.3,
+                        height: 0.3
+                    )
+                ),
+                in: project,
+                at: 1
+            ),
+            VideoTimelineEditor.anchorContentEffect(
+                .panZoom(
+                    PanZoomEffect(
+                        startTime: 0.5,
+                        endTime: 3.5,
+                        endX: 0.5,
+                        endY: 0.5,
+                        endScale: 1.5
+                    )
+                ),
+                in: project,
+                at: 1
+            ),
+        ]
+
+        let edited = try VideoTimelineEditor.split(
+            project: project,
+            clipID: clip.id,
+            sourceTime: 2
+        )
+
+        XCTAssertEqual(edited.effects.count, 4)
+        XCTAssertEqual(Set(edited.effects.map(\.id)).count, 4)
+        let ranges = edited.effects.map {
+            $0.startTime...$0.endTime
+        }.sorted { $0.lowerBound < $1.lowerBound }
+        XCTAssertEqual(ranges[0].lowerBound, 0.5, accuracy: 0.001)
+        XCTAssertEqual(ranges[0].upperBound, 2, accuracy: 0.001)
+        XCTAssertEqual(ranges[2].lowerBound, 2, accuracy: 0.001)
+        XCTAssertEqual(ranges[2].upperBound, 3.5, accuracy: 0.001)
+    }
+
+    func test_videoTimeline_directEffectTimingEditRebuildsSourceAnchor() throws {
+        let clip = VideoClip(sourceStart: 0, sourceEnd: 4)
+        var current = DemoProject(
+            name: "Timing edit",
+            recording: VideoRecordingAsset(
+                filename: "recording.mp4",
+                duration: 4,
+                width: 640,
+                height: 480
+            ),
+            clips: [clip]
+        )
+        current.effects = [
+            VideoTimelineEditor.anchorContentEffect(
+                .spotlight(
+                    SpotlightEffect(
+                        startTime: 0.5,
+                        endTime: 1.5,
+                        x: 0.2,
+                        y: 0.2,
+                        width: 0.3,
+                        height: 0.3
+                    )
+                ),
+                in: current,
+                at: 1
+            ),
+        ]
+        var draft = current
+        guard case var .spotlight(value) = draft.effects[0] else {
+            return XCTFail("Expected spotlight")
+        }
+        value.startTime = 0.8
+        value.endTime = 1.8
+        draft.effects[0] = .spotlight(value)
+
+        let reanchored =
+            VideoTimelineEditor.reanchorChangedContentEffectTimes(
+                from: current,
+                to: draft
+            )
+        let saved = VideoTimelineEditor.remapContentLayers(reanchored)
+
+        XCTAssertEqual(saved.effects[0].startTime, 0.8, accuracy: 0.001)
+        XCTAssertEqual(saved.effects[0].endTime, 1.8, accuracy: 0.001)
+        guard case let .spotlight(savedValue) = saved.effects[0] else {
+            return XCTFail("Expected spotlight")
+        }
+        let anchor = try XCTUnwrap(savedValue.sourceAnchor)
+        XCTAssertEqual(
+            anchor.sourceStart,
+            0.8,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            anchor.sourceEnd,
+            1.8,
+            accuracy: 0.001
+        )
+    }
+
+    func test_videoTimeline_invalidEffectTimingEditPreservesPreviousRange() {
+        let first = VideoClip(sourceStart: 0, sourceEnd: 2)
+        let second = VideoClip(sourceStart: 2, sourceEnd: 4)
+        var current = DemoProject(
+            name: "Invalid timing",
+            recording: VideoRecordingAsset(
+                filename: "recording.mp4",
+                duration: 4,
+                width: 640,
+                height: 480
+            ),
+            clips: [first, second]
+        )
+        current.effects = [
+            VideoTimelineEditor.anchorContentEffect(
+                .panZoom(
+                    PanZoomEffect(
+                        startTime: 0.5,
+                        endTime: 1.5,
+                        endX: 0.5,
+                        endY: 0.5,
+                        endScale: 1.5
+                    )
+                ),
+                in: current,
+                at: 1
+            ),
+        ]
+
+        for (start, end) in [
+            (1.5, 2.5),
+            (2.0, 1.0),
+            (-1.0, 0.5),
+            (3.5, 4.5),
+        ] {
+            var draft = current
+            guard case var .panZoom(value) = draft.effects[0] else {
+                return XCTFail("Expected pan zoom")
+            }
+            value.startTime = start
+            value.endTime = end
+            value.endScale = 2
+            draft.effects[0] = .panZoom(value)
+
+            let reanchored =
+                VideoTimelineEditor.reanchorChangedContentEffectTimes(
+                    from: current,
+                    to: draft
+                )
+            let saved = VideoTimelineEditor.remapContentLayers(reanchored)
+
+            XCTAssertEqual(saved.effects[0].startTime, 0.5, accuracy: 0.001)
+            XCTAssertEqual(saved.effects[0].endTime, 1.5, accuracy: 0.001)
+            guard case let .panZoom(savedValue) = saved.effects[0] else {
+                return XCTFail("Expected pan zoom")
+            }
+            XCTAssertEqual(savedValue.endScale, 2, accuracy: 0.001)
         }
     }
 

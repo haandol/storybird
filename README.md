@@ -1,8 +1,8 @@
 # Storybird
 
-Storybird is a local-first macOS screen-video recorder for product walkthroughs.
-Choose one display or window, record its motion and clicks, add timed click
-captions and subtitles, then export a silent H.264 MP4.
+Storybird is a local-first macOS video editor for product walkthroughs. Record
+one display or window, or import an existing MP4/MOV, then add timed click
+explanations and subtitles before exporting an H.264 MP4.
 
 [![macOS 14+](https://img.shields.io/badge/macOS-14%2B-black)](#requirements)
 [![Swift 6](https://img.shields.io/badge/Swift-6-F05138)](Package.swift)
@@ -17,7 +17,8 @@ captions and subtitles, then export a silent H.264 MP4.
 ```mermaid
 flowchart LR
     Source["Choose one display or window"] --> Record["Record continuous video"]
-    Record --> Timeline["Edit timed click and subtitle layers"]
+    Import["Choose a local MP4 or MOV"] --> Timeline["Edit video, clicks, subtitles, and effects"]
+    Record --> Timeline
     Timeline --> Export["Render one H.264 MP4"]
     Agent["Approved local MCP pointer control"] --> Record
 ```
@@ -26,18 +27,22 @@ flowchart LR
 
 - Live thumbnail gallery for displays and unfocused windows.
 - Continuous cursor-visible screen video recorded directly by Storybird.
+- Local MP4 and QuickTime MOV import with project-owned source copies.
 - Timed left/right click coordinates on the same clock as the recording.
+- Manual Click Cue placement at any playable video time and position.
 - Timeline preview with editable click captions and top/bottom subtitles.
 - Per-layer background color and opacity.
-- Local H.264 MP4 export with the layers burned into the video.
+- Local H.264 MP4 export with layers burned into the video and imported
+  narration preserved as one AAC track.
 - Local stdio MCP companion for source observation and real pointer movement,
   left/right clicks, and scrolling while Storybird records.
 - Atomic local persistence and one-time OpenLane library migration.
 - Stable Apple Development signing support for repeatable macOS permissions.
 
-Storybird does not record keyboard input, system audio, or microphone input. It
-has no account, cloud upload, telemetry, CRM integration, or application-owned
-network listener.
+Storybird does not record keyboard input or audio during screen capture.
+Imported videos may contain narration, and users may explicitly record a short
+microphone sample to create an on-device cloned voice profile. Voice synthesis
+and generated narration remain local after the user-approved model download.
 
 ## Requirements
 
@@ -88,7 +93,7 @@ Monitoring, or Accessibility permission again.
 
 Run the `.app` bundle rather than `swift run` when testing permissions.
 
-## Record and edit a video
+## Record, import, and edit a video
 
 1. Click **Record Video**.
 2. Choose one display or open window.
@@ -108,6 +113,37 @@ Every recording creates a new project. Storybird does not append a new session
 to the currently selected project. Clicks outside the selected source are
 ignored. The editor is hidden while recording and the floating HUD is excluded
 from captured content.
+
+To edit an existing video:
+
+1. Click **Import Video** or **Import**.
+2. Choose one local MP4 or QuickTime MOV.
+3. Storybird copies and validates the movie before creating a new project.
+4. Move the playhead, click **Add Click**, then select the target point inside
+   the video.
+5. Fill the Click Cue description and subtitle, then add any independent
+   subtitles or effects.
+6. Export the finished MP4. Imported narration stays synchronized with trimmed,
+   reordered, or speed-adjusted video clips.
+
+Importing does not require Screen Recording or Input Monitoring permission.
+
+## Generate narration with your cloned voice
+
+1. Open **Voice** and approve preparation of the local Qwen3-TTS 1.7B Base
+   8-bit MLX model.
+2. Create a profile from an MP3/WAV plus its exact transcript, or read the
+   guided prompt for at least three seconds.
+3. Choose a project, voice profile, narration text, and project start time.
+4. Generate the sentence, then edit its start time and volume on the Narration
+   timeline track. Change its text and choose **Regenerate This Narration** to
+   replace only that sentence's WAV.
+5. Export the project. Storybird mixes original audio and project narration
+   into one AAC track.
+
+The approved local MCP client can list existing profiles and generate, update,
+or delete project narration. It cannot select voice files, record the
+microphone, download the model, or delete a voice profile.
 
 ## Control a recording through MCP
 
@@ -152,22 +188,24 @@ Projects remain local:
 ├── library.json
 └── Assets/
     └── <project-id>/
-        └── <recording>.mp4
+        └── <source>.mp4|mov
 ```
 
-The library stores the recording duration and dimensions, timed normalized
-clicks, subtitles, and overlay styles. The original MP4 is never modified by
-editing or export.
+The library stores the source duration and dimensions, timed normalized clicks,
+subtitles, and overlay styles. Imported files are copied into project storage.
+The project-owned source is never modified by editing or export.
 
-Export produces one silent MP4:
+Export produces one MP4:
 
 ```text
 <recording-name>.mp4
 ```
 
 Storybird renders click highlights, click captions, subtitles, and optional
-branding into the exported video. A failed or cancelled export does not replace
-an existing destination.
+branding into the exported video. Direct Storybird recordings remain silent.
+If an imported source or project narration exists, export includes one mixed,
+synchronized AAC audio track. A failed or cancelled export does not replace an
+existing destination.
 
 On first launch after the rename, Storybird copies an existing
 `~/Library/Application Support/OpenLane` library only when the Storybird
@@ -188,7 +226,11 @@ attach real recordings to a public issue or pull request. See
 
 ## Current limitations
 
-- Recordings and exports are silent; microphone and system audio are not captured.
+- Direct recordings are silent because microphone and system audio are not
+  captured. Imported audio and explicit cloned-voice narration are preserved.
+- Import supports MP4 and QuickTime MOV files.
+- Local voice cloning requires 24GB+ Apple Silicon for the supported PoC
+  baseline, `uv`, and a one-time user-approved model download.
 - Keyboard input is never observed or generated.
 - Minimized and off-screen windows are not listed in the source gallery.
 - Legacy screenshot projects are preserved but cannot be exported as videos

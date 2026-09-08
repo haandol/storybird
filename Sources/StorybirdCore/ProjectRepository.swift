@@ -106,6 +106,81 @@ public struct ProjectRepository {
         try data.write(to: libraryURL, options: .atomic)
     }
 
+    /// Loads the local profile index without reading or returning reference
+    /// audio bytes.
+    public func loadVoiceProfiles() throws -> [VoiceProfile] {
+        try prepare()
+        guard fileManager.fileExists(atPath: voiceProfilesURL.path) else {
+            return []
+        }
+        return try decoder.decode(
+            [VoiceProfile].self,
+            from: Data(contentsOf: voiceProfilesURL)
+        )
+    }
+
+    /// Atomically replaces the local profile index after its referenced audio
+    /// has been copied into Storybird-owned storage.
+    public func saveVoiceProfiles(_ profiles: [VoiceProfile]) throws {
+        try prepare()
+        try fileManager.createDirectory(
+            at: voicesRootURL,
+            withIntermediateDirectories: true
+        )
+        try encoder.encode(profiles).write(
+            to: voiceProfilesURL,
+            options: .atomic
+        )
+    }
+
+    /// Resolves a profile-owned reference file while keeping it separate from
+    /// every project-owned generated narration asset.
+    public func voiceReferenceURL(
+        profileID: UUID,
+        filename: String
+    ) -> URL {
+        voiceProfileDirectory(profileID: profileID)
+            .appendingPathComponent(filename)
+    }
+
+    /// Creates the profile directory and reserves the single supported reference
+    /// filename before the caller copies a validated MP3 or WAV.
+    public func prepareVoiceReferenceURL(
+        profileID: UUID,
+        fileExtension: String
+    ) throws -> (filename: String, url: URL) {
+        let directory = voiceProfileDirectory(profileID: profileID)
+        try fileManager.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        let filename = "reference.\(fileExtension.lowercased())"
+        return (filename, directory.appendingPathComponent(filename))
+    }
+
+    /// Removes only sensitive profile-owned reference data so deleting a profile
+    /// cannot remove narration already owned by projects.
+    public func removeVoiceProfileAssets(profileID: UUID) throws {
+        let directory = voiceProfileDirectory(profileID: profileID)
+        if fileManager.fileExists(atPath: directory.path) {
+            try fileManager.removeItem(at: directory)
+        }
+    }
+
+    /// Reserves a unique project-owned WAV path that is published in the library
+    /// only after synthesis and timeline validation succeed.
+    public func prepareNarrationURL(
+        projectID: UUID
+    ) throws -> (filename: String, url: URL) {
+        let filename = "narration-\(UUID().uuidString.lowercased()).wav"
+        let directory = projectAssetsURL(projectID: projectID)
+        try fileManager.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        return (filename, directory.appendingPathComponent(filename))
+    }
+
     public func assetURL(projectID: UUID, filename: String) -> URL {
         projectAssetsURL(projectID: projectID)
             .appendingPathComponent(filename)
@@ -119,7 +194,32 @@ public struct ProjectRepository {
     public func prepareVideoRecordingURL(
         projectID: UUID
     ) throws -> (filename: String, url: URL) {
-        let filename = "\(UUID().uuidString.lowercased()).mp4"
+        try prepareProjectMovieURL(
+            projectID: projectID,
+            fileExtension: "mp4"
+        )
+    }
+
+    /// Reserves a project-owned movie path so an imported source can be copied and
+    /// validated before the library publishes a project that references it.
+    public func prepareImportedVideoURL(
+        projectID: UUID,
+        fileExtension: String
+    ) throws -> (filename: String, url: URL) {
+        try prepareProjectMovieURL(
+            projectID: projectID,
+            fileExtension: fileExtension.lowercased()
+        )
+    }
+
+    /// Creates one unique project-owned movie location while keeping directory
+    /// preparation and filename generation identical for recording and import.
+    private func prepareProjectMovieURL(
+        projectID: UUID,
+        fileExtension: String
+    ) throws -> (filename: String, url: URL) {
+        let filename =
+            "\(UUID().uuidString.lowercased()).\(fileExtension)"
         let directory = projectAssetsURL(projectID: projectID)
         try fileManager.createDirectory(
             at: directory,
@@ -145,6 +245,23 @@ public struct ProjectRepository {
 
     private var assetsRootURL: URL {
         rootURL.appendingPathComponent("Assets", isDirectory: true)
+    }
+
+    private var voicesRootURL: URL {
+        rootURL.appendingPathComponent("Voices", isDirectory: true)
+    }
+
+    /// Resolves the single profile-owned directory rule reused by reference
+    /// lookup, creation, and sensitive-data deletion.
+    private func voiceProfileDirectory(profileID: UUID) -> URL {
+        voicesRootURL.appendingPathComponent(
+            profileID.uuidString.lowercased(),
+            isDirectory: true
+        )
+    }
+
+    private var voiceProfilesURL: URL {
+        voicesRootURL.appendingPathComponent("profiles.json")
     }
 
     private func projectAssetsURL(projectID: UUID) -> URL {

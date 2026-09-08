@@ -10,6 +10,173 @@ import StorybirdCore
 import XCTest
 
 final class VideoPipelineTests: XCTestCase {
+    func test_liveVoiceRuntime_generatesProjectWAVWithMLX8BitModel() async throws {
+        guard ProcessInfo.processInfo.environment[
+            "STORYBIRD_RUN_VOICE_E2E"
+        ] == "1",
+            let python = ProcessInfo.processInfo.environment[
+                "STORYBIRD_VOICE_PYTHON"
+            ],
+            let hfHome = ProcessInfo.processInfo.environment[
+                "STORYBIRD_VOICE_HF_HOME"
+            ],
+            let reference = ProcessInfo.processInfo.environment[
+                "STORYBIRD_VOICE_REFERENCE"
+            ]
+        else {
+            throw XCTSkip("Run explicitly with the prepared MLX voice runtime.")
+        }
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let runtime = root.appendingPathComponent(
+            "VoiceRuntime",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: runtime,
+            withIntermediateDirectories: true
+        )
+        try Data(VoiceSynthesisService.modelID.utf8).write(
+            to: runtime.appendingPathComponent("model-ready.txt")
+        )
+        setenv("STORYBIRD_VOICE_PYTHON", python, 1)
+        setenv("STORYBIRD_VOICE_HF_HOME", hfHome, 1)
+        defer {
+            unsetenv("STORYBIRD_VOICE_PYTHON")
+            unsetenv("STORYBIRD_VOICE_HF_HOME")
+        }
+        let output = root.appendingPathComponent("narration.wav")
+        let service = VoiceSynthesisService(rootURL: root)
+
+        let result = try await service.generate(
+            text: "Welcome to the Storybird service demonstration.",
+            referenceAudioURL: URL(fileURLWithPath: reference),
+            referenceText:
+                "Hello, this is the Yelena reference sample used for clone testing.",
+            language: "english",
+            outputURL: output
+        )
+
+        let tracks = try await AVURLAsset(url: output).loadTracks(
+            withMediaType: .audio
+        )
+        XCTAssertGreaterThan(result.duration, 0)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: output.path))
+        XCTAssertEqual(tracks.count, 1)
+    }
+
+    @MainActor
+    func test_liveAgentVoiceNarration_generatesAndExportsDemo() async throws {
+        guard ProcessInfo.processInfo.environment[
+            "STORYBIRD_RUN_VOICE_E2E"
+        ] == "1",
+            ProcessInfo.processInfo.environment[
+                "STORYBIRD_VOICE_PYTHON"
+            ] != nil,
+            ProcessInfo.processInfo.environment[
+                "STORYBIRD_VOICE_HF_HOME"
+            ] != nil,
+            let referencePath = ProcessInfo.processInfo.environment[
+                "STORYBIRD_VOICE_REFERENCE"
+            ]
+        else {
+            throw XCTSkip("Run explicitly with the prepared MLX voice runtime.")
+        }
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repository = ProjectRepository(rootURL: root)
+        try repository.prepare()
+        let runtime = root.appendingPathComponent(
+            "VoiceRuntime",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: runtime,
+            withIntermediateDirectories: true
+        )
+        try Data(VoiceSynthesisService.modelID.utf8).write(
+            to: runtime.appendingPathComponent("model-ready.txt")
+        )
+        let profile = VoiceProfile(
+            name: "Agent demo voice",
+            referenceFilename: "reference.wav",
+            referenceText:
+                "Hello, this is the Yelena reference sample used for clone testing.",
+            language: "english",
+            consentConfirmed: true
+        )
+        let profileTarget = try repository.prepareVoiceReferenceURL(
+            profileID: profile.id,
+            fileExtension: "wav"
+        )
+        try FileManager.default.copyItem(
+            at: URL(fileURLWithPath: referencePath),
+            to: profileTarget.url
+        )
+        try repository.saveVoiceProfiles([profile])
+        let projectID = UUID()
+        let source = try repository.prepareVideoRecordingURL(
+            projectID: projectID
+        )
+        let video = try await TestVideoFactory.makeMovie(
+            at: source.url,
+            includeAudio: false,
+            duration: 8
+        )
+        let project = DemoProject(
+            id: projectID,
+            name: "Agent voice demo",
+            recording: VideoRecordingAsset(
+                filename: source.filename,
+                duration: video.duration,
+                width: video.width,
+                height: video.height
+            )
+        )
+        try repository.saveProjects([project])
+        let store = AppStore(repository: repository)
+        let host = StorybirdExternalControlHost(store: store)
+        let arguments = try JSONSerialization.data(
+            withJSONObject: [
+                "project_id": project.id.uuidString,
+                "expected_revision": 0,
+                "voice_profile_id": profile.id.uuidString,
+                "text": "Welcome to Storybird.",
+                "language": "english",
+                "start_time": 1.0,
+            ]
+        )
+
+        let response = await host.handle(
+            StorybirdControlRequest(
+                name: "storybird_generate_narration",
+                argumentsJSON: arguments
+            )
+        )
+        XCTAssertFalse(response.isError)
+        let narrated = try XCTUnwrap(store.project(id: project.id))
+        XCTAssertEqual(narrated.revision, 1)
+        XCTAssertEqual(narrated.narrations.count, 1)
+        let output = root.appendingPathComponent("agent-demo.mp4")
+        _ = try await LayeredVideoExporter().export(
+            project: narrated,
+            sourceURL: source.url,
+            destinationURL: output
+        )
+        let audioTracks = try await AVURLAsset(url: output).loadTracks(
+            withMediaType: .audio
+        )
+        let amplitude = try await TestVideoFactory.averageAmplitude(
+            in: output,
+            from: 1.2,
+            to: min(
+                6,
+                1 + narrated.narrations[0].duration
+            )
+        )
+        XCTAssertEqual(audioTracks.count, 1)
+        XCTAssertGreaterThan(amplitude, 0.005)
+    }
     func test_textRaster_containsVisibleWhiteGlyphPixels() throws {
         let image = try XCTUnwrap(
             LayeredVideoExporter.makeTextImage(
@@ -337,6 +504,91 @@ final class VideoPipelineTests: XCTestCase {
         XCTAssertLessThan(corner.blue, 60)
     }
 
+    func test_layeredVideoExporter_tenReferenceProjectsLoseNoTextOrEffects() async throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let raw = root.appendingPathComponent("reference.mp4")
+        let result = try await TestVideoFactory.makeMovie(
+            at: raw,
+            includeAudio: false
+        )
+
+        for index in 0..<10 {
+            var cue = TimedPointerClick(
+                time: 0.4,
+                x: 0.5,
+                y: 0.5,
+                caption: "Click \(index)"
+            ).bounded(to: result.duration)
+            cue.cueSubtitle.text = "Cue \(index)"
+            let subtitle = TimedSubtitle(
+                startTime: 0.2,
+                endTime: 0.8,
+                text: "Subtitle \(index)",
+                position: index.isMultiple(of: 2) ? .top : .bottom
+            )
+            let spotlight = SpotlightEffect(
+                startTime: 0.2,
+                endTime: 0.8,
+                x: 0.35,
+                y: 0.35,
+                width: 0.3,
+                height: 0.3
+            )
+            let panZoom = PanZoomEffect(
+                startTime: 0.2,
+                endTime: 0.8,
+                endX: 0.5,
+                endY: 0.5,
+                endScale: 1.2
+            )
+            let project = DemoProject(
+                name: "Reference \(index)",
+                recording: VideoRecordingAsset(
+                    filename: raw.lastPathComponent,
+                    duration: result.duration,
+                    width: result.width,
+                    height: result.height
+                ),
+                clicks: [cue],
+                subtitles: [subtitle],
+                effects: [
+                    .spotlight(spotlight),
+                    .panZoom(panZoom),
+                ]
+            )
+            let expectedIDs = Set(
+                VideoOverlayPresentation.visibleLayerIDs(
+                    in: project,
+                    at: 0.45
+                )
+            )
+            XCTAssertEqual(expectedIDs.count, 4)
+            let output = root.appendingPathComponent(
+                "reference-\(index).mp4"
+            )
+
+            _ = try await LayeredVideoExporter().export(
+                project: project,
+                sourceURL: raw,
+                destinationURL: output
+            )
+
+            let asset = AVURLAsset(url: output)
+            let generator = AVAssetImageGenerator(asset: asset)
+            generator.appliesPreferredTrackTransform = true
+            let image = try await generator.image(
+                at: CMTime(
+                    seconds: 0.45,
+                    preferredTimescale: 600
+                )
+            ).image
+            let corner = try pixel(in: image, x: 3, y: 3)
+            XCTAssertGreaterThan(try brightPixelCount(in: image), 20)
+            XCTAssertLessThan(corner.blue, 250)
+        }
+    }
+
     func test_layeredVideoExporter_invalidSource_preservesExistingOutput() async throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -475,6 +727,308 @@ final class VideoPipelineTests: XCTestCase {
             0.5,
             accuracy: 0.08
         )
+    }
+
+    func test_layeredVideoExporter_narratedSpeedEdit_preservesOneAACTrack() async throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let raw = root.appendingPathComponent("narrated.mov")
+        let output = root.appendingPathComponent("output.mp4")
+        let result = try await TestVideoFactory.makeMovie(
+            at: raw,
+            fileType: .mov,
+            includeAudio: true
+        )
+        var project = DemoProject(
+            name: "Narrated",
+            recording: VideoRecordingAsset(
+                filename: raw.lastPathComponent,
+                duration: result.duration,
+                width: result.width,
+                height: result.height
+            )
+        )
+        project = try VideoTimelineEditor.setSpeed(
+            project: project,
+            clipID: try XCTUnwrap(project.clips.first?.id),
+            rate: 2
+        )
+
+        _ = try await LayeredVideoExporter().export(
+            project: project,
+            sourceURL: raw,
+            destinationURL: output
+        )
+
+        let exported = AVURLAsset(url: output)
+        let videoTracks = try await exported.loadTracks(
+            withMediaType: .video
+        )
+        let audioTracks = try await exported.loadTracks(
+            withMediaType: .audio
+        )
+        let duration = CMTimeGetSeconds(try await exported.load(.duration))
+        let formats = try await XCTUnwrap(audioTracks.first).load(
+            .formatDescriptions
+        )
+
+        XCTAssertEqual(videoTracks.count, 1)
+        XCTAssertEqual(audioTracks.count, 1)
+        XCTAssertEqual(duration, 0.5, accuracy: 0.08)
+        XCTAssertEqual(
+            formats.first.map(CMFormatDescriptionGetMediaSubType),
+            kAudioFormatMPEG4AAC
+        )
+        let amplitude = try await TestVideoFactory.averageAmplitude(
+            in: output,
+            from: 0.1,
+            to: 0.4
+        )
+        XCTAssertGreaterThan(amplitude, 0.02)
+    }
+
+    func test_layeredVideoExporter_shortAndOffsetNarrationFillSilenceToVideoBounds() async throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        for (name, audioStart, audioDuration, silentRange, audibleRange) in [
+            ("short", 0.0, 0.5, 0.65...0.9, 0.1...0.4),
+            ("offset", 0.5, 0.5, 0.1...0.35, 0.65...0.9),
+        ] {
+            let source = root.appendingPathComponent("\(name).mov")
+            let output = root.appendingPathComponent("\(name)-output.mp4")
+            let result = try await TestVideoFactory.makeMovie(
+                at: source,
+                fileType: .mov,
+                includeAudio: true,
+                audioStart: audioStart,
+                audioDuration: audioDuration
+            )
+            let project = DemoProject(
+                name: name,
+                recording: VideoRecordingAsset(
+                    filename: source.lastPathComponent,
+                    duration: result.duration,
+                    width: result.width,
+                    height: result.height
+                )
+            )
+
+            _ = try await LayeredVideoExporter().export(
+                project: project,
+                sourceURL: source,
+                destinationURL: output
+            )
+
+            let asset = AVURLAsset(url: output)
+            let videoTracks = try await asset.loadTracks(
+                withMediaType: .video
+            )
+            let audioTracks = try await asset.loadTracks(
+                withMediaType: .audio
+            )
+            let videoTrack = try XCTUnwrap(
+                videoTracks.first
+            )
+            let audioTrack = try XCTUnwrap(
+                audioTracks.first
+            )
+            let videoRange = try await videoTrack.load(.timeRange)
+            let audioRange = try await audioTrack.load(.timeRange)
+            let frame = 1.0 / 30.0
+            let silentAmplitude =
+                try await TestVideoFactory.averageAmplitude(
+                    in: output,
+                    from: silentRange.lowerBound,
+                    to: silentRange.upperBound
+                )
+            let audibleAmplitude =
+                try await TestVideoFactory.averageAmplitude(
+                    in: output,
+                    from: audibleRange.lowerBound,
+                    to: audibleRange.upperBound
+                )
+
+            XCTAssertEqual(
+                CMTimeGetSeconds(audioRange.start),
+                CMTimeGetSeconds(videoRange.start),
+                accuracy: frame
+            )
+            XCTAssertEqual(
+                CMTimeGetSeconds(audioRange.end),
+                CMTimeGetSeconds(videoRange.end),
+                accuracy: frame
+            )
+            XCTAssertLessThan(silentAmplitude, 0.01)
+            XCTAssertGreaterThan(audibleAmplitude, 0.02)
+        }
+    }
+
+    func test_layeredVideoExporter_titleAndFreezeIntervalsAreSilent() async throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("narrated.mov")
+        let result = try await TestVideoFactory.makeMovie(
+            at: source,
+            fileType: .mov,
+            includeAudio: true
+        )
+
+        var titleProject = DemoProject(
+            name: "Title silence",
+            recording: VideoRecordingAsset(
+                filename: source.lastPathComponent,
+                duration: result.duration,
+                width: result.width,
+                height: result.height
+            )
+        )
+        titleProject = try DemoEffectEditor.insertTitle(
+            in: titleProject,
+            after: nil,
+            duration: 1,
+            title: "Title"
+        )
+        let titleOutput = root.appendingPathComponent("title.mp4")
+        _ = try await LayeredVideoExporter().export(
+            project: titleProject,
+            sourceURL: source,
+            destinationURL: titleOutput
+        )
+        let titleSilence = try await TestVideoFactory.averageAmplitude(
+            in: titleOutput,
+            from: 0.1,
+            to: 0.8
+        )
+        let titleNarration = try await TestVideoFactory.averageAmplitude(
+            in: titleOutput,
+            from: 1.1,
+            to: 1.8
+        )
+        XCTAssertLessThan(titleSilence, 0.01)
+        XCTAssertGreaterThan(titleNarration, 0.02)
+
+        var freezeProject = DemoProject(
+            name: "Freeze silence",
+            recording: VideoRecordingAsset(
+                filename: source.lastPathComponent,
+                duration: result.duration,
+                width: result.width,
+                height: result.height
+            )
+        )
+        freezeProject = try VideoTimelineEditor.insertFreeze(
+            project: freezeProject,
+            after: try XCTUnwrap(freezeProject.clips.first?.id),
+            sourceTime: 0.8,
+            duration: 1
+        )
+        let freezeOutput = root.appendingPathComponent("freeze.mp4")
+        _ = try await LayeredVideoExporter().export(
+            project: freezeProject,
+            sourceURL: source,
+            destinationURL: freezeOutput
+        )
+        let freezeNarration = try await TestVideoFactory.averageAmplitude(
+            in: freezeOutput,
+            from: 0.1,
+            to: 0.8
+        )
+        let freezeSilence = try await TestVideoFactory.averageAmplitude(
+            in: freezeOutput,
+            from: 1.1,
+            to: 1.8
+        )
+        XCTAssertGreaterThan(freezeNarration, 0.02)
+        XCTAssertLessThan(freezeSilence, 0.01)
+    }
+
+    func test_layeredVideoExporter_projectNarrationMixesAtRequestedTime() async throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("source.mp4")
+        let narration = root.appendingPathComponent("narration.wav")
+        let output = root.appendingPathComponent("output.mp4")
+        let result = try await TestVideoFactory.makeMovie(
+            at: source,
+            includeAudio: false
+        )
+        try TestVideoFactory.makeToneWAV(
+            at: narration,
+            duration: 0.4
+        )
+        let project = DemoProject(
+            name: "Narration mix",
+            recording: VideoRecordingAsset(
+                filename: source.lastPathComponent,
+                duration: result.duration,
+                width: result.width,
+                height: result.height
+            ),
+            narrations: [
+                NarrationClip(
+                    voiceProfileID: UUID(),
+                    filename: narration.lastPathComponent,
+                    text: "서비스 소개",
+                    startTime: 0.3,
+                    duration: 0.4
+                ),
+            ]
+        )
+
+        _ = try await LayeredVideoExporter().export(
+            project: project,
+            sourceURL: source,
+            destinationURL: output
+        )
+
+        let asset = AVURLAsset(url: output)
+        let audioTracks = try await asset.loadTracks(
+            withMediaType: .audio
+        )
+        XCTAssertEqual(audioTracks.count, 1)
+        let before = try await TestVideoFactory.averageAmplitude(
+            in: output,
+            from: 0.05,
+            to: 0.2
+        )
+        let during = try await TestVideoFactory.averageAmplitude(
+            in: output,
+            from: 0.35,
+            to: 0.6
+        )
+        let after = try await TestVideoFactory.averageAmplitude(
+            in: output,
+            from: 0.8,
+            to: 0.95
+        )
+        XCTAssertLessThan(before, 0.01)
+        XCTAssertGreaterThan(during, 0.02)
+        XCTAssertLessThan(after, 0.01)
+    }
+
+    @MainActor
+    func test_videoPlaybackModel_compositionFailureDoesNotShowRawFallback() async throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("source.mp4")
+        try await TestVideoFactory.makeAudioOnlyMovie(at: source)
+        let project = DemoProject(
+            name: "Invalid preview",
+            recording: VideoRecordingAsset(
+                filename: source.lastPathComponent,
+                duration: 1,
+                width: 64,
+                height: 48
+            )
+        )
+
+        let playback = VideoPlaybackModel(url: source, project: project)
+        try await Task.sleep(for: .milliseconds(200))
+
+        XCTAssertNil(playback.player.currentItem)
+        XCTAssertNotNil(playback.errorMessage)
+        XCTAssertEqual(playback.duration, 0)
     }
 
     func test_layeredVideoExporter_titleCard_extendsOutputDuration() async throws {

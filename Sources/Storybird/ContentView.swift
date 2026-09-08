@@ -11,6 +11,8 @@ struct ContentView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var isCompactWindow = false
     @State private var isExporting = false
+    @State private var isImporting = false
+    @State private var isVoiceStudioPresented = false
     @State private var exportProgress = 0.0
     @State private var exportTask: Task<Void, Never>?
 
@@ -36,7 +38,8 @@ struct ContentView: View {
             } else {
                 WelcomeView(
                     store: store,
-                    onRecord: startRecording
+                    onRecord: startRecording,
+                    onImport: importVideo
                 )
             }
         }
@@ -81,6 +84,21 @@ struct ContentView: View {
                 .help("Record one display or window as continuous video")
 
                 Button {
+                    importVideo()
+                } label: {
+                    Label("Import", systemImage: "square.and.arrow.down")
+                }
+                .disabled(recorder.isActive || isImporting || isExporting)
+                .help("Import an MP4 or QuickTime MOV as a new project")
+
+                Button {
+                    isVoiceStudioPresented = true
+                } label: {
+                    Label("Voice", systemImage: "waveform.and.mic")
+                }
+                .help("Create a local cloned voice and project narration")
+
+                Button {
                     exportVideo()
                 } label: {
                     Label("Export", systemImage: "square.and.arrow.up")
@@ -89,7 +107,8 @@ struct ContentView: View {
                     store.selectedProject?.recording == nil
                         || store.selectedProject?.clips.isEmpty != false
                         || recorder.isActive
-                        || isExporting
+                        || isImporting
+                        || store.isExportActive
                 )
                 .help("Export an MP4 with click and subtitle layers")
             }
@@ -99,18 +118,27 @@ struct ContentView: View {
                 .frame(width: 680, height: 480)
                 .interactiveDismissDisabled()
         }
+        .sheet(isPresented: $isVoiceStudioPresented) {
+            VoiceStudioView(store: store)
+        }
         .overlay {
-            if isExporting {
+            if isExporting || isImporting {
                 ZStack {
                     Color.black.opacity(0.24)
                         .ignoresSafeArea()
                     VStack(spacing: 12) {
-                        ProgressView(value: exportProgress)
-                            .frame(width: 240)
-                        Text("Rendering video…")
+                        if isExporting {
+                            ProgressView(value: exportProgress)
+                                .frame(width: 240)
+                        } else {
+                            ProgressView()
+                        }
+                        Text(isExporting ? "Rendering video…" : "Importing video…")
                             .font(.headline)
-                        Button("Cancel") {
-                            exportTask?.cancel()
+                        if isExporting {
+                            Button("Cancel") {
+                                exportTask?.cancel()
+                            }
                         }
                     }
                     .padding(24)
@@ -198,6 +226,35 @@ struct ContentView: View {
         recorder.start()
     }
 
+    /// Opens a native, user-scoped movie picker and publishes a new project only
+    /// after the selected source has been copied and validated.
+    private func importVideo() {
+        let panel = NSOpenPanel()
+        panel.title = "Import a Storybird Video"
+        panel.prompt = "Import"
+        panel.allowedContentTypes = [.mpeg4Movie, .quickTimeMovie]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+
+        guard panel.runModal() == .OK, let sourceURL = panel.url else {
+            return
+        }
+        isImporting = true
+        Task {
+            do {
+                _ = try await store.importVideo(from: sourceURL)
+                isImporting = false
+            } catch is CancellationError {
+                isImporting = false
+            } catch {
+                isImporting = false
+                store.errorMessage =
+                    "The video could not be imported: \(error.localizedDescription)"
+            }
+        }
+    }
+
     private func exportVideo() {
         guard let project = store.selectedProject,
               let recording = project.recording,
@@ -217,6 +274,13 @@ struct ContentView: View {
             return
         }
 
+        let exportID: UUID
+        do {
+            exportID = try store.beginExport()
+        } catch {
+            store.errorMessage = error.localizedDescription
+            return
+        }
         let sourceURL = store.repository.assetURL(
             projectID: project.id,
             filename: recording.filename
@@ -224,6 +288,9 @@ struct ContentView: View {
         isExporting = true
         exportProgress = 0
         exportTask = Task {
+            defer {
+                store.endExport(exportID)
+            }
             do {
                 let exporter = LayeredVideoExporter()
                 let result = try await exporter.export(

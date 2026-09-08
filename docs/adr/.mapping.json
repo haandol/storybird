@@ -17,8 +17,8 @@
         },
         {
           "path": "docs/adr/recording/0003-permission-and-signing.md",
-          "status": "Accepted (2026-09-05)",
-          "summary": "인증된 로컬 MCP 연결은 모든 프로젝트를 자동화하고 화면·포인터 제어만 선택 소스별 네이티브 승인을 요구한다"
+          "status": "Accepted (2026-09-08)",
+          "summary": "Storybird는 안정 서명과 분리된 권한 경계를 유지하고 음성 프로필 마이크 녹음과 최초 모델 다운로드만 네이티브 승인으로 허용한다"
         }
       ],
       "dependsOn": []
@@ -28,8 +28,8 @@
       "adrs": [
         {
           "path": "docs/adr/timeline-editing/0001-non-destructive-clip-timeline.md",
-          "status": "Accepted (2026-09-05)",
-          "summary": "원본 영상을 보존하고 클립 순서·속도·정지 구간과 연결 레이어를 하나의 프로젝트 시간축에서 비파괴 편집한다"
+          "status": "Accepted (2026-09-08)",
+          "summary": "원본 영상·기본 음성과 프로젝트 소유 문장별 내레이션을 하나의 비파괴 시간축에서 편집한다"
         }
       ],
       "dependsOn": [
@@ -72,8 +72,8 @@
       "adrs": [
         {
           "path": "docs/adr/agent-project-editing/0001-versioned-mcp-project-editing.md",
-          "status": "Accepted (2026-09-05)",
-          "summary": "외부 MCP 편집은 Storybird 명령과 기준 revision을 사용해 모든 UI 속성을 원자적으로 변경하고 충돌을 거부한다"
+          "status": "Accepted (2026-09-08)",
+          "summary": "외부 MCP 편집은 revision 검증으로 프로젝트와 기존 음성 프로필 기반 내레이션을 원자적으로 자동화한다"
         }
       ],
       "dependsOn": [
@@ -82,7 +82,8 @@
         "timeline-editing",
         "authoring",
         "demo-effects",
-        "click-edit-suggestions"
+        "click-edit-suggestions",
+        "voice-narration"
       ]
     },
     "authoring": {
@@ -107,8 +108,8 @@
       "adrs": [
         {
           "path": "docs/adr/library/0001-local-project-library.md",
-          "status": "Accepted (2026-09-05)",
-          "summary": "영상·편집 상태를 기기 안에 원자적으로 저장하고 revision으로 UI와 MCP의 오래된 변경을 거부한다"
+          "status": "Accepted (2026-09-08)",
+          "summary": "영상·음성 프로필·생성 내레이션과 편집 상태를 기기 안에 원자적으로 저장하고 자산 수명을 분리한다"
         }
       ],
       "dependsOn": []
@@ -119,14 +120,48 @@
       "adrs": [
         {
           "path": "docs/adr/sharing/0001-layered-video-export.md",
-          "status": "Accepted (2026-09-05)",
-          "summary": "Storybird가 검증된 편집 타임라인을 무음 H.264 MP4로 원자적으로 합성하고 UI·MCP에 동일한 작업 상태를 제공한다"
+          "status": "Accepted (2026-09-08)",
+          "summary": "Storybird가 편집 영상·원본 오디오·문장별 내레이션을 하나의 H.264/AAC MP4로 원자적으로 합성한다"
         }
       ],
       "dependsOn": [
         "authoring",
         "demo-effects",
         "library"
+      ]
+    },
+    "video-import": {
+      "feature": "Local video import",
+      "subdomainType": "core",
+      "adrs": [
+        {
+          "path": "docs/adr/video-import/0001-local-video-import.md",
+          "status": "Accepted (2026-09-08)",
+          "summary": "사용자가 고른 로컬 MP4 또는 MOV를 음성과 함께 프로젝트 소유 원본으로 복사해 새 편집 프로젝트를 만든다"
+        }
+      ],
+      "dependsOn": [
+        "library",
+        "timeline-editing",
+        "authoring",
+        "sharing"
+      ]
+    },
+    "voice-narration": {
+      "feature": "Local cloned voice narration",
+      "subdomainType": "core",
+      "adrs": [
+        {
+          "path": "docs/adr/voice-narration/0001-local-cloned-voice-narration.md",
+          "status": "Accepted (2026-09-08)",
+          "summary": "사용자가 승인한 본인 음성을 로컬 MLX 모델로 복제해 프로젝트 소유 문장별 내레이션을 만들고 에이전트가 편집·내보내기한다"
+        }
+      ],
+      "dependsOn": [
+        "recording",
+        "library",
+        "timeline-editing",
+        "sharing"
       ]
     }
   }

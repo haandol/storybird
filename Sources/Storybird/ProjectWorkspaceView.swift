@@ -11,8 +11,13 @@ struct ProjectWorkspaceView: View {
             let projectBinding = Binding(
                 get: { store.project(id: projectID) ?? project },
                 set: {
+                    let reanchored =
+                        VideoTimelineEditor.reanchorChangedContentEffectTimes(
+                            from: store.project(id: projectID) ?? project,
+                            to: $0
+                        )
                     store.replaceProject(
-                        VideoTimelineEditor.remapContentLayers($0)
+                        VideoTimelineEditor.remapContentLayers(reanchored)
                     )
                 }
             )
@@ -52,10 +57,10 @@ struct ProjectWorkspaceView: View {
                     )
                 } else {
                     ContentUnavailableView(
-                        "Record a video",
-                        systemImage: "record.circle",
+                        "Add a video",
+                        systemImage: "video.badge.plus",
                         description: Text(
-                            "Choose Record Video to capture one display or window."
+                            "Record one display or window, or import an MP4 or QuickTime MOV."
                         )
                     )
                 }
@@ -97,7 +102,7 @@ private struct ProjectHeader: View {
         if !project.steps.isEmpty {
             return "Legacy screenshot project · \(project.steps.count) screens"
         }
-        return "No video recorded"
+        return "No video"
     }
 
     private static func time(_ seconds: Double) -> String {

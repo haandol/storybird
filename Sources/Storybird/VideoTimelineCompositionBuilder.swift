@@ -5,14 +5,19 @@ import StorybirdCore
 struct VideoTimelineComposition {
     let asset: AVMutableComposition
     let track: AVMutableCompositionTrack
+    let audioTrack: AVMutableCompositionTrack?
     let duration: CMTime
 }
 
 enum VideoTimelineCompositionBuilder {
-    /// Builds the shared edited clock used by both preview playback and MP4 export.
+    /// Builds the shared edited clock for preview and export, applying every video clip
+    /// range and speed change to the optional narration track while leaving cards and
+    /// freeze segments silent.
     static func build(
         project: DemoProject,
-        sourceTrack: AVAssetTrack
+        sourceTrack: AVAssetTrack,
+        sourceAudioTrack: AVAssetTrack? = nil,
+        sourceAudioTimeRange: CMTimeRange? = nil
     ) throws -> VideoTimelineComposition {
         let composition = AVMutableComposition()
         guard let track = composition.addMutableTrack(
@@ -21,25 +26,36 @@ enum VideoTimelineCompositionBuilder {
         ) else {
             throw LayeredVideoExportError.cannotReadVideo
         }
+        let audioTrack = sourceAudioTrack.flatMap { _ in
+            composition.addMutableTrack(
+                withMediaType: .audio,
+                preferredTrackID: kCMPersistentTrackID_Invalid
+            )
+        }
         let schedule = VideoTimelineSchedule(project: project)
         guard schedule.isStructurallyValid else {
             throw LayeredVideoExportError.recordingMetadataMismatch
         }
+        let mediaStartTime = project.recording?.mediaStartTime ?? 0
         var cursor = CMTime.zero
 
         for item in schedule.items {
             switch item {
             case let .card(card):
                 try insertStillFrame(
-                    at: card.sourceFrameTime,
+                    at: mediaStartTime + card.sourceFrameTime,
                     duration: card.projectEnd - card.projectStart,
                     sourceTrack: sourceTrack,
                     compositionTrack: track,
                     cursor: &cursor,
+                    sourceStart: mediaStartTime,
                     sourceDuration: project.recording?.duration ?? 0
                 )
             case let .clip(scheduled):
-                let sourceRange = sourceRange(for: scheduled.clip)
+                let sourceRange = sourceRange(
+                    for: scheduled.clip,
+                    mediaStartTime: mediaStartTime
+                )
                 try track.insertTimeRange(
                     sourceRange,
                     of: sourceTrack,
@@ -57,6 +73,45 @@ enum VideoTimelineCompositionBuilder {
                     ),
                     toDuration: outputDuration
                 )
+                if scheduled.clip.kind == .video,
+                   let sourceAudioTrack,
+                   let audioTrack,
+                   let sourceAudioTimeRange {
+                    let audioSourceRange = CMTimeRangeGetIntersection(
+                        sourceRange,
+                        otherRange: sourceAudioTimeRange
+                    )
+                    guard audioSourceRange.duration > .zero else {
+                        cursor = cursor + outputDuration
+                        continue
+                    }
+                    let sourceOffset = CMTimeGetSeconds(
+                        audioSourceRange.start - sourceRange.start
+                    )
+                    let destination = cursor + CMTime(
+                        seconds: sourceOffset
+                            / scheduled.clip.playbackRate,
+                        preferredTimescale: 600
+                    )
+                    try audioTrack.insertTimeRange(
+                        audioSourceRange,
+                        of: sourceAudioTrack,
+                        at: destination
+                    )
+                    let audioOutputDuration = CMTime(
+                        seconds: CMTimeGetSeconds(
+                            audioSourceRange.duration
+                        ) / scheduled.clip.playbackRate,
+                        preferredTimescale: 600
+                    )
+                    audioTrack.scaleTimeRange(
+                        CMTimeRange(
+                            start: destination,
+                            duration: audioSourceRange.duration
+                        ),
+                        toDuration: audioOutputDuration
+                    )
+                }
                 cursor = cursor + outputDuration
             }
         }
@@ -64,18 +119,20 @@ enum VideoTimelineCompositionBuilder {
         return VideoTimelineComposition(
             asset: composition,
             track: track,
+            audioTrack: audioTrack,
             duration: cursor
         )
     }
 
     private static func sourceRange(
-        for clip: VideoClip
+        for clip: VideoClip,
+        mediaStartTime: Double
     ) -> CMTimeRange {
         switch clip.kind {
         case .video:
             return CMTimeRange(
                 start: CMTime(
-                    seconds: clip.sourceStart,
+                    seconds: mediaStartTime + clip.sourceStart,
                     preferredTimescale: 600
                 ),
                 duration: CMTime(
@@ -86,7 +143,7 @@ enum VideoTimelineCompositionBuilder {
         case .freeze:
             return CMTimeRange(
                 start: CMTime(
-                    seconds: clip.sourceStart,
+                    seconds: mediaStartTime + clip.sourceStart,
                     preferredTimescale: 600
                 ),
                 duration: CMTime(value: 1, timescale: 600)
@@ -101,11 +158,15 @@ enum VideoTimelineCompositionBuilder {
         sourceTrack: AVAssetTrack,
         compositionTrack: AVMutableCompositionTrack,
         cursor: inout CMTime,
+        sourceStart: Double,
         sourceDuration: Double
     ) throws {
         let safeTime = min(
-            max(sourceTime, 0),
-            max(sourceDuration - 1.0 / 600, 0)
+            max(sourceTime, sourceStart),
+            max(
+                sourceStart + sourceDuration - 1.0 / 600,
+                sourceStart
+            )
         )
         let sourceRange = CMTimeRange(
             start: CMTime(seconds: safeTime, preferredTimescale: 600),

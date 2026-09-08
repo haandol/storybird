@@ -63,10 +63,11 @@ Read these before changing capture, persistence, or export behavior.
   Development signing for both the app and bundled MCP companion. Ad-hoc
   signing changes the designated requirement and can force permission approval
   after every rebuild.
-- **Never record keyboard or audio input.** Input Monitoring exists only to
-  timestamp mouse clicks. MCP control may move, click, and scroll the pointer
-  but must not observe or synthesize keyboard events. The first version records
-  neither system audio nor microphone input.
+- **Screen recording never records keyboard or audio input.** Input Monitoring
+  exists only to timestamp mouse clicks. MCP control may move, click, and scroll
+  the pointer but must not observe or synthesize keyboard events. A user-selected
+  imported movie may contain one primary audio track. The microphone is used only
+  during an explicit native voice-profile recording and never during capture.
 - **MCP control requires explicit disclosure.** One active session exposes one
   selected display or window to the connected local client and accepts
   normalized pointer movement, left/right click, and scroll only after native
@@ -82,8 +83,14 @@ Read these before changing capture, persistence, or export behavior.
   `Application Support/OpenLane` library only when the Storybird library does
   not exist. Never delete or move the legacy copy.
 - **Video exports preserve the original.** Read the raw project MP4 and timed
-  layers, render a silent H.264 MP4 to a sibling temporary file, then replace
-  the chosen destination only after successful completion.
+  layers, render an H.264 MP4 to a sibling temporary file, and preserve one
+  imported primary audio track plus project-owned cloned-voice narration as one
+  synchronized AAC track when present. Replace the chosen destination only after
+  successful completion.
+- **Voice cloning is local and user-authorized.** The approved PoC uses the MLX
+  Qwen3-TTS 1.7B Base 8-bit model on 24GB+ Apple Silicon. Model download,
+  microphone capture, voice-file selection, and profile deletion require native
+  user action. MCP may use existing profiles but never register or delete them.
 - **Fixed-size sheets scroll internally.** Do not let capture-source content
   resize the sheet beyond the visible display; clipping the last card is a
   regression.
@@ -134,9 +141,14 @@ Capture changes require a manual smoke test:
    timestamp order.
 5. Add top and bottom subtitles, edit a click caption, and confirm preview
    timing and placement.
-6. Export an MP4 and confirm it contains the motion and overlays but no audio
-   track.
-7. Rebuild with the same signing identity and confirm permissions persist.
+6. Export a direct recording and confirm it contains the motion and overlays
+   but no audio track. Import a synthetic narrated MP4 or MOV and confirm its
+   export contains one synchronized AAC track.
+7. Create a local voice profile from MP3/WAV and from the guided microphone
+   prompt, generate a narration through UI and MCP, and confirm export mixes it
+   at the selected time. Change one sentence and confirm only its WAV is
+   regenerated. Delete the profile and confirm project narration remains.
+8. Rebuild with the same signing identity and confirm permissions persist.
 
 MCP control changes additionally require a signed companion smoke test:
 

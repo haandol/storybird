@@ -30,6 +30,8 @@
     <string>Storybird records the display or window you select as a local screen video.</string>
     <key>NSInputMonitoringUsageDescription</key>
     <string>Storybird observes mouse clicks during recording to add timed click highlights. Keyboard input is never recorded.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Storybird records only the voice sample you explicitly start for a local voice profile. Screen recordings never capture microphone audio.</string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
 </dict>

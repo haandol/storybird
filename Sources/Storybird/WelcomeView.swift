@@ -3,6 +3,7 @@ import SwiftUI
 struct WelcomeView: View {
     @ObservedObject var store: AppStore
     let onRecord: () -> Void
+    let onImport: () -> Void
 
     var body: some View {
         ZStack {
@@ -22,7 +23,7 @@ struct WelcomeView: View {
                 VStack(spacing: 8) {
                     Text("Record the screen. Explain every click.")
                         .font(.system(size: 32, weight: .bold, design: .rounded))
-                    Text("Storybird records one display or window as video, then lets you add timed click captions and subtitles before exporting an MP4.")
+                    Text("Record a screen or import an existing video, then add timed click explanations and subtitles before exporting an MP4.")
                         .font(.title3)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -61,11 +62,17 @@ struct WelcomeView: View {
         .controlSize(.large)
         .tint(.red)
 
+        Button(action: onImport) {
+            Label("Import Video", systemImage: "square.and.arrow.down")
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.large)
+
     }
 
     @ViewBuilder
     private var featureNotes: some View {
-        FeatureNote(icon: "video", text: "Continuous screen video")
+        FeatureNote(icon: "video", text: "Record or import video")
         FeatureNote(icon: "cursorarrow.click", text: "Timed click highlights")
         FeatureNote(icon: "captions.bubble", text: "Editable subtitles")
         FeatureNote(icon: "lock.shield", text: "Stored only on this Mac")

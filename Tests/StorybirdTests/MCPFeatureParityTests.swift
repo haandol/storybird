@@ -6,6 +6,31 @@ import XCTest
 
 @MainActor
 final class MCPFeatureParityTests: XCTestCase {
+    func test_toolDefinitions_voiceNarrationExposeSafeAgentSurface() {
+        let names = Set(
+            StorybirdMCPService.toolDefinitions.map(\.name)
+        )
+
+        XCTAssertTrue(names.contains("storybird_list_voice_profiles"))
+        XCTAssertTrue(names.contains("storybird_generate_narration"))
+        XCTAssertTrue(names.contains("storybird_update_narration"))
+        XCTAssertTrue(names.contains("storybird_delete_narration"))
+        XCTAssertFalse(names.contains("storybird_create_voice_profile"))
+        XCTAssertFalse(names.contains("storybird_record_voice_profile"))
+        XCTAssertFalse(names.contains("storybird_delete_voice_profile"))
+        XCTAssertFalse(names.contains("storybird_prepare_voice_model"))
+    }
+
+    func test_toolDefinitions_updateNarration_supportsTextRegeneration() throws {
+        let properties = try propertyNames(
+            for: "storybird_update_narration"
+        )
+
+        XCTAssertTrue(properties.contains("text"))
+        XCTAssertTrue(properties.contains("language"))
+        XCTAssertTrue(properties.contains("start_time"))
+        XCTAssertTrue(properties.contains("volume"))
+    }
     func test_toolDefinitions_clipEditingOperations_areExposed() {
         let available = Set(
             StorybirdMCPService.toolDefinitions.map(\.name)

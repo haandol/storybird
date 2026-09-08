@@ -30,6 +30,8 @@ mkdir -p "${APP_BUNDLE}/Contents/MacOS" "${APP_BUNDLE}/Contents/Resources"
 cp "$BINARY" "${APP_BUNDLE}/Contents/MacOS/${APP_NAME}"
 cp "$MCP_BINARY" "${APP_BUNDLE}/Contents/MacOS/${MCP_NAME}"
 cp Resources/Info.plist "${APP_BUNDLE}/Contents/Info.plist"
+cp Resources/voice_runtime.py \
+    "${APP_BUNDLE}/Contents/Resources/voice_runtime.py"
 
 echo "==> 앱 아이콘 생성"
 rm -rf "$ICONSET"

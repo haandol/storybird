@@ -47,6 +47,7 @@ final class VideoPlaybackModel: ObservableObject {
     @Published private(set) var currentTime: Double = 0
     @Published private(set) var isPlaying = false
     @Published private(set) var duration: Double
+    @Published private(set) var errorMessage: String?
 
     let player: AVPlayer
     private let timeObserver = VideoTimeObserverBox()
@@ -75,6 +76,7 @@ final class VideoPlaybackModel: ObservableObject {
     /// Replaces the player item with the current non-destructive clip composition.
     func rebuild(url: URL, project: DemoProject) {
         let resumeTime = min(currentTime, project.timelineDuration)
+        errorMessage = nil
         guard !project.clips.isEmpty else {
             player.pause()
             player.replaceCurrentItem(with: nil)
@@ -89,15 +91,19 @@ final class VideoPlaybackModel: ObservableObject {
                     project: project,
                     sourceURL: url
                 )
-                player.replaceCurrentItem(
-                    with: AVPlayerItem(asset: result.asset)
-                )
+                let item = AVPlayerItem(asset: result.asset)
+                item.audioMix = result.audioMix
+                player.replaceCurrentItem(with: item)
                 duration = max(result.duration, 0)
                 seek(to: resumeTime)
             } catch {
-                player.replaceCurrentItem(with: AVPlayerItem(url: url))
-                duration = project.recording?.duration ?? 0
-                seek(to: min(resumeTime, duration))
+                player.pause()
+                player.replaceCurrentItem(with: nil)
+                duration = 0
+                currentTime = 0
+                isPlaying = false
+                errorMessage =
+                    "The edited preview could not be composed: \(error.localizedDescription)"
             }
         }
     }
@@ -129,6 +135,7 @@ private enum TimelineLayerSelection: Equatable {
     case clip(UUID)
     case click(UUID)
     case subtitle(UUID)
+    case narration(UUID)
     case effect(UUID)
     case suggestion(UUID)
 }
@@ -174,6 +181,17 @@ enum TimelineTrackLayout {
 
     static func subtitleSpans(in project: DemoProject) -> [TimelineTrackSpan] {
         project.subtitles.map {
+            boundedSpan(
+                id: $0.id,
+                start: $0.startTime,
+                end: $0.endTime,
+                duration: project.timelineDuration
+            )
+        }
+    }
+
+    static func narrationSpans(in project: DemoProject) -> [TimelineTrackSpan] {
+        project.narrations.map {
             boundedSpan(
                 id: $0.id,
                 start: $0.startTime,
@@ -235,6 +253,7 @@ struct VideoTimelineEditorView: View {
     private let videoURL: URL
     @State private var selection: TimelineLayerSelection?
     @State private var isInspectorPresented = false
+    @State private var isPlacingClick = false
 
     private static let timelineLabelWidth: CGFloat = 104
     private static let timelineRulerHeight: CGFloat = 26
@@ -249,6 +268,11 @@ struct VideoTimelineEditorView: View {
 
     private var selectedSubtitleID: UUID? {
         guard case let .subtitle(id) = selection else { return nil }
+        return id
+    }
+
+    private var selectedNarrationID: UUID? {
+        guard case let .narration(id) = selection else { return nil }
         return id
     }
 
@@ -378,6 +402,25 @@ struct VideoTimelineEditorView: View {
                             time: playback.currentTime,
                             imageFrame: frame
                         )
+                        if isPlacingClick {
+                            Rectangle()
+                                .fill(.clear)
+                                .contentShape(Rectangle())
+                                .frame(
+                                    width: frame.width,
+                                    height: frame.height
+                                )
+                                .position(x: frame.midX, y: frame.midY)
+                                .gesture(
+                                    SpatialTapGesture()
+                                        .onEnded { value in
+                                            addClickCue(
+                                                at: value.location,
+                                                in: frame.size
+                                            )
+                                        }
+                                )
+                        }
                     }
                     .scaleEffect(
                         CGFloat(activeCamera.scale),
@@ -391,6 +434,30 @@ struct VideoTimelineEditorView: View {
                         time: playback.currentTime,
                         imageFrame: frame
                     )
+                    if isPlacingClick {
+                        Text("Click a point in the video")
+                            .font(.callout.weight(.semibold))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .background(.regularMaterial, in: Capsule())
+                            .position(
+                                x: proxy.size.width / 2,
+                                y: 34
+                            )
+                    }
+                    if let errorMessage = playback.errorMessage {
+                        ContentUnavailableView(
+                            "Preview unavailable",
+                            systemImage: "video.slash",
+                            description: Text(errorMessage)
+                        )
+                        .frame(
+                            width: frame.width,
+                            height: frame.height
+                        )
+                        .position(x: frame.midX, y: frame.midY)
+                        .background(.regularMaterial)
+                    }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             }
@@ -445,6 +512,7 @@ struct VideoTimelineEditorView: View {
             if project.clips.isEmpty
                 && project.clicks.isEmpty
                 && project.subtitles.isEmpty
+                && project.narrations.isEmpty
                 && project.effects.isEmpty
                 && project.suggestions.isEmpty {
                 Text("Recorded clips and layers will appear here.")
@@ -548,6 +616,19 @@ struct VideoTimelineEditorView: View {
                 } label: {
                     Label("Add Subtitle", systemImage: "captions.bubble")
                 }
+                Button {
+                    isPlacingClick.toggle()
+                    if isPlacingClick {
+                        playback.player.pause()
+                    }
+                } label: {
+                    Label(
+                        isPlacingClick ? "Cancel Click" : "Add Click",
+                        systemImage: isPlacingClick
+                            ? "xmark.circle"
+                            : "cursorarrow.click.badge.clock"
+                    )
+                }
             }
         }
         .scrollIndicators(.hidden)
@@ -572,6 +653,11 @@ struct VideoTimelineEditorView: View {
                     "Subtitles",
                     systemImage: "captions.bubble.fill",
                     count: project.subtitles.count
+                )
+                timelineTrackLabel(
+                    "Narration",
+                    systemImage: "waveform",
+                    count: project.narrations.count
                 )
                 timelineTrackLabel(
                     "Effects",
@@ -626,6 +712,7 @@ struct VideoTimelineEditorView: View {
         let clipSpans = TimelineTrackLayout.clipSpans(in: project)
         let clickSpans = TimelineTrackLayout.clickSpans(in: project)
         let subtitleSpans = TimelineTrackLayout.subtitleSpans(in: project)
+        let narrationSpans = TimelineTrackLayout.narrationSpans(in: project)
         let effectSpans = TimelineTrackLayout.effectSpans(in: project)
         let suggestionSpans = TimelineTrackLayout.suggestionSpans(in: project)
 
@@ -693,6 +780,26 @@ struct VideoTimelineEditorView: View {
                             ) {
                                 selection = .subtitle(subtitle.id)
                                 playback.seek(to: subtitle.startTime)
+                            }
+                        }
+                    }
+                }
+                timelineTrackRow {
+                    ForEach(narrationSpans) { span in
+                        if let narration = project.narrations.first(where: {
+                            $0.id == span.id
+                        }) {
+                            timelineBlock(
+                                title: narration.text,
+                                systemImage: "waveform",
+                                span: span,
+                                canvasWidth: width,
+                                color: .cyan,
+                                isSelected:
+                                    selectedNarrationID == narration.id
+                            ) {
+                                selection = .narration(narration.id)
+                                playback.seek(to: narration.startTime)
                             }
                         }
                     }
@@ -846,8 +953,8 @@ struct VideoTimelineEditorView: View {
 
     private var timelineCanvasHeight: CGFloat {
         Self.timelineRulerHeight
-            + Self.timelineTrackHeight * 5
-            + Self.timelineTrackSpacing * 5
+            + Self.timelineTrackHeight * 6
+            + Self.timelineTrackSpacing * 6
     }
 
     private var timelineTickValues: [Int] {
@@ -922,6 +1029,38 @@ struct VideoTimelineEditorView: View {
                     onDelete: {
                         project.subtitles.remove(at: index)
                         selection = nil
+                    }
+                )
+            } else if let index = project.narrations.firstIndex(where: {
+                $0.id == selectedNarrationID
+            }) {
+                NarrationLayerInspector(
+                    narration: $project.narrations[index],
+                    onRegenerate: { replacementText in
+                        let narrationID = project.narrations[index].id
+                        let expectedRevision = project.revision
+                        do {
+                            project = try await store.updateNarration(
+                                projectID: project.id,
+                                narrationID: narrationID,
+                                expectedRevision: expectedRevision,
+                                text: replacementText
+                            )
+                        } catch {
+                            store.errorMessage = error.localizedDescription
+                        }
+                    },
+                    onDelete: {
+                        do {
+                            project = try store.deleteNarration(
+                                projectID: project.id,
+                                narrationID: project.narrations[index].id,
+                                expectedRevision: project.revision
+                            )
+                            selection = nil
+                        } catch {
+                            store.errorMessage = error.localizedDescription
+                        }
                     }
                 )
             } else if let index = project.effects.firstIndex(where: {
@@ -1090,6 +1229,30 @@ struct VideoTimelineEditorView: View {
         selection = .subtitle(subtitle.id)
     }
 
+    /// Places one incomplete Click Cue at the selected visible frame coordinate,
+    /// preserving its source-time identity for later non-destructive edits.
+    private func addClickCue(
+        at location: CGPoint,
+        in videoSize: CGSize
+    ) {
+        guard videoSize.width > 0, videoSize.height > 0 else { return }
+        let existingIDs = Set(project.clicks.map(\.id))
+        do {
+            project = try VideoTimelineEditor.addClickCue(
+                to: project,
+                at: playback.currentTime,
+                x: min(max(location.x / videoSize.width, 0), 1),
+                y: min(max(location.y / videoSize.height, 0), 1)
+            )
+            selection = project.clicks.first {
+                !existingIDs.contains($0.id)
+            }.map { .click($0.id) }
+            isPlacingClick = false
+        } catch {
+            store.errorMessage = error.localizedDescription
+        }
+    }
+
     private enum NewEffectKind {
         case spotlight
         case panZoom
@@ -1191,8 +1354,13 @@ struct VideoTimelineEditorView: View {
             }
             return
         }
-        project.effects.append(effect)
-        selection = .effect(effect.id)
+        let anchored = VideoTimelineEditor.anchorContentEffect(
+            effect,
+            in: project,
+            at: playback.currentTime
+        )
+        project.effects.append(anchored)
+        selection = .effect(anchored.id)
     }
 
     /// Formats a project-time value without depending on locale-specific media controls.
@@ -1948,6 +2116,80 @@ private struct SubtitleLayerInspector: View {
             }
         }
         .formStyle(.grouped)
+    }
+}
+
+private struct NarrationLayerInspector: View {
+    @Binding var narration: NarrationClip
+    let onRegenerate: (String) async -> Void
+    let onDelete: () -> Void
+    @State private var replacementText: String
+    @State private var isRegenerating = false
+
+    init(
+        narration: Binding<NarrationClip>,
+        onRegenerate: @escaping (String) async -> Void,
+        onDelete: @escaping () -> Void
+    ) {
+        _narration = narration
+        self.onRegenerate = onRegenerate
+        self.onDelete = onDelete
+        _replacementText = State(
+            initialValue: narration.wrappedValue.text
+        )
+    }
+
+    var body: some View {
+        Form {
+            Section("Narration") {
+                TextField(
+                    "Text",
+                    text: $replacementText,
+                    axis: .vertical
+                )
+                .lineLimit(4)
+                Button("Regenerate This Narration") {
+                    let text = replacementText
+                    isRegenerating = true
+                    Task {
+                        await onRegenerate(text)
+                        isRegenerating = false
+                    }
+                }
+                .disabled(
+                    isRegenerating
+                        || replacementText.trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        ).isEmpty
+                        || replacementText == narration.text
+                )
+                TextField(
+                    "Start",
+                    value: $narration.startTime,
+                    format: .number.precision(.fractionLength(2))
+                )
+                LabeledContent("Duration") {
+                    Text(
+                        narration.duration,
+                        format: .number.precision(.fractionLength(2))
+                    )
+                }
+                Slider(value: $narration.volume, in: 0...2) {
+                    Text("Volume")
+                }
+            }
+            Section {
+                Button(
+                    "Delete Narration",
+                    role: .destructive,
+                    action: onDelete
+                )
+            }
+        }
+        .formStyle(.grouped)
+        .onChange(of: narration.text) { _, value in
+            replacementText = value
+        }
     }
 }
 

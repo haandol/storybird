@@ -44,12 +44,15 @@ public enum VideoProjectValidator {
         guard recording.duration.isFinite,
               recording.duration > 0,
               recording.width > 0,
-              recording.height > 0
+              recording.height > 0,
+              recording.mediaStartTime?.isFinite != false
         else {
             throw VideoProjectValidationError.invalidRecording
         }
         guard isSimpleFilename(recording.filename),
-              recording.filename.pathExtension.lowercased() == "mp4"
+              ["mp4", "mov"].contains(
+                  recording.filename.pathExtension.lowercased()
+              )
         else {
             throw VideoProjectValidationError.invalidAssetFilename
         }
@@ -110,6 +113,31 @@ public enum VideoProjectValidator {
             else {
                 throw VideoProjectValidationError.invalidClick(click.id)
             }
+            if let anchor = click.sourceAnchor {
+                guard let clip = project.clips.first(
+                    where: { $0.id == anchor.clipID }
+                ),
+                    clip.kind == anchor.clipKind,
+                    anchor.clipOffset.isFinite,
+                    anchor.clipOffset >= 0,
+                    anchor.clipOffset < clip.outputDuration
+                else {
+                    throw VideoProjectValidationError.invalidClick(click.id)
+                }
+                switch clip.kind {
+                case .video:
+                    guard click.sourceTime >= clip.sourceStart,
+                          click.sourceTime < clip.sourceEnd
+                    else {
+                        throw VideoProjectValidationError.invalidClick(click.id)
+                    }
+                case .freeze:
+                    guard abs(click.sourceTime - clip.sourceStart) <= 0.001
+                    else {
+                        throw VideoProjectValidationError.invalidClick(click.id)
+                    }
+                }
+            }
             previousClickTime = click.time
         }
 
@@ -130,6 +158,31 @@ public enum VideoProjectValidator {
             else {
                 throw VideoProjectValidationError.invalidSubtitle(subtitle.id)
             }
+        }
+
+        let sortedNarrations = project.narrations.sorted {
+            $0.startTime < $1.startTime
+        }
+        var previousNarrationEnd = 0.0
+        for narration in sortedNarrations {
+            guard layerIDs.insert(narration.id).inserted,
+                  isSimpleFilename(narration.filename),
+                  narration.filename.pathExtension.lowercased() == "wav",
+                  !narration.text.trimmingCharacters(
+                      in: .whitespacesAndNewlines
+                  ).isEmpty,
+                  narration.startTime.isFinite,
+                  narration.duration.isFinite,
+                  narration.volume.isFinite,
+                  narration.startTime >= 0,
+                  narration.duration > 0,
+                  narration.endTime <= timelineDuration,
+                  narration.volume >= 0,
+                  narration.startTime >= previousNarrationEnd
+            else {
+                throw VideoProjectValidationError.invalidRecording
+            }
+            previousNarrationEnd = narration.endTime
         }
 
         let duration = timelineDuration
@@ -164,6 +217,7 @@ public enum VideoProjectValidator {
                     throw VideoProjectValidationError.invalidEffect(effect.id)
                 }
                 spotlightRanges.append(range)
+                try validateEffectAnchor(value.sourceAnchor, in: project)
             case let .panZoom(value):
                 guard normalizedPoint(x: value.startX, y: value.startY),
                       normalizedPoint(x: value.endX, y: value.endY),
@@ -174,6 +228,7 @@ public enum VideoProjectValidator {
                     throw VideoProjectValidationError.invalidEffect(effect.id)
                 }
                 panZoomRanges.append(range)
+                try validateEffectAnchor(value.sourceAnchor, in: project)
             case let .title(value):
                 guard !value.title.trimmingCharacters(
                     in: .whitespacesAndNewlines
@@ -202,6 +257,42 @@ public enum VideoProjectValidator {
                   suggestedClickIDs.insert(suggestion.clickID).inserted
             else {
                 throw VideoProjectValidationError.invalidSuggestion(suggestion.id)
+            }
+        }
+    }
+
+    /// Rejects persisted content-effect anchors that outlive their owning clip or
+    /// describe source/offset ranges outside that clip's editable content.
+    private static func validateEffectAnchor(
+        _ anchor: ContentEffectAnchor?,
+        in project: DemoProject
+    ) throws {
+        guard let anchor else { return }
+        guard let clip = project.clips.first(
+            where: { $0.id == anchor.clipID }
+        ),
+            clip.kind == anchor.clipKind
+        else {
+            throw VideoProjectValidationError.invalidRecording
+        }
+        switch clip.kind {
+        case .video:
+            guard anchor.sourceStart.isFinite,
+                  anchor.sourceEnd.isFinite,
+                  anchor.sourceStart >= clip.sourceStart,
+                  anchor.sourceStart < anchor.sourceEnd,
+                  anchor.sourceEnd <= clip.sourceEnd
+            else {
+                throw VideoProjectValidationError.invalidRecording
+            }
+        case .freeze:
+            guard anchor.clipStartOffset.isFinite,
+                  anchor.clipEndOffset.isFinite,
+                  anchor.clipStartOffset >= 0,
+                  anchor.clipStartOffset < anchor.clipEndOffset,
+                  anchor.clipEndOffset <= clip.outputDuration
+            else {
+                throw VideoProjectValidationError.invalidRecording
             }
         }
     }

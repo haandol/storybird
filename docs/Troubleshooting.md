@@ -73,10 +73,43 @@ destination only after successful encoding. Confirm the destination directory
 is writable and has enough free space. An unchanged existing file after failure
 is expected and protects the previous export.
 
-## The recording or export has no audio
+## An imported video does not appear
 
-This is expected. The current Storybird contract records silent screen video
-and does not request system-audio or microphone access.
+Storybird imports local MP4 and QuickTime MOV files that contain a readable
+video track, positive duration, and valid display dimensions. Unsupported,
+damaged, or audio-only files do not create a project. Confirm the source still
+exists, is readable, and there is enough disk space for a project-owned copy.
+
+## The recording or exported video has no audio
+
+Direct Storybird screen recordings are intentionally silent and do not request
+system-audio access. Microphone access is requested only when the user starts a
+guided voice-profile recording.
+
+For imported videos, confirm the source contains a readable primary audio track.
+Storybird preserves that track in preview and exports it as one AAC track.
+Freeze frames, title cards, and CTA cards are silent by design.
+
+## The local voice model is not ready
+
+Open **Voice** and choose **Prepare Model**. Storybird requires `uv`, installs a
+private MLX-Audio runtime, and downloads the Qwen3-TTS 1.7B Base 8-bit model
+after confirmation. Check free disk space and network access. Once prepared,
+voice synthesis works offline.
+
+## Voice cloning fails or sounds unlike the reference
+
+For better clone quality, use a clean MP3/WAV containing several seconds of
+natural speech and enter the transcript exactly as spoken. Background noise and
+transcript mismatches are reproduced by the clone. Guided microphone profiles
+enforce at least three seconds; rerecord the prompt in a quiet room.
+
+## Add Click does not create a Click Cue
+
+Move the playhead inside a playable video clip, click **Add Click**, then select
+a point inside the video frame. Full-screen title/CTA cards and the exact end of
+the project have no source video time, so Storybird rejects Click Cue placement
+there.
 
 ## The floating recorder appears in a capture
 

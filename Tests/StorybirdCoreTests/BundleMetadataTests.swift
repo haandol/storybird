@@ -35,5 +35,32 @@ final class BundleMetadataTests: XCTestCase {
             (value["NSInputMonitoringUsageDescription"] as? String)?
                 .contains("Keyboard input is never recorded") == true
         )
+        XCTAssertTrue(
+            (value["NSMicrophoneUsageDescription"] as? String)?
+                .contains("voice profile") == true
+        )
+    }
+
+    func test_entitlements_allowExplicitVoiceProfileRecording() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let entitlementsURL = repositoryRoot.appendingPathComponent(
+            "Resources/Storybird.entitlements"
+        )
+        let data = try Data(contentsOf: entitlementsURL)
+        let value = try XCTUnwrap(
+            PropertyListSerialization.propertyList(
+                from: data,
+                options: [],
+                format: nil
+            ) as? [String: Any]
+        )
+
+        XCTAssertEqual(
+            value["com.apple.security.device.audio-input"] as? Bool,
+            true
+        )
     }
 }

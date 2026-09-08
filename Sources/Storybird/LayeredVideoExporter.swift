@@ -1,4 +1,5 @@
-import AVFoundation
+@preconcurrency import AVFoundation
+import AudioToolbox
 import CoreImage
 import CoreMedia
 import CoreText
@@ -38,6 +39,14 @@ enum LayeredVideoExportError: LocalizedError {
 }
 
 actor LayeredVideoExporter {
+    private struct AudioEncodingConfiguration {
+        let readerSettings: [String: Any]
+        let writerSettings: [String: Any]
+        let formatDescription: CMAudioFormatDescription
+        let sampleRate: Int32
+        let bytesPerFrame: Int
+    }
+
     private let imageContext = CIContext(
         options: [.cacheIntermediates: false]
     )
@@ -74,11 +83,32 @@ actor LayeredVideoExporter {
         ).first else {
             throw LayeredVideoExportError.missingVideoTrack
         }
+        let sourceAudioTrack = try await sourceAsset.loadTracks(
+            withMediaType: .audio
+        ).first
+        let sourceAudioTimeRange: CMTimeRange?
+        if let sourceAudioTrack {
+            sourceAudioTimeRange = try await sourceAudioTrack.load(
+                .timeRange
+            )
+        } else {
+            sourceAudioTimeRange = nil
+        }
         let sourceDuration = try await sourceAsset.load(.duration)
-        let durationSeconds = CMTimeGetSeconds(sourceDuration)
+        let sourceVideoTimeRange = try await sourceTrack.load(.timeRange)
+        let durationSeconds = CMTimeGetSeconds(
+            sourceVideoTimeRange.duration
+        )
+        let mediaStartTime = CMTimeGetSeconds(
+            sourceVideoTimeRange.start
+        )
         guard let recording = project.recording,
               durationSeconds.isFinite,
               abs(durationSeconds - recording.duration) <= 0.1,
+              mediaStartTime.isFinite,
+              abs(
+                  mediaStartTime - (recording.mediaStartTime ?? 0)
+              ) <= 0.1,
               project.clicks.allSatisfy({
                   $0.sourceTime <= durationSeconds + 0.001
               }),
@@ -97,21 +127,44 @@ actor LayeredVideoExporter {
                 && abs(project.clips[0].sourceStart) <= 0.001
                 && abs(project.clips[0].sourceEnd - durationSeconds) <= 0.001
                 && abs(project.clips[0].playbackRate - 1) <= 0.001
+                && abs(mediaStartTime) <= 0.001
+                && abs(
+                    CMTimeGetSeconds(sourceDuration) - durationSeconds
+                ) <= 0.001
                 && !project.effects.contains(where: \.isFullScreenCard)
+                && project.narrations.isEmpty
         let asset: AVAsset
         let videoTrack: AVAssetTrack
+        let audioTracks: [AVAssetTrack]
+        let audioFormatTrack: AVAssetTrack?
+        let audioMix: AVAudioMix?
         let duration: CMTime
         if usesOriginalTrack {
             asset = sourceAsset
             videoTrack = sourceTrack
+            audioTracks = sourceAudioTrack.map { [$0] } ?? []
+            audioFormatTrack = sourceAudioTrack
+            audioMix = nil
             duration = sourceDuration
         } else {
             let timeline = try VideoTimelineCompositionBuilder.build(
                 project: project,
-                sourceTrack: sourceTrack
+                sourceTrack: sourceTrack,
+                sourceAudioTrack: sourceAudioTrack,
+                sourceAudioTimeRange: sourceAudioTimeRange
             )
             asset = timeline.asset
             videoTrack = timeline.track
+            let audio = try await NarrationCompositionBuilder.addNarrations(
+                project: project,
+                assetsDirectory: sourceURL.deletingLastPathComponent(),
+                composition: timeline.asset,
+                sourceAudioTrack: timeline.audioTrack,
+                sourceFormatTrack: sourceAudioTrack
+            )
+            audioTracks = audio.tracks
+            audioFormatTrack = audio.formatTrack
+            audioMix = audio.audioMix
             duration = timeline.duration
         }
         let videoComposition = try await makeVideoComposition(
@@ -154,6 +207,38 @@ actor LayeredVideoExporter {
             throw LayeredVideoExportError.cannotCreateWriter
         }
         writer.add(input)
+        let audioOutput: AVAssetReaderAudioMixOutput?
+        let audioInput: AVAssetWriterInput?
+        let audioConfig: AudioEncodingConfiguration?
+        if !audioTracks.isEmpty, let audioFormatTrack {
+            let configuration = try await makeAudioConfiguration(
+                for: audioFormatTrack
+            )
+            let output = AVAssetReaderAudioMixOutput(
+                audioTracks: audioTracks,
+                audioSettings: configuration.readerSettings
+            )
+            output.audioMix = audioMix
+            guard reader.canAdd(output) else {
+                throw LayeredVideoExportError.cannotReadVideo
+            }
+            reader.add(output)
+            let input = AVAssetWriterInput(
+                mediaType: .audio,
+                outputSettings: configuration.writerSettings
+            )
+            guard writer.canAdd(input) else {
+                throw LayeredVideoExportError.cannotCreateWriter
+            }
+            writer.add(input)
+            audioOutput = output
+            audioInput = input
+            audioConfig = configuration
+        } else {
+            audioOutput = nil
+            audioInput = nil
+            audioConfig = nil
+        }
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(
             assetWriterInput: input,
             sourcePixelBufferAttributes: [
@@ -173,10 +258,13 @@ actor LayeredVideoExporter {
         writer.startSession(atSourceTime: .zero)
 
         do {
-            try await appendFrames(
-                from: output,
+            try await appendMedia(
+                videoOutput: output,
                 reader: reader,
-                to: input,
+                videoInput: input,
+                audioOutput: audioOutput,
+                audioInput: audioInput,
+                audioConfiguration: audioConfig,
                 adaptor: adaptor,
                 writer: writer,
                 project: project,
@@ -189,7 +277,6 @@ actor LayeredVideoExporter {
             throw error
         }
 
-        input.markAsFinished()
         await withCheckedContinuation {
             (continuation: CheckedContinuation<Void, Never>) in
             writer.finishWriting {
@@ -243,7 +330,12 @@ actor LayeredVideoExporter {
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
         let image = try await generator.image(
-            at: CMTime(seconds: sourceTime, preferredTimescale: 600)
+            at: CMTime(
+                seconds:
+                    (project.recording?.mediaStartTime ?? 0)
+                        + sourceTime,
+                preferredTimescale: 600
+            )
         ).image
         let frame = CGRect(
             x: 0,
@@ -290,11 +382,15 @@ actor LayeredVideoExporter {
         return data as Data
     }
 
-    /// Reads composed frames with backpressure so cancellation never returns a partial file.
-    private func appendFrames(
-        from output: AVAssetReaderVideoCompositionOutput,
+    /// Interleaves composed video and optional narration with writer backpressure so
+    /// either media failure cancels the single atomic MP4 result.
+    private func appendMedia(
+        videoOutput: AVAssetReaderVideoCompositionOutput,
         reader: AVAssetReader,
-        to input: AVAssetWriterInput,
+        videoInput: AVAssetWriterInput,
+        audioOutput: AVAssetReaderAudioMixOutput?,
+        audioInput: AVAssetWriterInput?,
+        audioConfiguration: AudioEncodingConfiguration?,
         adaptor: AVAssetWriterInputPixelBufferAdaptor,
         writer: AVAssetWriter,
         project: DemoProject,
@@ -302,67 +398,95 @@ actor LayeredVideoExporter {
         progress: @escaping @Sendable (Double) -> Void
     ) async throws {
         let totalSeconds = max(CMTimeGetSeconds(duration), 0.001)
-        while reader.status == .reading {
+        var videoFinished = false
+        var audioSourceFinished = audioOutput == nil
+        var audioFinished = audioOutput == nil
+        var pendingAudioSample: CMSampleBuffer?
+        var audioCursor = CMTime.zero
+
+        while !videoFinished || !audioFinished {
             try Task.checkCancellation()
-            guard let sample = output.copyNextSampleBuffer() else {
-                break
-            }
-            while !input.isReadyForMoreMediaData {
-                try Task.checkCancellation()
-                try await Task.sleep(for: .milliseconds(5))
-            }
-            guard let sourceBuffer = CMSampleBufferGetImageBuffer(sample),
-                  let pool = adaptor.pixelBufferPool
-            else {
-                throw LayeredVideoExportError.exportFailed(
-                    "The composed frame has no writable pixel buffer."
-                )
-            }
-            var writableBuffer: CVPixelBuffer?
-            guard CVPixelBufferPoolCreatePixelBuffer(
-                kCFAllocatorDefault,
-                pool,
-                &writableBuffer
-            ) == kCVReturnSuccess,
-                let writableBuffer
-            else {
-                throw LayeredVideoExportError.exportFailed(
-                    "Storybird could not allocate an export frame."
-                )
-            }
-            let frameBounds = CGRect(
-                x: 0,
-                y: 0,
-                width: CVPixelBufferGetWidth(writableBuffer),
-                height: CVPixelBufferGetHeight(writableBuffer)
-            )
-            let imageWithText = FrameOverlayRenderer.compositeFrameOverlays(
-                project: project,
-                over: CIImage(cvPixelBuffer: sourceBuffer),
-                at: CMSampleBufferGetPresentationTimeStamp(sample),
-                frame: frameBounds
-            )
-            imageContext.render(
-                imageWithText,
-                to: writableBuffer,
-                bounds: frameBounds,
-                colorSpace: CGColorSpace(name: CGColorSpace.sRGB)
-            )
-            guard adaptor.append(
-                writableBuffer,
-                withPresentationTime:
-                    CMSampleBufferGetPresentationTimeStamp(sample)
-            ) else {
-                throw writer.error
-                    ?? LayeredVideoExportError.exportFailed(
-                        "The encoder rejected a composed frame."
+            var appendedSample = false
+            if !videoFinished, videoInput.isReadyForMoreMediaData {
+                if let sample = videoOutput.copyNextSampleBuffer() {
+                    try appendVideoSample(
+                        sample,
+                        to: adaptor,
+                        writer: writer,
+                        project: project
                     )
+                    let seconds = CMTimeGetSeconds(
+                        CMSampleBufferGetPresentationTimeStamp(sample)
+                    )
+                    if seconds.isFinite {
+                        progress(min(max(seconds / totalSeconds, 0), 1))
+                    }
+                    appendedSample = true
+                } else {
+                    videoFinished = true
+                    videoInput.markAsFinished()
+                }
             }
-            let seconds = CMTimeGetSeconds(
-                CMSampleBufferGetPresentationTimeStamp(sample)
-            )
-            if seconds.isFinite {
-                progress(min(max(seconds / totalSeconds, 0), 1))
+            if !audioFinished,
+               let audioOutput,
+               let audioInput,
+               let audioConfiguration,
+               audioInput.isReadyForMoreMediaData {
+                if pendingAudioSample == nil, !audioSourceFinished {
+                    pendingAudioSample =
+                        audioOutput.copyNextSampleBuffer()
+                    if pendingAudioSample == nil {
+                        audioSourceFinished = true
+                    }
+                }
+                let target = min(
+                    pendingAudioSample.map(
+                        CMSampleBufferGetPresentationTimeStamp
+                    ) ?? duration,
+                    duration
+                )
+                if audioCursor < target {
+                    let result = try appendSilenceChunk(
+                        from: audioCursor,
+                        to: target,
+                        configuration: audioConfiguration,
+                        input: audioInput,
+                        writer: writer
+                    )
+                    audioCursor = result.endTime
+                    appendedSample = result.didAppend
+                } else if let sample = pendingAudioSample {
+                    guard audioInput.append(sample) else {
+                        throw writer.error
+                            ?? LayeredVideoExportError.exportFailed(
+                                "The encoder rejected the narration track."
+                            )
+                    }
+                    let declaredDuration = CMSampleBufferGetDuration(sample)
+                    let sampleDuration =
+                        declaredDuration.isValid
+                            ? declaredDuration
+                            : CMTime(
+                                value: CMTimeValue(
+                                    CMSampleBufferGetNumSamples(sample)
+                                ),
+                                timescale: audioConfiguration.sampleRate
+                            )
+                    audioCursor = max(
+                        audioCursor,
+                        CMSampleBufferGetPresentationTimeStamp(sample)
+                            + sampleDuration
+                    )
+                    pendingAudioSample = nil
+                    appendedSample = true
+                } else if audioSourceFinished,
+                          audioCursor >= duration {
+                    audioFinished = true
+                    audioInput.markAsFinished()
+                }
+            }
+            if !appendedSample {
+                try await Task.sleep(for: .milliseconds(5))
             }
         }
         guard reader.status == .completed else {
@@ -371,6 +495,205 @@ actor LayeredVideoExporter {
                     "The source reader stopped before completion."
                 )
         }
+    }
+
+    /// Renders and appends one video frame while keeping overlay time on the encoded
+    /// presentation timestamp used by the optional narration track.
+    private func appendVideoSample(
+        _ sample: CMSampleBuffer,
+        to adaptor: AVAssetWriterInputPixelBufferAdaptor,
+        writer: AVAssetWriter,
+        project: DemoProject
+    ) throws {
+        guard let sourceBuffer = CMSampleBufferGetImageBuffer(sample),
+              let pool = adaptor.pixelBufferPool
+        else {
+            throw LayeredVideoExportError.exportFailed(
+                "The composed frame has no writable pixel buffer."
+            )
+        }
+        var writableBuffer: CVPixelBuffer?
+        guard CVPixelBufferPoolCreatePixelBuffer(
+            kCFAllocatorDefault,
+            pool,
+            &writableBuffer
+        ) == kCVReturnSuccess,
+            let writableBuffer
+        else {
+            throw LayeredVideoExportError.exportFailed(
+                "Storybird could not allocate an export frame."
+            )
+        }
+        let frameBounds = CGRect(
+            x: 0,
+            y: 0,
+            width: CVPixelBufferGetWidth(writableBuffer),
+            height: CVPixelBufferGetHeight(writableBuffer)
+        )
+        let timestamp = CMSampleBufferGetPresentationTimeStamp(sample)
+        let imageWithText = FrameOverlayRenderer.compositeFrameOverlays(
+            project: project,
+            over: CIImage(cvPixelBuffer: sourceBuffer),
+            at: timestamp,
+            frame: frameBounds
+        )
+        imageContext.render(
+            imageWithText,
+            to: writableBuffer,
+            bounds: frameBounds,
+            colorSpace: CGColorSpace(name: CGColorSpace.sRGB)
+        )
+        guard adaptor.append(
+            writableBuffer,
+            withPresentationTime: timestamp
+        ) else {
+            throw writer.error
+                ?? LayeredVideoExportError.exportFailed(
+                    "The encoder rejected a composed frame."
+                )
+        }
+    }
+
+    /// Chooses one fixed PCM reader format and matching AAC writer settings so
+    /// generated silence and decoded narration share one sample representation.
+    private func makeAudioConfiguration(
+        for track: AVAssetTrack
+    ) async throws -> AudioEncodingConfiguration {
+        let descriptions = try await track.load(.formatDescriptions)
+        let stream = descriptions.first.flatMap {
+            CMAudioFormatDescriptionGetStreamBasicDescription($0)
+        }?.pointee
+        let sampleRate: Int32 = 44_100
+        let channelCount = min(
+            max(Int(stream?.mChannelsPerFrame ?? 1), 1),
+            2
+        )
+        let bytesPerFrame = channelCount * MemoryLayout<Int16>.size
+        var description = AudioStreamBasicDescription(
+            mSampleRate: Double(sampleRate),
+            mFormatID: kAudioFormatLinearPCM,
+            mFormatFlags:
+                kLinearPCMFormatFlagIsSignedInteger
+                    | kAudioFormatFlagIsPacked,
+            mBytesPerPacket: UInt32(bytesPerFrame),
+            mFramesPerPacket: 1,
+            mBytesPerFrame: UInt32(bytesPerFrame),
+            mChannelsPerFrame: UInt32(channelCount),
+            mBitsPerChannel: 16,
+            mReserved: 0
+        )
+        var formatDescription: CMAudioFormatDescription?
+        guard CMAudioFormatDescriptionCreate(
+            allocator: kCFAllocatorDefault,
+            asbd: &description,
+            layoutSize: 0,
+            layout: nil,
+            magicCookieSize: 0,
+            magicCookie: nil,
+            extensions: nil,
+            formatDescriptionOut: &formatDescription
+        ) == noErr,
+            let formatDescription
+        else {
+            throw LayeredVideoExportError.cannotReadVideo
+        }
+        return AudioEncodingConfiguration(
+            readerSettings: [
+                AVFormatIDKey: kAudioFormatLinearPCM,
+                AVSampleRateKey: sampleRate,
+                AVNumberOfChannelsKey: channelCount,
+                AVLinearPCMBitDepthKey: 16,
+                AVLinearPCMIsFloatKey: false,
+                AVLinearPCMIsBigEndianKey: false,
+                AVLinearPCMIsNonInterleaved: false,
+            ],
+            writerSettings: [
+                AVFormatIDKey: kAudioFormatMPEG4AAC,
+                AVSampleRateKey: sampleRate,
+                AVNumberOfChannelsKey: channelCount,
+                AVEncoderBitRateKey:
+                    channelCount == 1 ? 96_000 : 128_000,
+            ],
+            formatDescription: formatDescription,
+            sampleRate: sampleRate,
+            bytesPerFrame: bytesPerFrame
+        )
+    }
+
+    /// Appends at most one bounded PCM silence chunk, allowing video and audio
+    /// backpressure to make progress together while filling narration gaps.
+    private func appendSilenceChunk(
+        from start: CMTime,
+        to end: CMTime,
+        configuration: AudioEncodingConfiguration,
+        input: AVAssetWriterInput,
+        writer: AVAssetWriter
+    ) throws -> (endTime: CMTime, didAppend: Bool) {
+        let remainingSeconds = CMTimeGetSeconds(end - start)
+        let availableFrames = Int(
+            floor(remainingSeconds * Double(configuration.sampleRate))
+        )
+        guard availableFrames > 0 else {
+            return (end, false)
+        }
+        let frameCount = min(availableFrames, 4_096)
+        let dataLength = frameCount * configuration.bytesPerFrame
+        var blockBuffer: CMBlockBuffer?
+        guard CMBlockBufferCreateWithMemoryBlock(
+            allocator: kCFAllocatorDefault,
+            memoryBlock: nil,
+            blockLength: dataLength,
+            blockAllocator: kCFAllocatorDefault,
+            customBlockSource: nil,
+            offsetToData: 0,
+            dataLength: dataLength,
+            flags: 0,
+            blockBufferOut: &blockBuffer
+        ) == kCMBlockBufferNoErr,
+            let blockBuffer,
+            CMBlockBufferFillDataBytes(
+                with: 0,
+                blockBuffer: blockBuffer,
+                offsetIntoDestination: 0,
+                dataLength: dataLength
+            ) == kCMBlockBufferNoErr
+        else {
+            throw LayeredVideoExportError.cannotCreateWriter
+        }
+        var timing = CMSampleTimingInfo(
+            duration: CMTime(
+                value: 1,
+                timescale: configuration.sampleRate
+            ),
+            presentationTimeStamp: start,
+            decodeTimeStamp: .invalid
+        )
+        var sampleSize = configuration.bytesPerFrame
+        var sampleBuffer: CMSampleBuffer?
+        guard CMSampleBufferCreateReady(
+            allocator: kCFAllocatorDefault,
+            dataBuffer: blockBuffer,
+            formatDescription: configuration.formatDescription,
+            sampleCount: frameCount,
+            sampleTimingEntryCount: 1,
+            sampleTimingArray: &timing,
+            sampleSizeEntryCount: 1,
+            sampleSizeArray: &sampleSize,
+            sampleBufferOut: &sampleBuffer
+        ) == noErr,
+            let sampleBuffer,
+            input.append(sampleBuffer)
+        else {
+            throw writer.error
+                ?? LayeredVideoExportError.exportFailed(
+                    "The encoder rejected generated narration silence."
+                )
+        }
+        let chunkDuration = CMTime(
+            value: CMTimeValue(frameCount),
+            timescale: configuration.sampleRate
+        )
+        return (start + chunkDuration, true)
     }
 
     /// Builds one composition whose video pixels and overlay layers share the same zero-based clock.
