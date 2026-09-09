@@ -92,10 +92,19 @@ Freeze frames, title cards, and CTA cards are silent by design.
 
 ## The local voice model is not ready
 
-Open **Voice** and choose **Prepare Model**. Storybird requires `uv`, installs a
-private MLX-Audio runtime, and downloads the Qwen3-TTS 1.7B Base 8-bit model
-after confirmation. Check free disk space and network access. Once prepared,
-voice synthesis works offline.
+Open **Settings › Voice** and choose **Prepare Model**. Storybird requires `uv`,
+installs a private MLX-Audio runtime, and downloads the Qwen3-TTS 1.7B Base
+8-bit model after confirmation. Check free disk space and network access. Once
+prepared, voice synthesis works offline.
+
+## The guided recording uses the wrong microphone
+
+Open **Settings › Voice** and choose the input device under **Guided Recording
+Microphone**. Storybird stores the device UID rather than its temporary device
+number. If the selected microphone is disconnected, Storybird keeps the
+selection and temporarily uses the macOS system default. Reconnect the selected
+device or choose the current **(System Default)** device, then start a new guided recording.
+Changing the picker does not switch a recording already in progress.
 
 ## Voice cloning fails or sounds unlike the reference
 
@@ -104,6 +113,10 @@ natural speech and enter the transcript exactly as spoken. Background noise and
 transcript mismatches are reproduced by the clone. Guided microphone profiles
 show a live waveform and enforce at least ten seconds; rerecord the prosody
 prompt in a quiet room if the input level barely moves.
+
+If no waveform appears, refresh the device list in **Settings › Voice** and
+confirm the chosen device has an input channel. Output-only devices are
+intentionally excluded.
 
 ## Add Click does not create a Click Cue
 

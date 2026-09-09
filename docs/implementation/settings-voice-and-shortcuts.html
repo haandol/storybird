@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Storybird 설정·음성·단축키 구조</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+    body {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 32px 24px 64px;
+    }
+    h1, h2 { line-height: 1.25; }
+    section {
+      margin: 24px 0;
+      padding: 20px;
+      border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+      border-radius: 14px;
+    }
+    code, pre {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    pre {
+      overflow: auto;
+      padding: 16px;
+      border-radius: 10px;
+      background: color-mix(in srgb, CanvasText 8%, Canvas);
+    }
+    .term {
+      display: grid;
+      grid-template-columns: 150px 1fr;
+      gap: 8px 16px;
+    }
+    .term dt { font-weight: 700; }
+    .term dd { margin: 0; }
+    .note {
+      padding: 12px 14px;
+      border-left: 4px solid #5b5ce2;
+      background: color-mix(in srgb, #5b5ce2 10%, Canvas);
+    }
+  </style>
+</head>
+<body>
+  <h1>Storybird 설정·음성·단축키 구조</h1>
+  <p>
+    이 문서는 공유 음성 환경을 Settings로 옮기고, 프로젝트 내레이션과
+    로컬 단축키를 분리한 흐름을 설명한다.
+  </p>
+
+  <section>
+    <h2>핵심 용어</h2>
+    <dl class="term">
+      <dt>장치 UID</dt>
+      <dd>재실행이나 재연결 뒤에도 같은 마이크를 찾기 위한 안정 식별자다.</dd>
+      <dt>시스템 기본 입력</dt>
+      <dd>macOS가 현재 기본 마이크로 선택한 장치다.</dd>
+      <dt>로컬 단축키</dt>
+      <dd>Storybird가 활성 앱일 때만 처리하는 키 조합이다. 전역 키 감시가 아니다.</dd>
+      <dt>프로젝트 소유 내레이션</dt>
+      <dd>프로필과 별개로 프로젝트가 소유하는 문장별 WAV와 시간축 레이어다.</dd>
+      <dt>샘플 정규화</dt>
+      <dd>장치 원본 포맷을 프로필용 24kHz mono 16-bit WAV로 변환하는 처리다.</dd>
+    </dl>
+  </section>
+
+  <section>
+    <h2>음성 프로필과 내레이션 흐름</h2>
+    <div class="mermaid">
+sequenceDiagram
+    actor User as 사용자
+    participant Settings as Settings › Voice
+    participant Device as 입력 장치
+    participant Profile as 로컬 음성 프로필
+    participant Project as 프로젝트 내레이션
+
+    User->>Settings: 모델·마이크·프로필 관리
+    Settings->>Device: 저장된 UID 확인
+    alt 선택 장치가 연결됨
+        Device-->>Settings: 선택 장치 사용
+    else 선택 장치가 없음
+        Device-->>Settings: 시스템 기본 입력으로 임시 대체
+        Settings-->>User: 선택은 보존하고 대체 상태 표시
+    end
+    User->>Settings: 안내 녹음 시작
+    Settings->>Profile: 24kHz mono 변환·10초 이상 검증 후 저장
+    User->>Project: 기존 프로필과 문장·시각 선택
+    Project->>Profile: 로컬 음성 합성
+    Project-->>User: 프로젝트 소유 내레이션 생성
+    </div>
+    <details>
+      <summary>Mermaid 원문</summary>
+      <pre>sequenceDiagram
+    actor User as 사용자
+    participant Settings as Settings › Voice
+    participant Device as 입력 장치
+    participant Profile as 로컬 음성 프로필
+    participant Project as 프로젝트 내레이션
+
+    User-&gt;&gt;Settings: 모델·마이크·프로필 관리
+    Settings-&gt;&gt;Device: 저장된 UID 확인
+    alt 선택 장치가 연결됨
+        Device--&gt;&gt;Settings: 선택 장치 사용
+    else 선택 장치가 없음
+        Device--&gt;&gt;Settings: 시스템 기본 입력으로 임시 대체
+        Settings--&gt;&gt;User: 선택은 보존하고 대체 상태 표시
+    end
+    User-&gt;&gt;Settings: 안내 녹음 시작
+    Settings-&gt;&gt;Profile: 24kHz mono 변환·10초 이상 검증 후 저장
+    User-&gt;&gt;Project: 기존 프로필과 문장·시각 선택
+    Project-&gt;&gt;Profile: 로컬 음성 합성
+    Project--&gt;&gt;User: 프로젝트 소유 내레이션 생성</pre>
+    </details>
+    <p class="note">
+      녹음이 시작되면 그 세션의 장치는 고정된다. Settings에서 장치를 바꿔도
+      진행 중인 WAV는 바뀌지 않고 다음 안내 녹음부터 새 선택을 사용한다.
+    </p>
+  </section>
+
+  <section>
+    <h2>단축키 흐름</h2>
+    <div class="mermaid">
+flowchart LR
+    Key["Storybird 활성 중 키 입력"] --> Capture{"단축키 입력 필드가 기록 중인가?"}
+    Capture -- 예 --> Field["새 조합으로 검증"]
+    Field --> Valid{"수정자 포함·중복 없음?"}
+    Valid -- 아니오 --> Keep["기존 조합 유지 + 이유 표시"]
+    Valid -- 예 --> Save["사용자 설정에 저장"]
+    Capture -- 아니오 --> Match["작업 조합 찾기"]
+    Match --> Enabled{"대응 UI 작업이 현재 가능한가?"}
+    Enabled -- 아니오 --> Noop["상태 변경 없음"]
+    Enabled -- 예 --> Action["기존 작업 흐름 실행"]
+    </div>
+    <details>
+      <summary>Mermaid 원문</summary>
+      <pre>flowchart LR
+    Key["Storybird 활성 중 키 입력"] --&gt; Capture{"단축키 입력 필드가 기록 중인가?"}
+    Capture -- 예 --&gt; Field["새 조합으로 검증"]
+    Field --&gt; Valid{"수정자 포함·중복 없음?"}
+    Valid -- 아니오 --&gt; Keep["기존 조합 유지 + 이유 표시"]
+    Valid -- 예 --&gt; Save["사용자 설정에 저장"]
+    Capture -- 아니오 --&gt; Match["작업 조합 찾기"]
+    Match --&gt; Enabled{"대응 UI 작업이 현재 가능한가?"}
+    Enabled -- 아니오 --&gt; Noop["상태 변경 없음"]
+    Enabled -- 예 --&gt; Action["기존 작업 흐름 실행"]</pre>
+    </details>
+    <p>
+      단축키는 새 프로젝트, 녹화 시작·중지, 가져오기, 내보내기만 다룬다.
+      다른 앱이 활성일 때는 처리하지 않으며 Accessibility나 Input Monitoring
+      권한을 추가하지 않는다.
+    </p>
+  </section>
+
+  <section>
+    <h2>실패 시 보존되는 것</h2>
+    <ul>
+      <li>선택한 마이크가 없더라도 저장된 UID는 지우지 않는다.</li>
+      <li>선택 장치와 시스템 기본 장치를 모두 열 수 없으면 프로필을 만들지 않는다.</li>
+      <li>10초 미만 WAV나 쓰기 실패 WAV는 프로필 저장소에 들어가지 않는다.</li>
+      <li>잘못되거나 중복된 단축키는 기존 유효 조합을 덮어쓰지 않는다.</li>
+      <li>비활성 작업의 단축키는 프로젝트·녹화·내보내기 상태를 바꾸지 않는다.</li>
+    </ul>
+  </section>
+
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({ startOnLoad: true, theme: "neutral" });
+  </script>
+</body>
+</html>

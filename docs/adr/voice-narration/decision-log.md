@@ -4,6 +4,17 @@ This document is the **major decision-change history** of the voice-narration ca
 Each ADR body describes only the current state, while the timeline of "what changed and
 why" accumulates here, newest first. Git preserves the individual diffs.
 
+## 2026-09-09 — 공유 음성 관리와 프로젝트 내레이션 작성을 분리한다
+
+- **Current ADR**: [local-cloned-voice-narration](./0001-local-cloned-voice-narration.md)
+- **Change type**: requirement rule change | fallback policy
+- **What**: 모델 준비, 프로필 등록·삭제와 안내 녹음용 마이크 선택을 설정으로 옮기고,
+  프로젝트는 기존 프로필을 사용한 내레이션 작성만 담당한다. 특정 마이크 선택은 유지하되
+  장치가 없으면 시스템 기본 입력으로 대체한다.
+- **Why**: 여러 프로젝트가 공유하는 민감 음성 자산과 현재 프로젝트 편집을 분리하고, 사용자가
+  원하는 입력 장치를 지속적으로 선택하면서 장치 분리 때문에 프로필 녹음 경로를 잃지 않게
+  해야 한다.
+
 ## 2026-09-08 — 안내 녹음의 길이·가시성과 선행 동의를 강화한다
 
 - **Current ADR**: [local-cloned-voice-narration](./0001-local-cloned-voice-narration.md)

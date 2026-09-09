@@ -742,6 +742,7 @@ enum VoiceProfileError: LocalizedError {
     case referenceTooShort
     case profileNotFound
     case microphonePermissionDenied
+    case microphoneUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -753,6 +754,8 @@ enum VoiceProfileError: LocalizedError {
             return "The selected voice profile no longer exists."
         case .microphonePermissionDenied:
             return "Microphone access is required only for the guided voice-profile recording."
+        case .microphoneUnavailable:
+            return "No usable microphone is available. Check the input device in Storybird Settings."
         }
     }
 }

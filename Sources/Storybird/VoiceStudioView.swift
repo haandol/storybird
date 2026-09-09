@@ -9,18 +9,17 @@ struct VoiceStudioView: View {
 
     @ObservedObject var store: AppStore
     @StateObject private var recorder = VoiceSampleRecorder()
-    @Environment(\.dismiss) private var dismiss
     private let refreshRuntimeOnAppear: Bool
 
     @State private var profileName = "My voice"
     @State private var transcript = ""
     @State private var consentConfirmed = false
-    @State private var narrationText = ""
-    @State private var narrationStart = 0.0
-    @State private var selectedProfileID: UUID?
     @State private var isWorking = false
     @State private var showPrepareConfirmation = false
     @State private var profilePendingDeletion: UUID?
+    @State private var availableInputDevices: [VoiceInputDevice] = []
+    @State private var preferredInputDeviceUID =
+        VoiceInputPreferences.preferredDeviceUID()
 
     init(
         store: AppStore,
@@ -31,47 +30,33 @@ struct VoiceStudioView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                runtimeSection
-                profileCreationSection
-                if recorder.hasSession {
-                    GuidedVoiceRecordingSection(
-                        recorder: recorder,
-                        prompt: Self.recordingPrompt,
-                        isWorking: isWorking,
-                        consentConfirmed: consentConfirmed,
-                        profileName: profileName,
-                        onRestart: restartGuidedRecording,
-                        onSave: { recordedURL in
-                            createProfile(
-                                from: recordedURL,
-                                transcriptOverride: Self.recordingPrompt,
-                                source: .microphone
-                            )
-                        },
-                        onError: { error in
-                            store.errorMessage = error.localizedDescription
-                        }
-                    )
-                }
-                profilesSection
-                narrationSection
-            }
-            .formStyle(.grouped)
-            .navigationTitle("Voice Narration")
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                        .disabled(
-                            isWorking
-                                || recorder.isRecording
-                                || recorder.isPaused
+        Form {
+            runtimeSection
+            inputDeviceSection
+            profileCreationSection
+            if recorder.hasSession {
+                GuidedVoiceRecordingSection(
+                    recorder: recorder,
+                    prompt: Self.recordingPrompt,
+                    isWorking: isWorking,
+                    consentConfirmed: consentConfirmed,
+                    profileName: profileName,
+                    onRestart: restartGuidedRecording,
+                    onSave: { recordedURL in
+                        createProfile(
+                            from: recordedURL,
+                            transcriptOverride: Self.recordingPrompt,
+                            source: .microphone
                         )
-                }
+                    },
+                    onError: { error in
+                        store.errorMessage = error.localizedDescription
+                    }
+                )
             }
+            profilesSection
         }
-        .frame(width: 620, height: 720)
+        .formStyle(.grouped)
         .confirmationDialog(
             "Prepare the local voice model?",
             isPresented: $showPrepareConfirmation
@@ -88,6 +73,7 @@ struct VoiceStudioView: View {
             Text("Storybird will install a local MLX runtime and download the approximately 2 GB Qwen3-TTS 1.7B Base 8-bit model. Voice synthesis stays on this Mac afterward.")
         }
         .task {
+            refreshInputDevices()
             if refreshRuntimeOnAppear {
                 await store.refreshVoiceRuntimeState()
             }
@@ -129,6 +115,59 @@ struct VoiceStudioView: View {
                 showPrepareConfirmation = true
             }
             .disabled(isWorking || store.voiceRuntimeState == .ready)
+        }
+    }
+
+    private var inputDeviceSection: some View {
+        Section("Guided Recording Microphone") {
+            Picker(
+                "Input device",
+                selection: Binding(
+                    get: { preferredInputDeviceUID },
+                    set: { selectInputDevice($0) }
+                )
+            ) {
+                ForEach(inputDeviceOptions) { option in
+                    Text(option.title).tag(option.uid)
+                }
+            }
+
+            HStack {
+                Text(inputDeviceStatus)
+                    .font(.caption)
+                    .foregroundStyle(
+                        resolvedInputSelection.isUsingFallback
+                            ? .orange
+                            : .secondary
+                    )
+                Spacer()
+                Button("Refresh Devices") {
+                    refreshInputDevices()
+                }
+                .buttonStyle(.link)
+            }
+
+            if recorder.hasSession {
+                Text(
+                    "This recording keeps the microphone it started with. A new selection applies to the next guided recording."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+            if let activeDeviceName = recorder.activeDeviceName {
+                Label(
+                    recorder.isUsingFallbackDevice
+                        ? "Recording with \(activeDeviceName) as a temporary fallback."
+                        : "Recording with \(activeDeviceName).",
+                    systemImage: recorder.isUsingFallbackDevice
+                        ? "arrow.trianglehead.branch"
+                        : "mic.fill"
+                )
+                .font(.caption)
+                .foregroundStyle(
+                    recorder.isUsingFallbackDevice ? .orange : .secondary
+                )
+            }
         }
     }
 
@@ -194,7 +233,9 @@ struct VoiceStudioView: View {
         recorder.discard()
         Task {
             do {
-                try await recorder.start()
+                try await recorder.start(
+                    preferredDeviceUID: preferredInputDeviceUID
+                )
             } catch {
                 store.errorMessage = error.localizedDescription
             }
@@ -251,32 +292,6 @@ struct VoiceStudioView: View {
         }
     }
 
-    private var narrationSection: some View {
-        Section("Generate Project Narration") {
-            Picker("Voice", selection: $selectedProfileID) {
-                Text("Choose a profile").tag(UUID?.none)
-                ForEach(store.voiceProfiles) {
-                    Text($0.name).tag(Optional($0.id))
-                }
-            }
-            TextField("Narration text", text: $narrationText, axis: .vertical)
-                .lineLimit(4)
-            TextField("Start time", value: $narrationStart, format: .number)
-            Button("Generate at Project Time") {
-                generateNarration()
-            }
-            .disabled(
-                isWorking
-                    || store.voiceRuntimeState != .ready
-                    || store.selectedProject == nil
-                    || selectedProfileID == nil
-                    || narrationText.trimmingCharacters(
-                        in: .whitespacesAndNewlines
-                    ).isEmpty
-            )
-        }
-    }
-
     private var runtimeStatus: String {
         switch store.voiceRuntimeState {
         case .notPrepared: "Not prepared"
@@ -311,14 +326,13 @@ struct VoiceStudioView: View {
         isWorking = true
         Task {
             do {
-                let profile = try await store.importVoiceProfile(
+                _ = try await store.importVoiceProfile(
                     name: profileName,
                     sourceURL: url,
                     transcript: transcriptOverride ?? transcript,
                     source: source,
                     consentConfirmed: consentConfirmed
                 )
-                selectedProfileID = profile.id
                 recorder.discard()
             } catch {
                 store.errorMessage = error.localizedDescription
@@ -327,27 +341,46 @@ struct VoiceStudioView: View {
         }
     }
 
-    /// Generates one narration at the selected project time using only the
-    /// existing consented profile chosen in the native UI.
-    private func generateNarration() {
-        guard let project = store.selectedProject,
-              let selectedProfileID else { return }
-        isWorking = true
-        Task {
-            do {
-                _ = try await store.generateNarration(
-                    projectID: project.id,
-                    expectedRevision: project.revision,
-                    voiceProfileID: selectedProfileID,
-                    text: narrationText,
-                    language: "korean",
-                    startTime: narrationStart
-                )
-                narrationText = ""
-            } catch {
-                store.errorMessage = error.localizedDescription
-            }
-            isWorking = false
+    private var resolvedInputSelection: VoiceInputDeviceSelection {
+        VoiceInputDeviceSelection.resolve(
+            preferredUID: preferredInputDeviceUID,
+            availableDevices: availableInputDevices,
+            defaultUID: VoiceInputDeviceCatalog.defaultDeviceUID()
+        )
+    }
+
+    private var inputDeviceOptions: [VoiceInputDeviceOption] {
+        VoiceInputDeviceOption.options(
+            availableDevices: availableInputDevices,
+            defaultUID: VoiceInputDeviceCatalog.defaultDeviceUID(),
+            preferredUID: preferredInputDeviceUID
+        )
+    }
+
+    private var inputDeviceStatus: String {
+        let selection = resolvedInputSelection
+        if selection.isUsingFallback {
+            return "The selected microphone is unavailable. Storybird will use the system default and keep your selection."
         }
+        if let activeUID = selection.activeUID,
+           let name = VoiceInputDeviceCatalog.name(forUID: activeUID) {
+            return preferredInputDeviceUID == nil
+                ? "Following the system default: \(name)."
+                : "Guided recordings will use \(name)."
+        }
+        return "No usable input device is currently available."
+    }
+
+    /// Reloads current input hardware while leaving the persisted UID intact so
+    /// reconnecting a selected microphone restores it without another choice.
+    private func refreshInputDevices() {
+        availableInputDevices = VoiceInputDeviceCatalog.devices()
+    }
+
+    /// Persists only explicit user changes; hardware disappearance never
+    /// clears the preferred UID and an active recording keeps its start device.
+    private func selectInputDevice(_ uid: String?) {
+        preferredInputDeviceUID = uid
+        VoiceInputPreferences.save(preferredDeviceUID: uid)
     }
 }

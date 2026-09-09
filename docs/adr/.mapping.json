@@ -153,8 +153,8 @@
       "adrs": [
         {
           "path": "docs/adr/voice-narration/0001-local-cloned-voice-narration.md",
-          "status": "Accepted (2026-09-08)",
-          "summary": "사용자가 승인한 음성을 10초 이상 상태가 보이는 안내 녹음 또는 파일로 등록하고 로컬 MLX 내레이션을 편집·내보내기한다"
+          "status": "Accepted (2026-09-09)",
+          "summary": "설정에서 로컬 음성 모델·프로필·마이크 장치를 관리하고 프로젝트에서 기존 프로필로 문장별 내레이션을 생성한다"
         }
       ],
       "dependsOn": [
@@ -162,6 +162,20 @@
         "library",
         "timeline-editing",
         "sharing"
+      ]
+    },
+    "application-settings": {
+      "feature": "Native application settings and shortcuts",
+      "subdomainType": "supporting",
+      "adrs": [
+        {
+          "path": "docs/adr/application-settings/0001-native-settings-and-shortcuts.md",
+          "status": "Accepted (2026-09-09)",
+          "summary": "고정 크기 네이티브 설정 창에서 지속 설정과 충돌 검증된 로컬 작업 단축키를 관리한다"
+        }
+      ],
+      "dependsOn": [
+        "voice-narration"
       ]
     }
   }

@@ -93,9 +93,31 @@ Read these before changing capture, persistence, or export behavior.
   Qwen3-TTS 1.7B Base 8-bit model on 24GB+ Apple Silicon. Model download,
   microphone capture, voice-file selection, and profile deletion require native
   user action. MCP may use existing profiles but never register or delete them.
+- **Shared voice assets live in Settings.** Model preparation, voice-profile
+  creation/deletion, and the guided-recording input device are managed in
+  Settings. Project UI uses existing profiles only for narration generation.
+  Persist a selected microphone by stable UID; if it is absent, keep the choice
+  and use the system default for that recording. Never switch an active sample.
+- **Select the voice device before reading its format.** Applying a different
+  microphone can change sample rate and channel count. Verify the AudioUnit
+  readback, tap the selected device's input format, rebuild conversion if the
+  callback format changes, and save every guided sample as 24kHz mono 16-bit
+  WAV. Meter the actual interleaved or deinterleaved capture buffer; a callback
+  alone does not prove that non-silent audio arrived.
+- **Core Audio callbacks are not MainActor callbacks.** Install microphone tap
+  closures from an explicit nonisolated boundary and hand audio only to
+  lock-protected Sendable state. A tap closure that inherits MainActor
+  isolation traps on Core Audio's realtime queue under Swift 6.
+- **Project shortcuts stay local and equivalent.** New project, record/stop,
+  import, and export shortcuts work only while Storybird is active, persist
+  across launches, reject invalid or duplicate combinations, and use the same
+  availability and approval rules as their visible controls. Do not add global
+  keyboard monitoring or keyboard-related permissions.
 - **Fixed-size sheets scroll internally.** Do not let capture-source content
   resize the sheet beyond the visible display; clipping the last card is a
   regression.
+- **The Settings window stays fixed-size and scrolls by tab.** Do not resize it
+  from tab content or let the final voice/shortcut control become unreachable.
 - **Compact windows change navigation, not reachability.** Below the wide-layout
   threshold, hide the project sidebar automatically and move the timeline
   inspector into a sheet. Playback and every layer action remain reachable.
@@ -147,13 +169,18 @@ Capture changes require a manual smoke test:
    but no audio track. Import a synthetic narrated MP4 or MOV and confirm its
    export contains one synchronized AAC track.
 7. Create a local voice profile from MP3/WAV and from the guided microphone
-   prompt. Confirm both entry buttons stay disabled until voice-use consent is
-   checked. Confirm the recording screen shows the full script, live input
-   waveform, elapsed time, pause/resume, and the 10-second boundary. Generate
-   a narration through UI and MCP, and confirm export mixes it at the selected
-   time. Change one sentence and confirm only its WAV is regenerated. Delete
-   the profile and confirm project narration remains.
-8. Rebuild with the same signing identity and confirm permissions persist.
+   prompt in Settings. Confirm both entry buttons stay disabled until voice-use
+   consent is checked. Select a microphone, verify restart persistence, and
+   verify disconnected-device fallback preserves the choice. Confirm the
+   recording screen shows the full script, live input waveform, elapsed time,
+   pause/resume, and the 10-second boundary. Generate narration through the
+   project UI and MCP, and confirm export mixes it at the selected time. Change
+   one sentence and confirm only its WAV is regenerated. Delete the profile and
+   confirm project narration remains.
+8. Change every project shortcut, restart, and confirm persistence. Reject a
+   modifier-free or duplicate shortcut and confirm no action fires while the
+   shortcut field is recording.
+9. Rebuild with the same signing identity and confirm permissions persist.
 
 MCP control changes additionally require a signed companion smoke test:
 

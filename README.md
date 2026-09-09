@@ -40,6 +40,8 @@ flowchart LR
 - Per-layer background color and opacity.
 - User-authorized MP3/WAV voice profiles or a guided 10-second microphone
   recording with a live waveform, timer, pause/resume, preview, and rerecord.
+- Settings-managed voice profiles and a persistent guided-recording microphone
+  choice that falls back to the system default while disconnected.
 - Local Qwen3-TTS 1.7B Base 8-bit MLX voice cloning after one approved model
   download.
 - Project-owned sentence narration with editable text, timing, volume,
@@ -50,6 +52,8 @@ flowchart LR
   left/right clicks, scrolling, revision-checked editing, narration generation,
   and export.
 - Atomic local persistence and one-time OpenLane library migration.
+- Configurable local shortcuts for project creation, recording, import, and
+  export without global keyboard monitoring.
 - Stable Apple Development signing support for repeatable macOS permissions.
 
 Storybird does not record keyboard input, microphone audio, or system audio
@@ -166,22 +170,27 @@ Importing does not require Screen Recording or Input Monitoring permission.
 
 ![Storybird local voice narration setup](docs/images/voice-narration.png)
 
-1. Install `uv`, open **Voice**, and approve preparation of
+1. Install `uv`, open **Settings › Voice**, and approve preparation of
    `mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit`. Storybird displays the
    approximately 2GB download before starting it.
-2. Confirm that you own the reference voice or have permission to use it.
+2. Choose the current **(System Default)** device or a specific input device for
+   guided recordings. A disconnected selected device remains selected while
+   Storybird temporarily uses the system default.
+3. Confirm that you own the reference voice or have permission to use it.
    File import and microphone recording stay disabled until this confirmation.
-3. Import an MP3/WAV plus its exact spoken transcript, or choose
+4. Import an MP3/WAV plus its exact spoken transcript, or choose
    **Record Guided Sample**.
-4. For a guided sample, read the displayed 10–15 second prosody prompt. The
+5. For a guided sample, read the displayed 10–15 second prosody prompt. The
    recording screen shows a live input waveform, elapsed time, remaining time,
    pause/resume, and the 10-second completion boundary. Preview or rerecord the
-   sample before saving the profile.
-5. Choose a project, voice profile, narration text, and project start time.
-6. Generate the sentence, then edit its start time and volume on the Narration
+   sample before saving the profile. Storybird normalizes different microphone
+   sample rates and channel layouts into one 24kHz mono WAV.
+6. Return to a project, choose **Narration**, then select a voice profile,
+   narration text, and project start time.
+7. Generate the sentence, then edit its start time and volume on the Narration
    timeline track. Change its text and choose **Regenerate This Narration** to
    replace only that sentence's WAV.
-7. Export the project. Storybird mixes imported source audio and project
+8. Export the project. Storybird mixes imported source audio and project
    narration into one synchronized AAC track.
 
 Model preparation is staged and replaces the active runtime only after the
@@ -197,6 +206,21 @@ The approved local MCP client can list minimal profile metadata and generate,
 regenerate, retime, adjust, or delete project narration. It cannot select voice
 files, record the microphone, download the model, return reference transcripts,
 or delete a voice profile.
+
+## Keyboard shortcuts
+
+Open **Settings › Shortcuts** to change Storybird-local project shortcuts. The
+defaults are:
+
+- `⌘N`: new recording project
+- `⇧⌘R`: start or stop recording
+- `⇧⌘I`: import video
+- `⇧⌘E`: export video
+- `⌘,`: open Settings (standard macOS shortcut)
+
+Project shortcuts work only while Storybird is active. They use the same
+availability, permission, and confirmation rules as the matching controls and
+do not require Accessibility or Input Monitoring permission.
 
 ## Control a recording through MCP
 

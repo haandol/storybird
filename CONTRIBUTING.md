@@ -101,38 +101,50 @@ ScreenCaptureKit and TCC behavior require a real signed bundle:
 11. Trim or speed-change the imported clip, export it, and confirm one AAC track
     stays synchronized with the edited video. Confirm freeze and full-screen
     card intervals are silent.
-12. Open **Voice**, approve the roughly 2 GB model preparation, and confirm the
-    1.7B 8-bit MLX runtime becomes Ready. Quit and reopen Storybird, disconnect
-    the network, and confirm generation does not download the model again.
-13. Import synthetic MP3 and WAV voice references with their exact transcripts.
+12. Open **Settings › Voice**, approve the roughly 2 GB model preparation, and
+    confirm the 1.7B 8-bit MLX runtime becomes Ready. Quit and reopen Storybird,
+    disconnect the network, and confirm generation does not download the model
+    again.
+13. Choose a specific input device, reopen Storybird, and confirm the choice is
+    retained. Disconnect it and confirm Settings keeps the selection while
+    reporting that the system default will be used; reconnect it and confirm it
+    becomes active without reselecting. Output-only devices must not appear.
+14. Import synthetic MP3 and WAV voice references with their exact transcripts.
     Confirm a short but valid external file is accepted, while missing
     voice-rights consent keeps both import and recording disabled and creates
     no profile.
-14. Grant Microphone access and confirm the guided recording view shows the
+15. Grant Microphone access and confirm the guided recording view shows the
     full prosody prompt, recording state, live waveform, elapsed time, and the
     10-second boundary. Pause and resume once, then preview and save a recording
     of at least 10 seconds. Confirm a shorter sample cannot be finalized.
     Deny the permission once and confirm Storybird shows recovery guidance
     without changing a project.
-15. Generate two non-overlapping narration clips, preview them, adjust one
+16. Open a project’s **Narration** sheet and generate two non-overlapping clips,
+    preview them, adjust one
     start time and volume, then export. Confirm the final MP4 contains one AAC
     track with the imported source audio and narration at the expected times.
-16. Delete a voice profile and confirm existing project-owned narration still
+17. Delete a voice profile in Settings and confirm existing project-owned narration still
     plays and exports. Delete a narration clip and confirm its project-owned WAV
     is removed.
-17. Rebuild and confirm the same signing identity keeps permissions.
-18. On first launch after renaming, confirm an OpenLane library is copied while
+18. In **Settings › Shortcuts**, change every project shortcut, restart the app,
+    and confirm the choices persist. Confirm a modifier-free or duplicate
+    shortcut is rejected without replacing the previous working value.
+19. Confirm the shortcuts do nothing while another app is active and use the
+    same disabled conditions as the toolbar while recording, importing, or
+    exporting.
+20. Rebuild and confirm the same signing identity keeps permissions.
+21. On first launch after renaming, confirm an OpenLane library is copied while
     the original remains untouched.
-19. Configure an MCP client to launch the signed `StorybirdMCP` companion.
-20. Start one synthetic source session with explicit acknowledgement, observe
+22. Configure an MCP client to launch the signed `StorybirdMCP` companion.
+23. Start one synthetic source session with explicit acknowledgement, observe
     its PNG, then move, click, and scroll.
-21. Stop and confirm Storybird creates one video project with ordered,
+24. Stop and confirm Storybird creates one video project with ordered,
     non-duplicated click timestamps.
-22. Using an existing voice profile, have MCP create, update, and delete
+25. Using an existing voice profile, have MCP create, update, and delete
     narration with project revision checks, then export the result. Confirm MCP
     exposes no tool for profile import, microphone recording, model preparation,
     or profile deletion.
-23. Deny Accessibility or submit an out-of-range coordinate and confirm no
+26. Deny Accessibility or submit an out-of-range coordinate and confirm no
     pointer input or library mutation occurs.
 
 Use synthetic content. Never put customer dashboards, messages, credentials, or

@@ -6,18 +6,24 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @ObservedObject var store: AppStore
     @StateObject private var recorder: RecordingCoordinator
+    let commandCenter: StorybirdCommandCenter
 
     @State private var projectPendingDeletion: UUID?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var isCompactWindow = false
     @State private var isExporting = false
     @State private var isImporting = false
-    @State private var isVoiceStudioPresented = false
+    @State private var isNarrationComposerPresented = false
     @State private var exportProgress = 0.0
     @State private var exportTask: Task<Void, Never>?
+    @State private var commandOwnerID = UUID()
 
-    init(store: AppStore) {
+    init(
+        store: AppStore,
+        commandCenter: StorybirdCommandCenter
+    ) {
         self.store = store
+        self.commandCenter = commandCenter
         _recorder = StateObject(
             wrappedValue: RecordingCoordinator(store: store)
         )
@@ -81,6 +87,7 @@ struct ContentView: View {
                     )
                 }
                 .tint(.red)
+                .disabled(!canToggleRecording)
                 .help("Record one display or window as continuous video")
 
                 Button {
@@ -88,28 +95,23 @@ struct ContentView: View {
                 } label: {
                     Label("Import", systemImage: "square.and.arrow.down")
                 }
-                .disabled(recorder.isActive || isImporting || isExporting)
+                .disabled(!canImportVideo)
                 .help("Import an MP4 or QuickTime MOV as a new project")
 
                 Button {
-                    isVoiceStudioPresented = true
+                    isNarrationComposerPresented = true
                 } label: {
-                    Label("Voice", systemImage: "waveform.and.mic")
+                    Label("Narration", systemImage: "waveform")
                 }
-                .help("Create a local cloned voice and project narration")
+                .disabled(store.selectedProject == nil)
+                .help("Generate project narration from an existing voice profile")
 
                 Button {
                     exportVideo()
                 } label: {
                     Label("Export", systemImage: "square.and.arrow.up")
                 }
-                .disabled(
-                    store.selectedProject?.recording == nil
-                        || store.selectedProject?.clips.isEmpty != false
-                        || recorder.isActive
-                        || isImporting
-                        || store.isExportActive
-                )
+                .disabled(!canExportVideo)
                 .help("Export an MP4 with click and subtitle layers")
             }
         }
@@ -118,8 +120,8 @@ struct ContentView: View {
                 .frame(width: 680, height: 480)
                 .interactiveDismissDisabled()
         }
-        .sheet(isPresented: $isVoiceStudioPresented) {
-            VoiceStudioView(store: store)
+        .sheet(isPresented: $isNarrationComposerPresented) {
+            NarrationComposerView(store: store)
         }
         .overlay {
             if isExporting || isImporting {
@@ -220,6 +222,12 @@ struct ContentView: View {
         } message: {
             Text("Its original recording and timeline layers will be removed from this Mac.")
         }
+        .onAppear {
+            installCommandHandlers()
+        }
+        .onDisappear {
+            commandCenter.uninstall(ownerID: commandOwnerID)
+        }
     }
 
     private func startRecording() {
@@ -253,6 +261,63 @@ struct ContentView: View {
                     "The video could not be imported: \(error.localizedDescription)"
             }
         }
+    }
+
+    private var canImportVideo: Bool {
+        !recorder.isActive && !isImporting && !isExporting
+    }
+
+    private var canToggleRecording: Bool {
+        !isImporting && !isExporting
+    }
+
+    private var canExportVideo: Bool {
+        store.selectedProject?.recording != nil
+            && store.selectedProject?.clips.isEmpty == false
+            && !recorder.isActive
+            && !isImporting
+            && !isExporting
+            && !store.isExportActive
+    }
+
+    /// Routes local shortcuts and menu commands through the same state checks
+    /// and action methods used by the visible project toolbar.
+    private func installCommandHandlers() {
+        commandCenter.install(
+            ownerID: commandOwnerID,
+            handlers: [
+                .newProject: .init(
+                    isEnabled: {
+                        !recorder.isActive
+                            && !isImporting
+                            && !isExporting
+                    },
+                    perform: {
+                        _ = store.createProject(
+                            name: "Untitled recording"
+                        )
+                    }
+                ),
+                .toggleRecording: .init(
+                    isEnabled: { canToggleRecording },
+                    perform: {
+                        if recorder.isActive {
+                            recorder.stop()
+                        } else {
+                            startRecording()
+                        }
+                    }
+                ),
+                .importVideo: .init(
+                    isEnabled: { canImportVideo },
+                    perform: { importVideo() }
+                ),
+                .exportVideo: .init(
+                    isEnabled: { canExportVideo },
+                    perform: { exportVideo() }
+                ),
+            ]
+        )
     }
 
     private func exportVideo() {

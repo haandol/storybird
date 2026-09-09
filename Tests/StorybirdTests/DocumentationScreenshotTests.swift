@@ -68,7 +68,7 @@ final class DocumentationScreenshotTests: XCTestCase {
                 store: store,
                 refreshRuntimeOnAppear: false
             ),
-            size: CGSize(width: 620, height: 720),
+            size: CGSize(width: 680, height: 720),
             to: imageDirectory.appendingPathComponent(
                 "voice-narration.png"
             )

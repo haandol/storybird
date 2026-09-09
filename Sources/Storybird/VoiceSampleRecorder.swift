@@ -1,9 +1,24 @@
 import AVFoundation
+import AudioToolbox
 import Combine
+import CoreAudio
 import Foundation
 
 enum VoiceRecordingRequirements {
     static let minimumDuration = 10.0
+}
+
+enum VoiceRecordingFinalization {
+    /// Publishes only the same still-active capture whose final meter check
+    /// succeeded, preventing a failure cleanup from re-exposing a deleted WAV.
+    static func canPublish(
+        candidateURL: URL,
+        activeURL: URL?,
+        meteringSucceeded: Bool,
+        hasSink: Bool
+    ) -> Bool {
+        meteringSucceeded && activeURL == candidateURL && hasSink
+    }
 }
 
 enum VoiceRecordingPresentation {
@@ -77,20 +92,30 @@ final class VoiceSampleRecorder: ObservableObject {
         repeating: 0.0,
         count: 32
     )
-    private var recorder: AVAudioRecorder?
+    @Published private(set) var activeDeviceName: String?
+    @Published private(set) var isUsingFallbackDevice = false
+
+    private var engine: AVAudioEngine?
+    private var sink: VoiceCaptureSink?
+    private var captureURL: URL?
+    private var hasInputTap = false
     private var meteringTask: Task<Void, Never>?
 
     var hasSession: Bool {
-        recorder != nil || recordedURL != nil
+        engine != nil || recordedURL != nil
     }
 
     var canFinish: Bool {
         elapsedTime >= VoiceRecordingRequirements.minimumDuration
     }
 
-    /// Requests microphone access only for this explicit recording action and
-    /// starts one metered local mono WAV when permission is available.
-    func start() async throws {
+    /// Requests microphone access only for this explicit action, then records
+    /// from the persisted input choice or temporarily falls back to the system
+    /// default without erasing an unavailable device preference.
+    func start(
+        preferredDeviceUID: String? = VoiceInputPreferences
+            .preferredDeviceUID()
+    ) async throws {
         errorMessage = nil
         let status = AVCaptureDevice.authorizationStatus(for: .audio)
         let allowed: Bool
@@ -109,24 +134,42 @@ final class VoiceSampleRecorder: ObservableObject {
                 "Enable Storybird in System Settings › Privacy & Security › Microphone."
             throw VoiceProfileError.microphonePermissionDenied
         }
+
+        let devices = VoiceInputDeviceCatalog.devices()
+        let selection = VoiceInputDeviceSelection.resolve(
+            preferredUID: preferredDeviceUID,
+            availableDevices: devices,
+            defaultUID: VoiceInputDeviceCatalog.defaultDeviceUID()
+        )
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("storybird-voice-\(UUID().uuidString).wav")
-        let recorder = try AVAudioRecorder(
-            url: url,
-            settings: [
-                AVFormatIDKey: kAudioFormatLinearPCM,
-                AVSampleRateKey: 24_000,
-                AVNumberOfChannelsKey: 1,
-                AVLinearPCMBitDepthKey: 16,
-                AVLinearPCMIsFloatKey: false,
-            ]
-        )
-        recorder.isMeteringEnabled = true
-        recorder.prepareToRecord()
-        guard recorder.record() else {
-            throw VoiceProfileError.invalidInput
+        let attempts = VoiceInputCapturePlan.deviceUIDs(for: selection)
+        var startedAttempt: Int?
+        for (index, deviceUID) in attempts.enumerated() {
+            do {
+                try beginCapture(at: url, deviceUID: deviceUID)
+                startedAttempt = index
+                break
+            } catch {
+                stopCapture()
+                try? FileManager.default.removeItem(at: url)
+            }
         }
-        self.recorder = recorder
+        guard let startedAttempt else {
+            errorMessage = preferredDeviceUID == nil
+                ? "Storybird could not open a usable microphone."
+                : "Storybird could not open the selected microphone or the system default."
+            throw VoiceProfileError.microphoneUnavailable
+        }
+        isUsingFallbackDevice =
+            selection.isUsingFallback || startedAttempt > 0
+
+        let activeUID = isUsingFallbackDevice
+            ? selection.fallbackUID
+            : selection.activeUID
+        activeDeviceName = activeUID.flatMap(
+            VoiceInputDeviceCatalog.name(forUID:)
+        ) ?? "System Default"
         recordedURL = nil
         elapsedTime = 0
         levelSamples = Array(repeating: 0, count: levelSamples.count)
@@ -135,23 +178,24 @@ final class VoiceSampleRecorder: ObservableObject {
         startMetering()
     }
 
-    /// Pauses without finalizing the WAV so a user below the ten-second minimum
-    /// can continue the same guided recording.
+    /// Pauses capture without finalizing the WAV so the same selected-device
+    /// session can continue toward the ten-second minimum.
     func pause() {
-        guard let recorder, isRecording else { return }
+        guard let engine, isRecording else { return }
         captureMeterSample()
-        recorder.pause()
+        engine.pause()
         stopMetering()
         isPaused = true
         isRecording = false
     }
 
-    /// Continues the same temporary WAV after a pause, preserving elapsed time
-    /// and the minimum-duration boundary.
+    /// Restarts the same audio engine and file after a pause, preserving the
+    /// device, accumulated frames, and minimum-duration boundary.
     func resume() throws {
-        guard let recorder, isPaused, recorder.record() else {
+        guard let engine, isPaused else {
             throw VoiceProfileError.invalidInput
         }
+        try engine.start()
         isPaused = false
         isRecording = true
         startMetering()
@@ -161,14 +205,22 @@ final class VoiceSampleRecorder: ObservableObject {
     /// for preview, rerecording, or profile validation.
     @discardableResult
     func finish() -> Bool {
-        guard let recorder, canFinish else { return false }
-        captureMeterSample()
+        guard let captureURL, canFinish else { return false }
+        let meteringSucceeded = captureMeterSample()
+        guard VoiceRecordingFinalization.canPublish(
+            candidateURL: captureURL,
+            activeURL: self.captureURL,
+            meteringSucceeded: meteringSucceeded,
+            hasSink: sink != nil
+        )
+        else {
+            return false
+        }
         stopMetering()
-        recorder.stop()
-        recordedURL = recorder.url
+        stopCapture()
+        recordedURL = captureURL
         isRecording = false
         isPaused = false
-        self.recorder = nil
         return true
     }
 
@@ -176,9 +228,8 @@ final class VoiceSampleRecorder: ObservableObject {
     /// becomes profile data.
     func discard() {
         stopMetering()
-        let url = recorder?.url ?? recordedURL
-        recorder?.stop()
-        recorder = nil
+        let url = captureURL ?? recordedURL
+        stopCapture()
         if let url {
             try? FileManager.default.removeItem(at: url)
         }
@@ -187,23 +238,33 @@ final class VoiceSampleRecorder: ObservableObject {
         recordedURL = nil
         elapsedTime = 0
         levelSamples = Array(repeating: 0, count: levelSamples.count)
+        activeDeviceName = nil
+        isUsingFallbackDevice = false
     }
 
-    /// Converts live microphone power into a rolling waveform and updates the
-    /// elapsed clock used by the ten-second completion guard.
-    private func captureMeterSample() {
-        guard let recorder else { return }
-        if isRecording, !recorder.isRecording {
-            handleUnexpectedStop(recorder)
-            return
+    /// Polls the callback-owned capture snapshot on the main actor so elapsed
+    /// time, fallback failures, and waveform state remain ordered for SwiftUI.
+    @discardableResult
+    private func captureMeterSample() -> Bool {
+        guard let engine, let sink else { return false }
+        let snapshot = sink.snapshot()
+        if let failure = snapshot.failure {
+            handleUnexpectedStop(message: failure)
+            return false
         }
-        elapsedTime = max(elapsedTime, recorder.currentTime)
-        recorder.updateMeters()
+        if isRecording, !engine.isRunning {
+            handleUnexpectedStop(
+                message: "Recording stopped unexpectedly."
+            )
+            return false
+        }
+        elapsedTime = max(elapsedTime, snapshot.duration)
         let level = VoiceRecordingPresentation.normalizedLevel(
-            decibels: recorder.averagePower(forChannel: 0)
+            decibels: snapshot.decibels
         )
         levelSamples.removeFirst()
         levelSamples.append(level)
+        return true
     }
 
     /// Samples metering on the main actor so SwiftUI receives ordered waveform
@@ -226,17 +287,130 @@ final class VoiceSampleRecorder: ObservableObject {
         meteringTask = nil
     }
 
-    /// Converts an unexpected recorder stop into a recoverable error without
-    /// exposing a short or potentially corrupt temporary WAV for saving.
-    private func handleUnexpectedStop(_ recorder: AVAudioRecorder) {
-        elapsedTime = max(elapsedTime, recorder.currentTime)
+    /// Converts an engine or file-write failure into a recoverable state and
+    /// removes the partial WAV so it can never become a voice profile.
+    private func handleUnexpectedStop(message: String) {
+        if let sink {
+            elapsedTime = max(elapsedTime, sink.snapshot().duration)
+        }
         stopMetering()
         isRecording = false
         isPaused = false
-        self.recorder = nil
-        try? FileManager.default.removeItem(at: recorder.url)
+        let url = captureURL
+        stopCapture()
+        if let url {
+            try? FileManager.default.removeItem(at: url)
+        }
         recordedURL = nil
-        errorMessage =
-            "Recording stopped unexpectedly. Please record the guided sample again."
+        errorMessage = "\(message) Please record the guided sample again."
+    }
+
+    /// Opens one device-fixed AVAudioEngine session, taps its native input
+    /// format, and normalizes callbacks into the fixed profile WAV format.
+    private func beginCapture(
+        at url: URL,
+        deviceUID: String?
+    ) throws {
+        let engine = AVAudioEngine()
+        let input = engine.inputNode
+        if let deviceUID {
+            try Self.setInputDevice(deviceUID, on: input)
+        }
+        // Select the device first, then read its input format. USB and virtual
+        // devices can change both sample rate and channel count.
+        let format = input.inputFormat(forBus: 0)
+        guard format.sampleRate > 0, format.channelCount > 0 else {
+            throw VoiceProfileError.microphoneUnavailable
+        }
+        let file = try VoiceCaptureSink.makeFile(at: url)
+        guard let sink = VoiceCaptureSink(
+            file: file,
+            sourceFormat: format
+        ) else {
+            throw VoiceProfileError.microphoneUnavailable
+        }
+        Self.installInputTap(
+            on: input,
+            format: format,
+            sink: sink
+        )
+        hasInputTap = true
+        engine.prepare()
+        do {
+            try engine.start()
+        } catch {
+            input.removeTap(onBus: 0)
+            hasInputTap = false
+            throw error
+        }
+        self.engine = engine
+        self.sink = sink
+        captureURL = url
+    }
+
+    /// Creates the Core Audio callback outside MainActor isolation so the
+    /// realtime audio queue may invoke it without a Swift executor trap.
+    nonisolated private static func installInputTap(
+        on input: AVAudioInputNode,
+        format: AVAudioFormat,
+        sink: VoiceCaptureSink
+    ) {
+        input.installTap(
+            onBus: 0,
+            bufferSize: 1_024,
+            format: format
+        ) { buffer, _ in
+            sink.consume(buffer)
+        }
+    }
+
+    /// Applies a stable device UID before reading the input format and verifies
+    /// the audio unit actually accepted the requested microphone.
+    private static func setInputDevice(
+        _ uid: String,
+        on input: AVAudioInputNode
+    ) throws {
+        var deviceID = VoiceInputDeviceCatalog.deviceID(forUID: uid)
+        guard deviceID != .zero, let unit = input.audioUnit else {
+            throw VoiceProfileError.microphoneUnavailable
+        }
+        let status = AudioUnitSetProperty(
+            unit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &deviceID,
+            UInt32(MemoryLayout<AudioDeviceID>.size)
+        )
+        guard status == noErr else {
+            throw VoiceProfileError.microphoneUnavailable
+        }
+        var applied = AudioObjectID.zero
+        var size = UInt32(MemoryLayout<AudioObjectID>.size)
+        let readback = AudioUnitGetProperty(
+            unit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &applied,
+            &size
+        )
+        guard readback == noErr, applied == deviceID else {
+            throw VoiceProfileError.microphoneUnavailable
+        }
+    }
+
+    /// Tears down the active device session while leaving a completed WAV in
+    /// place only when the caller is finalizing a valid guided sample.
+    private func stopCapture() {
+        if hasInputTap {
+            engine?.inputNode.removeTap(onBus: 0)
+            hasInputTap = false
+        }
+        engine?.stop()
+        sink?.finish()
+        engine = nil
+        sink = nil
+        captureURL = nil
     }
 }
