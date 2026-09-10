@@ -174,6 +174,13 @@ security advisory if private content is visible.
 
 ## Kiro cannot start the Storybird MCP server
 
+If the connection works but an action is missing, check the
+[UI/MCP feature inventory](MCPFeatureParity.md). File selection, microphone
+recording, model/profile management and Settings require native interaction.
+After installing a build with new tools, restart Storybird and reconnect the
+MCP client to refresh discovery. A missing project-editing action should be
+reported with the app version, tool name and expected property.
+
 Build and install the signed bundle, then configure:
 
 ```text

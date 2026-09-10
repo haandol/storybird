@@ -20,6 +20,10 @@ ID to authenticate.
 
 ## Tools
 
+See the [UI/MCP feature inventory](MCPFeatureParity.md) for action coverage,
+native-only boundaries, view-only equivalents and regression checks. MCP does
+not control every Settings or window action.
+
 | Tool | Result |
 |---|---|
 | `storybird_list_sources` | Lists eligible displays and windows |

@@ -358,6 +358,8 @@ The agent reads the current scene list and edit revision before changing a
 project. A revision is its edit version; stale requests are rejected so they
 cannot overwrite newer work. See [the complete MCP guide](docs/MCP.md) for tool
 schemas, retries, and export-job handling.
+The [feature inventory](docs/MCPFeatureParity.md) distinguishes supported editing
+from native-only setup and local window controls.
 
 ### What still needs you
 

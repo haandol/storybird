@@ -65,6 +65,29 @@ functions, or schemas already obvious from code.
 
 ## Automated Tests
 
+### MCP support is part of feature completion
+
+Implement MCP support with every feature, including added editable properties.
+Follow the [MCP feature completion gate](AGENTS.md#mcp-feature-completion-gate)
+and update the [feature inventory](docs/MCPFeatureParity.md) in the same change.
+Trace each user action through the public schema, app handler and shared editor
+to its saved result. A tool name alone does not prove parity.
+
+Cover the supported properties and successful behavior, plus relevant revision
+conflicts, invalid requests, atomic failure and undo. Changes to the public
+protocol also need a production-handler/client test. Run `swift test`; for a
+focused check during development:
+
+```bash
+swift test --filter 'MCPFeatureParityTests|MCPAudioProtocolTests|AgentProductionTests|ProjectAudioTests'
+```
+
+Native permission/file/voice/Settings boundaries retain their owning ADR rules.
+Document those exceptions and view-only equivalents in the inventory. Any new
+exception or broader permission needs the ADR gate. Unexplained MCP omissions
+block feature completion; automated inventory checks do not replace reviewing
+new UI actions. Include the tool/argument mapping and executed checks in the PR.
+
 Tests live in `Tests/StorybirdCoreTests/`, `Tests/StorybirdTests/`, and
 `Tests/StorybirdMCPTests/` and run with `swift test`. Name them
 `test_<behavior>_<expectedResult>()`.

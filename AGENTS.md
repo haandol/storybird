@@ -201,6 +201,38 @@ behavior and include measured evidence when one drove the rule.
 
 ## Testing Guidelines
 
+### MCP feature completion gate
+
+Every feature implementation must include its MCP support and verification in
+the same change. Review user actions and editable properties, not just tool names.
+The existing project-editing ADR requires full UI/MCP editing parity.
+
+- Before implementation, map each changed action/property to an advertised MCP
+  tool, its arguments, app handler, shared validation and observable result.
+  Maintain the inventory in [`docs/MCPFeatureParity.md`](./docs/MCPFeatureParity.md).
+- Implement missing MCP paths alongside the UI. Reuse app-owned domain edits,
+  revision checks, atomic persistence and undo; never bypass them with direct
+  library writes or UI automation.
+- Native-only consent, external-file selection, microphone, voice-profile/model
+  management and Settings remain subject to their owning ADRs. View-only controls
+  may use an equivalent preview/edit tool without reproducing the window gesture.
+  Record the exact exception and its owner; do not label ordinary editing
+  omissions "UI-only". A new exception or permission expansion needs the ADR
+  admission/confirmation gate before implementation.
+- Add or update schema/property coverage in `MCPFeatureParityTests` and behavior
+  tests through the app host. For changed public protocol behavior, exercise the
+  production MCP handlers with an MCP client, as in `MCPAudioProtocolTests`.
+  Verify the successful result plus relevant stale revision, invalid input,
+  partial-save prevention, undo and async terminal states. Tool existence alone
+  is not behavior evidence.
+- Keep `docs/MCP.md`, the feature inventory, README guidance and the video
+  production skill aligned when affected. Run `swift test` and applicable signed
+  smoke checks. Report unverified native/runtime checks explicitly.
+- Do not mark a feature complete with an unexplained MCP gap or failing parity
+  check. The PR must state the MCP path, test evidence and any ADR-backed
+  exception. Passing inventory tests does not discover new UI actions; reviewers
+  must compare the changed UI and domain behavior with the inventory.
+
 Name tests `test_<behavior>_<expectedResult>()`. Tests must not access the
 network, real ScreenCaptureKit sources, or the user's actual Application
 Support directory. Use temporary directories and measured boundary values.

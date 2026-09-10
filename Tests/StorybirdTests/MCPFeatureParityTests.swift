@@ -6,6 +6,33 @@ import XCTest
 
 @MainActor
 final class MCPFeatureParityTests: XCTestCase {
+    func test_toolInventory_matchesGuideAndFeatureCoverage() throws {
+        let names = StorybirdMCPService.toolDefinitions.map(\.name)
+        XCTAssertEqual(Set(names).count, names.count, "Tool names must be unique.")
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let pattern = try NSRegularExpression(pattern: #"`(storybird_[a-z_]+)`"#)
+        for path in ["docs/MCP.md", "docs/MCPFeatureParity.md"] {
+            let text = try String(contentsOf: root.appendingPathComponent(path), encoding: .utf8)
+            let documented = Set(pattern.matches(
+                in: text, range: NSRange(text.startIndex..., in: text)
+            ).compactMap { match -> String? in
+                guard let range = Range(match.range(at: 1), in: text) else { return nil }
+                return String(text[range])
+            })
+            XCTAssertEqual(
+                Set(names).subtracting(documented), [],
+                "\(path) must explain every advertised tool."
+            )
+            XCTAssertEqual(
+                documented.subtracting(Set(names)), [],
+                "\(path) must not promise unavailable tools."
+            )
+        }
+    }
+
     func test_toolDefinitions_voiceNarrationExposeSafeAgentSurface() {
         let names = Set(
             StorybirdMCPService.toolDefinitions.map(\.name)
@@ -19,6 +46,11 @@ final class MCPFeatureParityTests: XCTestCase {
         XCTAssertFalse(names.contains("storybird_record_voice_profile"))
         XCTAssertFalse(names.contains("storybird_delete_voice_profile"))
         XCTAssertFalse(names.contains("storybird_prepare_voice_model"))
+        XCTAssertFalse(names.contains("storybird_rename_voice_profile"))
+        XCTAssertFalse(names.contains("storybird_import_video"))
+        XCTAssertFalse(names.contains("storybird_import_audio"))
+        XCTAssertFalse(names.contains("storybird_start_microphone"))
+        XCTAssertFalse(names.contains("storybird_set_storage_folder"))
     }
 
     func test_toolDefinitions_updateNarration_supportsTextRegeneration() throws {
@@ -85,28 +117,51 @@ final class MCPFeatureParityTests: XCTestCase {
     }
 
     func test_toolDefinitions_mutatingProjectTools_requireExpectedRevision() throws {
-        let mutationTools = [
-            "storybird_replace_project",
-            "storybird_split_clip",
-            "storybird_trim_clip",
-            "storybird_delete_clip",
-            "storybird_move_clip",
-            "storybird_set_clip_speed",
-            "storybird_insert_freeze",
-            "storybird_undo_project",
-            "storybird_redo_project",
-            "storybird_update_project",
-            "storybird_update_click",
-            "storybird_upsert_subtitle",
+        // These commands affect sessions, jobs, presentation or project lifecycle,
+        // rather than revising an existing project's editable output.
+        let nonEditCommands: Set<String> = [
+            "storybird_start_session", "storybird_move_pointer", "storybird_click",
+            "storybird_scroll", "storybird_stop_session", "storybird_abort_session",
+            "storybird_create_project", "storybird_preview_project",
+            "storybird_start_narration_draft", "storybird_cancel_narration_draft",
+            "storybird_render_audio_preview", "storybird_start_export",
+            "storybird_cancel_export", "storybird_export_project", "storybird_delete_project",
         ]
-
-        for name in mutationTools {
-            let schema = try schemaObject(for: name)
+        let tools = StorybirdMCPService.toolDefinitions
+        XCTAssertEqual(nonEditCommands.subtracting(Set(tools.map(\.name))), [])
+        for tool in tools where tool.annotations.readOnlyHint != true
+            && !nonEditCommands.contains(tool.name) {
+            let schema = try schemaObject(for: tool.name)
             let required = Set(schema["required"] as? [String] ?? [])
             XCTAssertTrue(
-                required.contains("expected_revision"),
-                "\(name) must reject stale project state."
+                required.isSuperset(of: ["project_id", "expected_revision"]),
+                "\(tool.name) must reject stale project state."
             )
+        }
+    }
+
+    func test_toolDefinitions_audioAndEffectTools_coverInspectorProperties() throws {
+        let expected: [String: Set<String>] = [
+            "storybird_update_audio_layer": [
+                "layer_id", "name", "start_time", "source_start", "duration",
+                "volume", "muted", "fade_in", "fade_out", "timing_mode",
+            ],
+            "storybird_set_source_audio": ["volume", "muted"],
+            "storybird_place_audio_asset": [
+                "asset_id", "start_time", "source_start", "duration", "timing_mode",
+            ],
+            "storybird_place_narration_draft": ["draft_id", "start_time", "timing_mode"],
+            "storybird_upsert_subtitle": ["timing_mode"],
+            "storybird_update_effect": [
+                "effect_id", "start_time", "end_time", "x", "y", "width", "height",
+                "dim_opacity", "start_x", "start_y", "end_x", "end_y",
+                "start_scale", "end_scale", "title", "subtitle", "button_label",
+                "foreground_hex", "background_hex", "background_opacity", "font_size",
+            ],
+            "storybird_update_suggestion": ["suggestion_id", "split_time", "spotlight", "pan_zoom"],
+        ]
+        for (name, properties) in expected {
+            XCTAssertEqual(properties.subtracting(try propertyNames(for: name)), [], name)
         }
     }
 
