@@ -1,5 +1,9 @@
 # Storybird
 
+<p align="center">
+  <img src="docs/images/storybird-sally.png" alt="Sally, the Storybird mascot, holding a video play button against a blue and violet background" width="320">
+</p>
+
 **Create product demos and tutorials with your own voice.**
 
 Storybird is a local macOS video editor. Record one display or window, or import
