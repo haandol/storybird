@@ -81,8 +81,8 @@ included in the finished video. Importing a movie does not require capture permi
 
 ### From a release
 
-Download `Storybird-0.1.0.zip` from the
-[0.1.0 release](https://github.com/haandol/storybird/releases/tag/v0.1.0), verify
+Download `Storybird-0.1.1.zip` from the
+[0.1.1 release](https://github.com/haandol/storybird/releases/tag/v0.1.1), verify
 its SHA-256 against the release notes, unzip it, and move `Storybird.app` to
 `/Applications`. The prebuilt app requires an **Apple Silicon Mac running
 macOS 14 or later**.
@@ -199,8 +199,8 @@ then choose a start time and **Place at Start Time**.
 
 Choose **Follow scene** when speech should move with a clip, or **Fixed project
 time** for an exact time, including title/closing cards. Moving a scene does not
-speed up or stretch the speech. Narrations cannot overlap or extend beyond the
-project; if placement fails, edit the picture or time and reuse the ready draft.
+speed up or stretch the speech. Narrations may overlap, but cannot extend beyond the project. If placement fails,
+edit the picture or time and reuse the ready draft.
 Ready drafts survive restarting the app.
 
 To change one sentence, edit its text and choose **Regenerate This Narration**.

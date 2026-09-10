@@ -225,8 +225,8 @@ macOS presents the option.
 
 ## Narration is ready but will not fit
 
-A ready draft keeps its WAV when placement overlaps another narration or exceeds
-the project duration. Move its start or edit the picture (for example, insert a
+A ready draft keeps its WAV when placement exceeds the project duration or
+conflicts with a newer project revision. Audio layers may overlap. Move its start or edit the picture (for example, insert a
 freeze segment), refresh the project revision, and place the same draft again.
 Do not regenerate solely to recover from a placement error. A draft that already
 shows `placed` cannot be placed again, including after undo; use redo to restore
@@ -237,7 +237,8 @@ that placement.
 Check its **Timing** selection. Existing narration and subtitles retain **Fixed
 project time**. Choose **Follow scene** to anchor the start to its current clip.
 Cards use fixed project time. Scene linking moves only the start, preserving
-speech/display duration; a resulting overlap rejects the entire edit.
+speech/display duration; exceeding the project duration rejects the entire edit.
+Audio overlap is allowed.
 
 ## A voice generation was interrupted by restart
 

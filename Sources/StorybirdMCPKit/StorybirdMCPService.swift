@@ -27,7 +27,7 @@ public struct StorybirdMCPService: Sendable {
     func makeServer() async -> Server {
         let server = Server(
             name: "storybird",
-            version: "0.1.0",
+            version: "0.1.1",
             title: "Storybird Video Production",
             instructions: """
             Use one selected display or window per session. Starting a session \
