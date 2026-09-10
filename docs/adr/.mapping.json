@@ -93,7 +93,7 @@
         {
           "path": "docs/adr/authoring/0001-timeline-overlay-editor.md",
           "status": "Accepted (2026-09-10)",
-          "summary": "각 레이어를 독립 행에서 선택하고 장면 연결과 길이를 보존하며 드래그로 이동한다"
+          "summary": "겹치지 않는 레이어를 같은 행에 정리하고 종류별 펼치기와 비파괴 드래그 편집을 제공한다"
         }
       ],
       "dependsOn": [

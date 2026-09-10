@@ -20,7 +20,9 @@ final class TimelineLayerDragTests: XCTestCase {
             .spotlight(SpotlightEffect(startTime: 2, endTime: 4, x: 0.2, y: 0.2, width: 0.3, height: 0.3)),
             .panZoom(PanZoomEffect(startTime: 2, endTime: 4, endX: 0.5, endY: 0.5, endScale: 1.5))
         ]
-        let rows = TimelineTrackLayout.rows(in: project)
+        let rows = TimelineTrackLayout.rows(
+            in: project, expandedKinds: [.click, .subtitle, .narration, .effect]
+        )
         let editable = rows.filter { $0.kind != .video && $0.kind != .suggestion }
         XCTAssertTrue(editable.allSatisfy { $0.spans.count == 1 })
         XCTAssertEqual(rows.filter { $0.kind == .subtitle }.count, project.subtitles.count)
@@ -194,6 +196,75 @@ final class TimelineLayerDragTests: XCTestCase {
             let viewport = scroll.convert(scroll.bounds, to: view)
             XCTAssertTrue(view.bounds.contains(viewport), "The scroll viewport itself must fit inside the window: \(viewport) in \(view.bounds)")
             try snapshot(view, name: "timeline-\(Int(width))-scrolled")
+        }
+    }
+
+    func test_timelineUI_toggleChangesOnlyRowsAndDragWorksInBothModes() async throws {
+        let store = try storeFixture()
+        var project = try XCTUnwrap(store.projects.first)
+        let url = store.repository.assetURL(projectID: project.id, filename: "synthetic.mp4")
+        _ = try await TestVideoFactory.makeMovie(at: url, includeAudio: false, duration: 20)
+        project.subtitles = (0..<6).map { index in
+            let start = 2 + Double(index) * 2
+            return TimedSubtitle(startTime: start, endTime: start + 2, text: "Sequential subtitle \(index + 1)")
+        }
+        project = try store.saveProject(project, expectedRevision: project.revision)
+        for width in [1100.0, 760.0] {
+            let view = NSHostingView(rootView: ProjectWorkspaceView(store: store, projectID: project.id)
+                .frame(width: width, height: 760)
+                .background(Color(nsColor: .windowBackgroundColor))
+                .environment(\.colorScheme, .light))
+            let window = NSWindow(
+                contentRect: NSRect(x: -10_000, y: -10_000, width: width, height: 760),
+                styleMask: [.titled, .closable], backing: .buffered, defer: false
+            )
+            window.isReleasedWhenClosed = false
+            window.contentView = view
+            window.orderFront(nil)
+            defer { window.close() }
+            try await Task.sleep(for: .milliseconds(400))
+
+            let canvas = try XCTUnwrap(descendants(view).compactMap { $0 as? NSScrollView }
+                .compactMap(\.documentView).first { $0.bounds.width >= 960 })
+            XCTAssertEqual(canvas.bounds.height, 290, accuracy: 1)
+            try snapshot(view, name: "view-mode-automatic-\(Int(width))")
+
+            for expanded in [true, false] {
+                let before = try XCTUnwrap(store.project(id: project.id))
+                let libraryURL = store.repository.rootURL.appendingPathComponent("library.json")
+                let bytes = try Data(contentsOf: libraryURL)
+                let toggle = canvas.convert(
+                    NSPoint(x: -120, y: canvas.isFlipped ? 139 : canvas.bounds.height - 139), to: nil
+                )
+                sendMouse(.leftMouseDown, at: toggle, in: window)
+                sendMouse(.leftMouseUp, at: toggle, in: window)
+                try await Task.sleep(for: .milliseconds(150))
+                XCTAssertEqual(canvas.bounds.height, expanded ? 510 : 290, accuracy: 1)
+                XCTAssertEqual(store.project(id: project.id), before)
+                XCTAssertEqual(try Data(contentsOf: libraryURL), bytes)
+                try snapshot(view, name: "view-mode-\(expanded ? "expanded" : "compacted")-\(Int(width))")
+
+                let heightBeforeDrag = canvas.bounds.height
+                let start = canvas.convert(
+                    NSPoint(x: 144, y: canvas.isFlipped ? 139 : canvas.bounds.height - 139), to: nil
+                )
+                sendMouse(.leftMouseDown, at: start, in: window)
+                for offset in [20.0, 48, 96] {
+                    sendMouse(.leftMouseDragged, at: NSPoint(x: start.x + offset, y: start.y), in: window)
+                    try await Task.sleep(for: .milliseconds(30))
+                    XCTAssertEqual(canvas.bounds.height, heightBeforeDrag, accuracy: 1)
+                    XCTAssertEqual(store.project(id: project.id), before)
+                }
+                sendMouse(.leftMouseUp, at: NSPoint(x: start.x + 96, y: start.y), in: window)
+                try await Task.sleep(for: .milliseconds(150))
+                let moved = try XCTUnwrap(store.project(id: project.id))
+                XCTAssertEqual(moved.subtitles[0].startTime, 4, accuracy: 0.05)
+                XCTAssertEqual(moved.revision, before.revision + 1)
+                XCTAssertEqual(canvas.bounds.height, expanded ? 510 : 334, accuracy: 1)
+                _ = try store.undo(projectID: project.id)
+                try await Task.sleep(for: .milliseconds(150))
+                XCTAssertEqual(store.project(id: project.id)?.subtitles, before.subtitles)
+            }
         }
     }
 

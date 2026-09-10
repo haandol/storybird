@@ -94,8 +94,12 @@ ScreenCaptureKit and TCC behavior require a real signed bundle:
    normalized location.
 8. Add top and bottom subtitles and edit click-caption styles.
    Overlap several Click Cues, subtitles, audio layers, and different effects.
-   Confirm each has its own row and the last row is reachable by vertical scroll
-   in wide and compact layouts. Drag a block horizontally and verify constant
+   Confirm non-overlapping layers share rows and overlapping blocks remain
+   independently reachable. Use the arrow beside Clicks, Subtitles, Audio, or
+   Effects to expand that kind into individual rows, then compact it again.
+   Verify view changes do not modify project data or undo. Confirm the last row
+   is reachable by vertical scroll in wide and compact layouts.
+   Drag a block in both modes and verify constant
    duration, correct scene ownership, one saved revision, and one-step undo.
    Drop outside the project or into a conflicting effect and confirm unchanged timing.
 9. Export an MP4, play it locally, and confirm the overlays are burned in and

@@ -2,8 +2,10 @@
 
 ## A timeline layer is hidden or its drag does not save
 
-Each Click Cue, subtitle, audio layer, and effect has a separate row. Scroll
-inside the timeline to reach later rows. Dragging preserves the complete layer
+Non-overlapping layers share rows within their kind. Use the arrow beside
+**Clicks**, **Subtitles**, **Audio**, or **Effects** to expand individual rows or
+return to automatic row layout. Overlapping layers always occupy separate rows.
+Scroll inside the timeline to reach later rows. Dragging preserves the complete layer
 duration. A move outside the project, across an invalid scene boundary, or into
 a conflicting same-kind effect is rejected with an error. Titles use clip
 boundaries and CTA cards remain at the project end. Retry from the current

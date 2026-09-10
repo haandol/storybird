@@ -157,37 +157,68 @@ struct TimelineTrackSpan: Identifiable, Equatable {
 }
 
 struct TimelineTrack: Identifiable {
-    enum Kind: String { case video, click, subtitle, narration, effect, suggestion }
+    enum Kind: String, Hashable {
+        case video, click, subtitle, narration, effect, suggestion
+
+        var supportsExpansion: Bool {
+            self != .video && self != .suggestion
+        }
+    }
     let kind: Kind
     let title: String
     let symbol: String
     let spans: [TimelineTrackSpan]
-    var id: String { "\(kind.rawValue)-\(spans.first?.id.uuidString ?? "empty")" }
+    var rowIndex = 0
+    var groupCount = 0
+    var isGroupHeader = false
+    var id: String { "\(kind.rawValue)-\(rowIndex)" }
 }
 
 enum TimelineTrackLayout {
-    /// Assigns each editable layer a stable row even when times overlap.
-    /// Video sequence and unapplied suggestions retain their shared tracks.
-    static func rows(in project: DemoProject) -> [TimelineTrack] {
+    /// Reuses rows for non-overlapping layers by default. Expansion affects only
+    /// the requested kinds, leaving every layer's identity and timing intact.
+    static func rows(
+        in project: DemoProject, expandedKinds: Set<TimelineTrack.Kind> = []
+    ) -> [TimelineTrack] {
         var rows = [TimelineTrack(kind: .video, title: "Video", symbol: "film", spans: clipSpans(in: project))]
         let groups: [(TimelineTrack.Kind, String, String, [TimelineTrackSpan])] = [
-            (.click, "Click", "cursorarrow.click", clickSpans(in: project)),
-            (.subtitle, "Subtitle", "captions.bubble.fill", subtitleSpans(in: project)),
+            (.click, "Clicks", "cursorarrow.click", clickSpans(in: project)),
+            (.subtitle, "Subtitles", "captions.bubble.fill", subtitleSpans(in: project)),
             (.narration, "Audio", "waveform", narrationSpans(in: project)),
-            (.effect, "Effect", "wand.and.stars", effectSpans(in: project))
+            (.effect, "Effects", "wand.and.stars", effectSpans(in: project))
         ]
         for (kind, title, symbol, spans) in groups {
-            if spans.isEmpty {
-                rows.append(TimelineTrack(kind: kind, title: title, symbol: symbol, spans: []))
-            } else {
-                rows += spans.enumerated().map { index, span in
-                    TimelineTrack(kind: kind, title: "\(title) \(index + 1)", symbol: symbol, spans: [span])
-                }
+            let lanes = spans.isEmpty ? [[]]
+                : expandedKinds.contains(kind) ? spans.map { [$0] } : packedRows(spans)
+            for (index, lane) in lanes.enumerated() {
+                rows.append(TimelineTrack(
+                    kind: kind, title: index == 0 ? title : "\(title) \(index + 1)",
+                    symbol: symbol, spans: lane, rowIndex: index,
+                    groupCount: spans.count, isGroupHeader: index == 0
+                ))
             }
         }
         rows.append(TimelineTrack(
             kind: .suggestion, title: "Suggestions", symbol: "sparkles", spans: suggestionSpans(in: project)
         ))
+        return rows
+    }
+
+    /// Processes starts in deterministic order and reuses the first available
+    /// lane. Touching endpoints share a lane; a new lane means all others overlap.
+    static func packedRows(_ spans: [TimelineTrackSpan]) -> [[TimelineTrackSpan]] {
+        let sorted = spans.enumerated().sorted {
+            if $0.element.start != $1.element.start { return $0.element.start < $1.element.start }
+            return $0.offset < $1.offset
+        }.map(\.element)
+        var rows: [[TimelineTrackSpan]] = []
+        for span in sorted {
+            if let index = rows.firstIndex(where: { $0.last!.end <= span.start }) {
+                rows[index].append(span)
+            } else {
+                rows.append([span])
+            }
+        }
         return rows
     }
 
@@ -269,6 +300,8 @@ enum TimelineTrackLayout {
         }
     }
 
+    /// Clamps only to project bounds. Inventing a minimum duration here would
+    /// make valid, touching short layers appear to overlap during row packing.
     private static func boundedSpan(
         id: UUID,
         start: Double,
@@ -278,7 +311,7 @@ enum TimelineTrackLayout {
         let upperBound = max(duration, 0.001)
         let boundedStart = min(max(start, 0), upperBound)
         let boundedEnd = min(
-            max(end, boundedStart + 0.001),
+            max(end, boundedStart),
             upperBound
         )
         return TimelineTrackSpan(
@@ -326,8 +359,10 @@ struct VideoTimelineEditorView: View {
     @State private var showAudioComposer = false
     @StateObject private var layerDrag = TimelineLayerDragModel()
     @GestureState private var isDraggingLayer = false
+    @State private var expandedTrackKinds: Set<TimelineTrack.Kind> = []
+    @State private var dragRows: [TimelineTrack]?
 
-    private static let timelineLabelWidth: CGFloat = 104
+    private static let timelineLabelWidth: CGFloat = 136
     private static let timelineRulerHeight: CGFloat = 26
     private static let timelineTrackHeight: CGFloat = 38
     private static let timelineTrackSpacing: CGFloat = 6
@@ -398,10 +433,18 @@ struct VideoTimelineEditorView: View {
         .onDisappear {
             playback.player.pause()
             layerDrag.cancel()
+            dragRows = nil
         }
-        .onChange(of: project.id) { _, _ in layerDrag.cancel() }
+        .onChange(of: project.id) { _, _ in
+            layerDrag.cancel()
+            dragRows = nil
+            expandedTrackKinds = []
+        }
         .onChange(of: isDraggingLayer) { _, active in
-            if !active { layerDrag.cancel() }
+            if !active {
+                layerDrag.cancel()
+                dragRows = nil
+            }
         }
         .onChange(of: PlaybackCompositionState(project: project)) {
             playback.rebuild(url: videoURL, project: project)
@@ -730,8 +773,8 @@ struct VideoTimelineEditorView: View {
             VStack(spacing: Self.timelineTrackSpacing) {
                 Color.clear
                     .frame(height: Self.timelineRulerHeight)
-                ForEach(TimelineTrackLayout.rows(in: project)) { row in
-                    timelineTrackLabel(row.title, systemImage: row.symbol, count: row.spans.count)
+                ForEach(timelineRows) { row in
+                    timelineTrackLabel(row)
                 }
             }
             .frame(width: Self.timelineLabelWidth)
@@ -752,20 +795,42 @@ struct VideoTimelineEditorView: View {
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
-    private func timelineTrackLabel(
-        _ title: String,
-        systemImage: String,
-        count: Int
-    ) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: systemImage)
-                .frame(width: 16)
-            Text(title)
-                .lineLimit(1)
-            Spacer(minLength: 2)
-            Text("\(count)")
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(.secondary)
+    /// The first row of each layer kind doubles as its disclosure control.
+    /// Toggling local view state never enters project persistence or undo.
+    private func timelineTrackLabel(_ row: TimelineTrack) -> some View {
+        Group {
+            if row.isGroupHeader {
+                let expanded = expandedTrackKinds.contains(row.kind)
+                Button {
+                    if expanded { expandedTrackKinds.remove(row.kind) }
+                    else { expandedTrackKinds.insert(row.kind) }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                            .font(.caption2.weight(.semibold))
+                            .frame(width: 12)
+                        Text(row.title).fontWeight(.semibold).lineLimit(1)
+                        Spacer(minLength: 2)
+                        Text("\(row.groupCount)").font(.caption2.monospacedDigit())
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(row.groupCount == 0 || layerDrag.target != nil)
+                .accessibilityIdentifier("timeline-toggle-\(row.kind.rawValue)")
+                .accessibilityLabel("\(expanded ? "Compact" : "Expand") \(row.title)")
+                .accessibilityValue(expanded ? "Individual rows" : "Automatic rows")
+                .help(expanded ? "Group non-overlapping layers into shared rows" : "Show each layer on its own row")
+            } else {
+                HStack(spacing: 6) {
+                    Image(systemName: row.symbol).frame(width: 16)
+                    Text(row.title).lineLimit(1)
+                    Spacer(minLength: 2)
+                    Text("\(row.spans.count)")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
         .font(.caption)
         .frame(height: Self.timelineTrackHeight)
@@ -778,7 +843,7 @@ struct VideoTimelineEditorView: View {
         ZStack(alignment: .topLeading) {
             VStack(spacing: Self.timelineTrackSpacing) {
                 timelineRuler(width: width)
-                ForEach(TimelineTrackLayout.rows(in: project)) { row in
+                ForEach(timelineRows) { row in
                     timelineTrackRow {
                         ForEach(row.spans) { span in
                             layerBlock(row: row, span: span, width: width)
@@ -814,13 +879,15 @@ struct VideoTimelineEditorView: View {
             title: layerTitle(row: row, id: span.id), systemImage: row.symbol,
             span: displayed, canvasWidth: width, color: layerColor(row.kind),
             isSelected: selection == selected,
-            dragTarget: target
+            dragTarget: target,
+            usesSharedRows: row.kind.supportsExpansion && !expandedTrackKinds.contains(row.kind)
         ) {
             selection = selected
             playback.seek(to: row.kind == .click
                 ? project.clicks.first(where: { $0.id == span.id })?.time ?? span.start
                 : span.start)
         }
+        .zIndex(target != nil && layerDrag.target == target ? 1 : 0)
         if row.kind == .narration,
            let narration = project.narrations.first(where: { $0.id == span.id }) {
             AudioWaveformView(
@@ -938,11 +1005,12 @@ struct VideoTimelineEditorView: View {
         color: Color,
         isSelected: Bool,
         dragTarget: TimelineLayerTarget? = nil,
+        usesSharedRows: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         let scale = canvasWidth / max(project.timelineDuration, 0.001)
         let x = CGFloat(span.start) * scale
-        let width = max(CGFloat(span.end - span.start) * scale, 30)
+        let width = max(CGFloat(span.end - span.start) * scale, usesSharedRows ? 1 : 30)
 
         return Button(action: action) {
             HStack(spacing: 5) {
@@ -953,6 +1021,8 @@ struct VideoTimelineEditorView: View {
             .font(.caption2.weight(.medium))
             .padding(.horizontal, 7)
             .frame(width: width, height: Self.timelineTrackHeight - 8)
+            .contentShape(Rectangle())
+            .clipped()
             .background(
                 color.opacity(isSelected ? 0.34 : 0.18),
                 in: RoundedRectangle(cornerRadius: 6)
@@ -975,7 +1045,11 @@ struct VideoTimelineEditorView: View {
                 }
                 .onChanged { value in
                     guard let dragTarget else { return }
-                    if layerDrag.target == nil { action(); playback.player.pause() }
+                    if layerDrag.target == nil {
+                        dragRows = timelineRows
+                        action()
+                        playback.player.pause()
+                    }
                     layerDrag.update(
                         target: dragTarget, translation: value.translation.width,
                         canvasWidth: canvasWidth, project: project
@@ -988,6 +1062,7 @@ struct VideoTimelineEditorView: View {
                         canvasWidth: canvasWidth, project: project
                     )
                     layerDrag.finish(in: store)
+                    dragRows = nil
                 },
             including: dragTarget == nil ? .none : .all
         )
@@ -1006,9 +1081,14 @@ struct VideoTimelineEditorView: View {
     }
 
     private var timelineCanvasHeight: CGFloat {
-        Self.timelineRulerHeight
-            + Self.timelineTrackHeight * CGFloat(TimelineTrackLayout.rows(in: project).count)
-            + Self.timelineTrackSpacing * CGFloat(TimelineTrackLayout.rows(in: project).count)
+        let count = CGFloat(timelineRows.count)
+        return Self.timelineRulerHeight
+            + Self.timelineTrackHeight * count
+            + Self.timelineTrackSpacing * count
+    }
+
+    private var timelineRows: [TimelineTrack] {
+        dragRows ?? TimelineTrackLayout.rows(in: project, expandedKinds: expandedTrackKinds)
     }
 
     private var timelineTickValues: [Int] {

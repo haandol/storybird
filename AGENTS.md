@@ -159,8 +159,11 @@ Read these before changing capture, persistence, or export behavior.
 - **Compact windows change navigation, not reachability.** Below the wide-layout
   threshold, hide the project sidebar automatically and move the timeline
   inspector into a sheet. Playback and every layer action remain reachable.
-- **Each timeline layer owns a visible row.** Click Cue groups, subtitles, audio,
-  and effects remain individually selectable, with internal vertical scrolling.
+- **Timeline rows are a view of independent layers.** Click Cue groups, subtitles,
+  audio, and effects reuse non-overlapping rows by default. Each kind's disclosure
+  control toggles individual rows without changing project data, revision, or undo.
+  Touching endpoints share a row. Keep row placement fixed during a drag and
+  recompute it afterward. All blocks remain selectable with internal scrolling.
   Horizontal block drags preserve duration, reanchor scene-linked content, and
   commit once on release through revision validation and one undo entry. Invalid
   moves retain the stored project; video sequencing and suggestion application

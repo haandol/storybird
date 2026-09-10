@@ -3,6 +3,13 @@
 이 문서는 authoring 카테고리의 주요 결정 변경 이력이다. ADR 본문은 현재 상태만
 서술하고, 주요 전환의 시간축은 여기에 최신 순으로 남긴다.
 
+## 2026-09-10 — 자동 행 정리와 종류별 펼치기
+
+- **Current ADR**: [timeline-overlay-editor](./0001-timeline-overlay-editor.md)
+- **Change type**: requirement rule change
+- **What**: 모든 레이어의 개별 행 표시를 기본 자동 정리와 종류별 개별 행 토글로 바꾼다.
+- **Why**: 순차 자막은 같은 행에 모으고 겹치는 항목도 각각 선택하면서 필요한 경우 모두 펼쳐 볼 수 있어야 한다.
+
 ## 2026-09-10 — 레이어별 행과 드래그 타이밍 편집
 
 - **Current ADR**: [timeline-overlay-editor](./0001-timeline-overlay-editor.md)

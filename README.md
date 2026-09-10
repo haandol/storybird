@@ -150,15 +150,20 @@ Select a Click Cue to fill in its description and subtitle, or remove it if it i
 irrelevant. **Every retained Cue needs both texts before export.** You can also
 add independent subtitles at the top or bottom of the picture.
 
-Each Click Cue, subtitle, audio layer, and effect has its own timeline row.
-Scroll vertically to reach more layers. Drag a block left or right to move its
+Non-overlapping Click Cues, subtitles, audio layers, and effects share rows within
+their own kind. Overlapping layers use additional rows. Click the arrow beside
+**Subtitles**, **Audio**, **Clicks**, or **Effects** to show each layer on its own
+row; click again to compact the group. View changes leave the project and undo
+history untouched. Scroll vertically to reach more layers.
+Drag a block in either view to move its
 timing while keeping its duration; one **Undo** restores the move. Scene-linked
 layers follow the scene at their new position. Invalid moves keep the original
 timing and show an error. Title cards retain their clip-boundary positions, CTA
 cards stay at the end, and matching spotlight or pan/zoom effects cannot overlap.
 
 <div align="center">
-  <img src="docs/images/timeline-layers.png" width="580" alt="Synthetic compact editor scrolled to overlapping subtitles, each on its own row" />
+  <img src="docs/images/timeline-layers.png" width="900" alt="Synthetic timeline with sequential subtitles sharing a row and a Subtitles expansion arrow" />
+  <img src="docs/images/timeline-layers-expanded.png" width="900" alt="The same synthetic subtitles expanded into individual editable rows" />
 </div>
 
 The source video stays intact. **Undo** and **Redo** operate on the edits. Use
@@ -230,7 +235,8 @@ numbers, and mixed-language phrases before producing a longer video.
 Choose **Audio & TTS** in the timeline to generate speech from a script, import
 WAV/MP3/M4A, or optionally record a separate voice clip. Saved audio assets can be
 reused as multiple layers; recordings do not need a voice profile or transcript.
-Each layer has its own timeline row and waveform. The inspector supports source
+Each layer has its own block and waveform. Non-overlapping audio shares a row;
+the arrow beside **Audio** expands individual rows. The inspector supports source
 trim, splitting at the playhead, duplication, volume, mute, and linear fades.
 Overlapping layers play together. Overlap two clips with opposing fades for a
 crossfade. Original movie audio has separate volume and mute controls.
