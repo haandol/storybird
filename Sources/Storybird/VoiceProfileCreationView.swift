@@ -6,6 +6,7 @@ struct VoiceProfileCreationView<Recorder: VoiceSampleRecording>: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var model: VoiceProfileCreationModel
     @StateObject private var recorder: Recorder
+    @StateObject private var preview = VoicePreviewPlayer()
     @State private var startTask: Task<Void, Never>?
     @State private var isStarting = false
     @FocusState private var nameIsFocused: Bool
@@ -92,6 +93,7 @@ struct VoiceProfileCreationView<Recorder: VoiceSampleRecording>: View {
                 if recorder.hasSession {
                     GuidedVoiceRecordingSection(
                         recorder: recorder,
+                        preview: preview,
                         prompt: model.referenceLanguage.referencePrompt,
                         isWorking: model.isSaving,
                         onRestart: restartRecording,
@@ -108,7 +110,7 @@ struct VoiceProfileCreationView<Recorder: VoiceSampleRecording>: View {
                         .foregroundStyle(.secondary)
                     }
                 }
-                if let error = model.errorMessage ?? recorder.errorMessage {
+                if let error = model.errorMessage ?? recorder.errorMessage ?? preview.errorMessage {
                     Section {
                         Label(error, systemImage: "exclamationmark.triangle.fill")
                             .foregroundStyle(.red)
@@ -129,6 +131,7 @@ struct VoiceProfileCreationView<Recorder: VoiceSampleRecording>: View {
                     .keyboardShortcut(.cancelAction)
                     .disabled(model.isSaving)
                 Button("Create Profile") {
+                    preview.stop()
                     Task { await model.save(recordedURL: recorder.recordedURL) }
                 }
                 .keyboardShortcut(.defaultAction)
@@ -141,9 +144,13 @@ struct VoiceProfileCreationView<Recorder: VoiceSampleRecording>: View {
         .interactiveDismissDisabled(model.isSaving)
         .onAppear { nameIsFocused = true }
         .onChange(of: model.isClosed) { _, isClosed in
-            if isClosed { dismiss() }
+            if isClosed {
+                preview.stop()
+                dismiss()
+            }
         }
         .onDisappear {
+            preview.stop()
             startTask?.cancel()
             model.cancel()
         }
@@ -197,6 +204,7 @@ struct VoiceProfileCreationView<Recorder: VoiceSampleRecording>: View {
     /// late results when cancellation has already closed the creation attempt.
     private func startRecording() {
         guard canStartInput else { return }
+        preview.stop()
         isStarting = true
         model.errorMessage = nil
         startTask = Task {
@@ -216,6 +224,7 @@ struct VoiceProfileCreationView<Recorder: VoiceSampleRecording>: View {
     /// Replaces only the temporary recording and reuses the consented language.
     private func restartRecording() {
         guard !model.isSaving, !model.isClosed, !isStarting else { return }
+        preview.stop()
         recorder.discard()
         startRecording()
     }
@@ -224,6 +233,7 @@ struct VoiceProfileCreationView<Recorder: VoiceSampleRecording>: View {
     /// ownership is checked again so keyboard actions cannot bypass the lock.
     private func cancel() {
         guard !model.isSaving else { return }
+        preview.stop()
         startTask?.cancel()
         model.cancel()
     }

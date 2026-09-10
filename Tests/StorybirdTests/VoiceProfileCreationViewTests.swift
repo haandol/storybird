@@ -1,11 +1,52 @@
 import AppKit
 import Combine
+import StorybirdCore
 import SwiftUI
 import XCTest
 @testable import Storybird
 
 @MainActor
 final class VoiceProfileCreationViewTests: XCTestCase {
+    func test_languageSelection_updatesVisibleScriptAndPreservesItThroughRecordingAndSave() async throws {
+        let recorder = SyntheticProfileRecorder()
+        var saved: VoiceProfileCreationModel.Input?
+        let model = VoiceProfileCreationModel(
+            persist: { saved = $0 },
+            discardSample: { recorder.discard() }
+        )
+        model.profileName = "Synthetic narrator"
+        model.consentConfirmed = true
+        let window = host(VoiceProfileCreationView(model: model, recorder: recorder))
+        defer { window.close() }
+        let content = try XCTUnwrap(window.contentView)
+        for language in [VoiceLanguage.korean, .english, .korean, .english] {
+            model.referenceLanguage = language
+            await settle()
+            let text = displayedText(content)
+            XCTAssertTrue(text.contains(language.referencePrompt), "The selected script must be visible.")
+            let other: VoiceLanguage = language == .english ? .korean : .english
+            XCTAssertFalse(text.contains(other.referencePrompt), "The previous language must not remain visible.")
+            if language == .korean { try snapshot(content, name: "korean-before-recording") }
+        }
+        try snapshot(content, name: "english-before-recording")
+
+        try await recorder.start(preferredDeviceUID: nil)
+        await settle()
+        XCTAssertTrue(displayedText(content).contains(VoiceLanguage.english.referencePrompt))
+        try snapshot(content, name: "english-recording")
+        recorder.pause()
+        await settle()
+        XCTAssertTrue(displayedText(content).contains(VoiceLanguage.english.referencePrompt))
+        try recorder.resume()
+        XCTAssertTrue(recorder.finish())
+        await settle()
+        XCTAssertTrue(displayedText(content).contains(VoiceLanguage.english.referencePrompt))
+        try snapshot(content, name: "english-recording-ready")
+        await model.save(recordedURL: recorder.recordedURL)
+        XCTAssertEqual(saved?.language, .english)
+        XCTAssertEqual(saved?.transcript, VoiceLanguage.english.referencePrompt)
+    }
+
     func test_savingSheet_blocksCloseAndDismissesAfterSuccessfulSave() async throws {
         let recorder = SyntheticProfileRecorder()
         recorder.recordedURL = URL(fileURLWithPath: "/synthetic/ready.wav")
@@ -105,6 +146,12 @@ final class VoiceProfileCreationViewTests: XCTestCase {
     /// Finds the scroll container used by the actual macOS form.
     private func descendants(of view: NSView) -> [NSView] {
         view.subviews.flatMap { [$0] + descendants(of: $0) }
+    }
+
+    /// Selectable SwiftUI scripts expose their displayed string in native text fields.
+    private func displayedText(_ view: NSView) -> String {
+        descendants(of: view).compactMap { ($0 as? NSTextField)?.stringValue }
+            .joined(separator: "\n")
     }
 
     /// Writes only synthetic UI evidence to the generated build directory.

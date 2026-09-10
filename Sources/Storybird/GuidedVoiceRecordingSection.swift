@@ -1,8 +1,8 @@
-import AppKit
 import SwiftUI
 
 struct GuidedVoiceRecordingSection<Recorder: VoiceSampleRecording>: View {
     @ObservedObject var recorder: Recorder
+    @ObservedObject var preview: VoicePreviewPlayer
     let prompt: String
     let isWorking: Bool
     let onRestart: () -> Void
@@ -116,8 +116,13 @@ struct GuidedVoiceRecordingSection<Recorder: VoiceSampleRecording>: View {
             }
         } else if let recordedURL = recorder.recordedURL {
             HStack {
-                Button("Preview Recording") {
-                    NSWorkspace.shared.open(recordedURL)
+                Button {
+                    preview.toggle(recordedURL)
+                } label: {
+                    Label(
+                        preview.playingURL == recordedURL ? "Stop Preview" : "Preview Recording",
+                        systemImage: preview.playingURL == recordedURL ? "stop.fill" : "play.fill"
+                    )
                 }
                 Button("Record Again") {
                     onRestart()

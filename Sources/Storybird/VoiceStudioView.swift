@@ -10,6 +10,7 @@ struct VoiceStudioView: View {
     private let refreshRuntimeOnAppear: Bool
 
     @State private var isCreationPresented = false
+    @StateObject private var preview = VoicePreviewPlayer()
     @State private var isWorking = false
     @State private var showPrepareConfirmation = false
     @State private var profilePendingDeletion: UUID?
@@ -37,6 +38,7 @@ struct VoiceStudioView: View {
         .sheet(isPresented: $isCreationPresented) {
             VoiceProfileCreationView(store: store)
         }
+        .onDisappear { preview.stop() }
         .confirmationDialog(
             "Prepare the local voice model?",
             isPresented: $showPrepareConfirmation
@@ -68,6 +70,7 @@ struct VoiceStudioView: View {
             Button("Delete Profile", role: .destructive) {
                 guard let id = profilePendingDeletion else { return }
                 do {
+                    preview.stop()
                     try store.deleteVoiceProfile(id: id)
                 } catch {
                     store.errorMessage = error.localizedDescription
@@ -133,6 +136,10 @@ struct VoiceStudioView: View {
                     .foregroundStyle(.secondary)
             }
             ForEach(store.voiceProfiles) { profile in
+                let referenceURL = store.repository.voiceReferenceURL(
+                    profileID: profile.id, filename: profile.referenceFilename
+                )
+                let isPlaying = preview.playingURL == referenceURL
                 HStack {
                     VStack(alignment: .leading) {
                         Text(profile.name)
@@ -142,17 +149,12 @@ struct VoiceStudioView: View {
                     }
                     Spacer()
                     Button {
-                        NSWorkspace.shared.open(
-                            store.repository.voiceReferenceURL(
-                                profileID: profile.id,
-                                filename: profile.referenceFilename
-                            )
-                        )
+                        preview.toggle(referenceURL)
                     } label: {
-                        Image(systemName: "play.circle")
+                        Image(systemName: isPlaying ? "stop.circle" : "play.circle")
                     }
                     .buttonStyle(.borderless)
-                    .help("Preview \(profile.name)")
+                    .help(isPlaying ? "Stop previewing \(profile.name)" : "Preview \(profile.name)")
                     Button(role: .destructive) {
                         profilePendingDeletion = profile.id
                     } label: {
@@ -162,7 +164,13 @@ struct VoiceStudioView: View {
                     .help("Delete \(profile.name)")
                 }
             }
+            if let error = preview.errorMessage {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
             Button {
+                preview.stop()
                 isCreationPresented = true
             } label: {
                 Label("Create Voice Profile…", systemImage: "plus")

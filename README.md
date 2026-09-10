@@ -20,8 +20,8 @@ finished MP4 you can share.
 Use the native editor yourself, or **ask an AI agent to record, edit, narrate, and
 export through MCP (Model Context Protocol)**. For example:
 
-> 이 서비스의 프로젝트 생성 과정을 30초 정도의 한국어 튜토리얼로 만들어줘.
-> 등록된 내 음성을 사용하고, 자막을 넣은 다음 MP4로 내보내줘.
+> Create a roughly 30-second Korean tutorial showing how to create a project in this service.
+> Use my existing voice profile, add subtitles, and export it as an MP4.
 
 The agent writes the script and chooses edits. Storybird records, validates,
 synthesizes speech locally, and renders the video. See [Use it with an AI
@@ -173,6 +173,9 @@ Click **Create Voice Profile…** to open its own window:
 5. Choose **Create Profile**. A successful save closes the window and adds the
    profile to the list. **Cancel** discards the temporary recording. A save error
    keeps your input in the window for retry.
+
+Recorded samples and saved voice profiles play directly inside Storybird.
+Click the preview button again to stop playback; no external music app is needed.
 
 <div align="center">
   <img src="docs/images/voice-profile-dialog-app.png" width="520" alt="The running profile creation modal with the synthetic name Demo narrator, Korean reference language, voice-use consent, recording prompt, and Cancel/Create Profile buttons" />
