@@ -13,7 +13,6 @@ struct ContentView: View {
     @State private var isCompactWindow = false
     @State private var isExporting = false
     @State private var isImporting = false
-    @State private var isNarrationComposerPresented = false
     @State private var exportProgress = 0.0
     @State private var exportTask: Task<Void, Never>?
     @State private var commandOwnerID = UUID()
@@ -72,7 +71,6 @@ struct ContentView: View {
         }
         .onChange(of: store.repository.rootURL) { _, _ in
             projectPendingDeletion = nil
-            isNarrationComposerPresented = false
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
@@ -103,12 +101,12 @@ struct ContentView: View {
                 .help("Import an MP4 or QuickTime MOV as a new project")
 
                 Button {
-                    isNarrationComposerPresented = true
+                    NotificationCenter.default.post(name: .storybirdOpenProjectAudio, object: store.selectedProjectID)
                 } label: {
-                    Label("Narration", systemImage: "waveform")
+                    Label("Audio", systemImage: "waveform")
                 }
-                .disabled(store.selectedProject == nil)
-                .help("Generate project narration from an existing voice profile")
+                .disabled(store.selectedProject?.recording == nil)
+                .help("Open project audio beside the timeline")
 
                 Button {
                     exportVideo()
@@ -123,9 +121,6 @@ struct ContentView: View {
             CaptureSourcePickerView(recorder: recorder)
                 .frame(width: 680, height: 480)
                 .interactiveDismissDisabled()
-        }
-        .sheet(isPresented: $isNarrationComposerPresented) {
-            NarrationComposerView(store: store)
         }
         .overlay {
             if isExporting || isImporting {

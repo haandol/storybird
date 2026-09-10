@@ -357,6 +357,8 @@ struct VideoTimelineEditorView: View {
     @State private var isInspectorPresented = false
     @State private var isPlacingClick = false
     @State private var showAudioComposer = false
+    @StateObject private var audioModel = TimelineAudioModel()
+    @State private var editingNarration: NarrationClip?
     @StateObject private var layerDrag = TimelineLayerDragModel()
     @GestureState private var isDraggingLayer = false
     @State private var expandedTrackKinds: Set<TimelineTrack.Kind> = []
@@ -429,14 +431,21 @@ struct VideoTimelineEditorView: View {
                 regularLayout(timelineHeight: timelineHeight)
             }
         }
-        .sheet(isPresented: $showAudioComposer) { NarrationComposerView(store: store) }
+        .sheet(item: $editingNarration) { layer in
+            TimelineNarrationEditor(store: store, projectID: project.id, layer: layer)
+        }
+        .sheet(isPresented: $isInspectorPresented) {
+            inspector.frame(width: 360, height: 520)
+        }
         .onDisappear {
             playback.player.pause()
             layerDrag.cancel()
+            audioModel.cancel()
             dragRows = nil
         }
         .onChange(of: project.id) { _, _ in
             layerDrag.cancel()
+            audioModel.cancel()
             dragRows = nil
             expandedTrackKinds = []
         }
@@ -449,6 +458,15 @@ struct VideoTimelineEditorView: View {
         .onChange(of: PlaybackCompositionState(project: project)) {
             playback.rebuild(url: videoURL, project: project)
         }
+        .onChange(of: audioModel.selectedLayerID) { _, id in
+            selection = id.map(TimelineLayerSelection.narration)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .storybirdOpenProjectAudio)) { notification in
+            if notification.object as? UUID == project.id { showAudioComposer = true }
+        }
+        .onChange(of: selection) { _, _ in
+            audioModel.cancelAdjustment()
+        }
     }
 
     private func regularLayout(timelineHeight: CGFloat) -> some View {
@@ -460,8 +478,11 @@ struct VideoTimelineEditorView: View {
             }
             .frame(minWidth: 460)
 
-            inspector
-                .frame(minWidth: 250, idealWidth: 280, maxWidth: 340)
+            Group {
+                if showAudioComposer { audioPanel }
+                else { inspector }
+            }
+            .frame(minWidth: 250, idealWidth: 280, maxWidth: 340)
         }
     }
 
@@ -482,12 +503,16 @@ struct VideoTimelineEditorView: View {
 
             playerStage
             Divider()
+            if showAudioComposer {
+                audioPanel.frame(height: 190)
+                Divider()
+            }
             timeline(height: timelineHeight)
         }
-        .sheet(isPresented: $isInspectorPresented) {
-            inspector
-                .frame(width: 360, height: 520)
-        }
+    }
+
+    private var audioPanel: some View {
+        TimelineAudioPanel(store: store, model: audioModel, projectID: project.id, playhead: playback.currentTime)
     }
 
     private var playerStage: some View {
@@ -632,6 +657,14 @@ struct VideoTimelineEditorView: View {
         VStack(alignment: .leading, spacing: 10) {
             timelineToolbar
                 .fixedSize(horizontal: false, vertical: true)
+            if let layer = project.narrations.first(where: { $0.id == selectedNarrationID }) {
+                TimelineAudioToolbar(
+                    model: audioModel, store: store, project: project, layer: layer, playhead: playback.currentTime,
+                    onEditText: { editingNarration = layer },
+                    onInspector: { isInspectorPresented = true }
+                )
+                .fixedSize(horizontal: false, vertical: true)
+            }
             ScrollView(.vertical) { timelineTrackEditor }
                 .frame(maxHeight: .infinity)
                 .scrollIndicators(.visible)
@@ -657,7 +690,12 @@ struct VideoTimelineEditorView: View {
             HStack(spacing: 8) {
                 Text("Timeline layers")
                     .font(.headline)
-                Button("Audio & TTS") { showAudioComposer = true }
+                Button {
+                    showAudioComposer.toggle()
+                } label: {
+                    Label(showAudioComposer ? "Close Audio" : "Add Audio", systemImage: "waveform.badge.plus")
+                }
+                .accessibilityIdentifier("timeline-audio-toggle")
                 Menu("Source Audio") {
                     Toggle("Mute original audio", isOn: $project.sourceAudioMuted)
                     Button("Original volume") { project.sourceAudioVolume = 1 }
@@ -848,7 +886,21 @@ struct VideoTimelineEditorView: View {
                         ForEach(row.spans) { span in
                             layerBlock(row: row, span: span, width: width)
                         }
+                        if row.kind == .narration, row.isGroupHeader,
+                           let reference = audioModel.dragging, let time = audioModel.dropTime,
+                           let duration = audioModel.duration(of: reference, in: project) {
+                            let valid = time + duration <= project.timelineDuration
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(valid ? Color.cyan.opacity(0.3) : Color.red.opacity(0.3))
+                                .overlay(Text("\(time, format: .number.precision(.fractionLength(2)))s")
+                                    .font(.caption).lineLimit(1))
+                                .frame(width: max(18, duration / max(project.timelineDuration, 0.001) * width), height: 38)
+                                .offset(x: time / max(project.timelineDuration, 0.001) * width)
+                                .allowsHitTesting(false)
+                        }
                     }
+                    .onDrop(of: row.kind == .narration ? [TimelineAudioReference.contentType] : [],
+                        delegate: TimelineAudioDropDelegate(model: audioModel, store: store, project: project, width: width))
                 }
             }
             let playheadX = timelineX(for: playback.currentTime, width: width)
@@ -871,6 +923,19 @@ struct VideoTimelineEditorView: View {
     /// Video clips and suggestions retain their existing selection-only behavior.
     @ViewBuilder
     private func layerBlock(row: TimelineTrack, span: TimelineTrackSpan, width: CGFloat) -> some View {
+        if row.kind == .narration, let layer = project.narrations.first(where: { $0.id == span.id }) {
+            TimelineAudioBlock(
+                store: store, model: audioModel, move: layerDrag, project: project, layer: layer,
+                canvasWidth: width, selected: selectedNarrationID == layer.id, playhead: playback.currentTime,
+                onSelect: { audioModel.selectedLayerID = layer.id; selection = .narration(layer.id) },
+                onEditText: {
+                    if layer.voiceProfileID != nil { editingNarration = layer }
+                    else { isInspectorPresented = true }
+                },
+                onBegin: { dragRows = timelineRows; playback.player.pause() },
+                onEnd: { dragRows = nil }
+            )
+        } else {
         let selected = layerSelection(kind: row.kind, id: span.id)
         let target = movableLayer(kind: row.kind, id: span.id)
         let delta = target != nil && layerDrag.target == target ? layerDrag.delta : 0
@@ -888,15 +953,6 @@ struct VideoTimelineEditorView: View {
                 : span.start)
         }
         .zIndex(target != nil && layerDrag.target == target ? 1 : 0)
-        if row.kind == .narration,
-           let narration = project.narrations.first(where: { $0.id == span.id }) {
-            AudioWaveformView(
-                url: store.repository.assetURL(projectID: project.id, filename: narration.filename),
-                sourceStart: narration.sourceStart, duration: narration.duration, sourceDuration: narration.sourceDuration
-            )
-            .frame(width: max(1, CGFloat(narration.duration / max(project.timelineDuration, 0.001)) * width), height: 12)
-            .offset(x: CGFloat(displayed.start / max(project.timelineDuration, 0.001)) * width, y: 10)
-            .allowsHitTesting(false)
         }
     }
 

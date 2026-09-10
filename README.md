@@ -212,32 +212,38 @@ unavailable, the next recording uses the system default while preserving your ch
 
 ### 4. Generate speech and layer audio
 
-Open **Narration** in a project, choose an existing profile, select Korean or
-English output, and enter a sentence. **Generate Draft** creates the local audio
-without placing it on the timeline. When ready, **Listen** and check its duration,
-then choose a start time and **Place at Start Time**.
+Open **Audio** in the app toolbar or **Add Audio** above the timeline. The audio
+panel stays beside the timeline, or above it in a compact window. Expand
+**Generate speech**, choose an existing profile and Korean or English output,
+then enter a sentence. **Generate audio** creates a draft. When ready, **Listen**
+and check its duration, then drag its card onto an Audio row or use **Add** to
+place it at the current playhead.
 
 <div align="center">
-  <img src="docs/images/narration-drafts.png" width="560" alt="Narration composer rendered with a synthetic ready draft, measured duration, listening action, and placement controls" />
+  <img src="docs/images/narration-drafts.png" width="560" alt="Audio panel with a synthetic ready speech card, waveform, duration, and Listen/Add controls" />
 </div>
 
-Choose **Follow scene** when speech should move with a clip, or **Fixed project
-time** for an exact time, including title/closing cards. Moving a scene does not
+Choose **Follow scene** when speech should move with a clip, or **Fixed time**
+for an exact time, including title/closing cards. Moving a scene does not
 speed up or stretch the speech. Narrations may overlap, but cannot extend beyond the project. If placement fails,
 edit the picture or time and reuse the ready draft.
 Ready drafts survive restarting the app.
 
-To change one sentence, edit its text and choose **Regenerate This Narration**.
+To change one sentence, double-click its block, edit the text, and choose **Regenerate**.
 Other sentences keep their existing audio. A profile can use a Korean reference
 to generate English output. Listen to a short sample with your service name,
 numbers, and mixed-language phrases before producing a longer video.
 
-Choose **Audio & TTS** in the timeline to generate speech from a script, import
+Choose **Add Audio** in the timeline to generate speech from a script, import
 WAV/MP3/M4A, or optionally record a separate voice clip. Saved audio assets can be
 reused as multiple layers; recordings do not need a voice profile or transcript.
 Each layer has its own block and waveform. Non-overlapping audio shares a row;
-the arrow beside **Audio** expands individual rows. The inspector supports source
-trim, splitting at the playhead, duplication, volume, mute, and linear fades.
+the arrow beside **Audio** expands individual rows. Select a block to reveal its
+trim edges and fade handles. Drag either edge to change the source range; move
+the top fade-in or bottom fade-out point to shape its volume envelope.
+The selection toolbar and right-click menu offer split, duplicate, mute and
+delete; the toolbar also has a volume slider. **Details** keeps precise numeric
+editing available. Each completed drag or slider adjustment is one undo step.
 Overlapping layers play together. Overlap two clips with opposing fades for a
 crossfade. Original movie audio has separate volume and mute controls.
 

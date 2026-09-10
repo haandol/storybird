@@ -108,10 +108,14 @@ final class DocumentationScreenshotTests: XCTestCase {
             )]
         )
         try store.repository.saveProjects([project])
+        _ = try repository.prepareVideoRecordingURL(projectID: project.id)
+        try TestVideoFactory.makeToneWAV(
+            at: repository.assetURL(projectID: project.id, filename: "synthetic.wav"), duration: 3.2
+        )
         let narrationStore = AppStore(repository: store.repository, voiceService: DocumentationVoiceService())
         await narrationStore.refreshVoiceRuntimeState()
         try await render(
-            NarrationComposerView(store: narrationStore),
+            TimelineAudioPanel(store: narrationStore, model: TimelineAudioModel(), projectID: project.id, playhead: 2),
             size: CGSize(width: 680, height: 680),
             to: imageDirectory.appendingPathComponent("narration-drafts.png")
         )
@@ -137,7 +141,8 @@ final class DocumentationScreenshotTests: XCTestCase {
         let audioStore = AppStore(repository: repository, voiceService: DocumentationVoiceService())
         try await render(ProjectWorkspaceView(store: audioStore, projectID: audioID),
             size: CGSize(width: 1100, height: 760),
-            to: imageDirectory.appendingPathComponent("audio-layers.png"), hostedInWindow: true)
+            to: imageDirectory.appendingPathComponent("audio-layers.png"), hostedInWindow: true,
+            openAudioForProject: audioID)
         try await render(ProjectAudioRecordingView(store: audioStore, projectID: audioID),
             size: CGSize(width: 620, height: 520),
             to: imageDirectory.appendingPathComponent("project-voice-recording.png"), hostedInWindow: true)
@@ -149,7 +154,8 @@ final class DocumentationScreenshotTests: XCTestCase {
         _ content: Content,
         size: CGSize,
         to destination: URL,
-        hostedInWindow: Bool = false
+        hostedInWindow: Bool = false,
+        openAudioForProject: UUID? = nil
     ) async throws {
         let rootView = content
             .frame(width: size.width, height: size.height)
@@ -168,6 +174,10 @@ final class DocumentationScreenshotTests: XCTestCase {
         defer { window?.orderOut(nil); window?.contentView = nil }
         hostingView.layoutSubtreeIfNeeded()
         try await Task.sleep(for: .milliseconds(300))
+        if let openAudioForProject {
+            NotificationCenter.default.post(name: .storybirdOpenProjectAudio, object: openAudioForProject)
+            try await Task.sleep(for: .milliseconds(200))
+        }
         hostingView.layoutSubtreeIfNeeded()
 
         let bitmap = try XCTUnwrap(

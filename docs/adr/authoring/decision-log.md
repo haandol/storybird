@@ -3,6 +3,13 @@
 이 문서는 authoring 카테고리의 주요 결정 변경 이력이다. ADR 본문은 현재 상태만
 서술하고, 주요 전환의 시간축은 여기에 최신 순으로 남긴다.
 
+## 2026-09-10 — 타임라인에서 오디오를 직접 배치하고 편집한다
+
+- **Current ADR**: [timeline-overlay-editor](./0001-timeline-overlay-editor.md)
+- **Change type**: requirement rule change
+- **What**: 별도 양식 중심 오디오 편집에서 제작 패널, 드래그 배치, 가장자리 트림, 선택 도구막대, 음량·페이드 조절과 블록 원고 편집으로 변경한다.
+- **Why**: 영상과 파형을 보며 위치와 사용 구간을 조절하고 각 조작을 실행 취소 한 번으로 복원한다.
+
 ## 2026-09-10 — 자동 행 정리와 종류별 펼치기
 
 - **Current ADR**: [timeline-overlay-editor](./0001-timeline-overlay-editor.md)

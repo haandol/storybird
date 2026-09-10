@@ -168,6 +168,11 @@ Read these before changing capture, persistence, or export behavior.
   commit once on release through revision validation and one undo entry. Invalid
   moves retain the stored project; video sequencing and suggestion application
   keep their existing controls and rules.
+- **Audio editing stays beside the timeline.** Audio cards expose completed assets
+  and ready drafts, with preview, drag placement and add-at-playhead. Trim edges,
+  fade handles and volume sliders preview locally and commit once through revision
+  validation and one undo entry. Keep numeric details and text regeneration reachable.
+  Invalid ranges, stale edits and failed saves preserve the project and ready drafts.
 
 ## Build, Test, and Development Commands
 

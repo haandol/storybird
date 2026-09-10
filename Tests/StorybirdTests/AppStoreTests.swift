@@ -239,16 +239,16 @@ final class AppStoreTests: XCTestCase {
         )
     }
 
-    func test_voiceRecordingPrompt_coversQuestionsEmphasisAndCalmNarration() {
+    func test_voiceRecordingPrompt_coversQuestionsEmphasisAndConnectedNarration() {
         let prompt = VoiceStudioView.recordingPrompt
 
         XCTAssertGreaterThanOrEqual(
             prompt.filter { $0 == "?" }.count,
             1
         )
-        XCTAssertTrue(prompt.contains("걱정하지 마세요"))
-        XCTAssertTrue(prompt.contains("중요한 기능은 또렷하게"))
-        XCTAssertTrue(prompt.contains("차분하고 자연스럽게"))
+        XCTAssertEqual(prompt, VoiceLanguage.korean.referencePrompt)
+        XCTAssertTrue(prompt.contains("중요한 부분"))
+        XCTAssertTrue(prompt.contains("자연스럽게"))
     }
 
     func test_voiceInputPermissionPolicy_requiresConsentBeforeSensitiveInput() {

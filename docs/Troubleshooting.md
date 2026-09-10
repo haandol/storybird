@@ -267,12 +267,19 @@ a voice profile.
 - **Speech is longer than the picture:** keep the ready TTS draft, extend the scene
   or add a freeze, then place the same audio again. Generation is not required again.
 - **Several voices talk at once:** overlap is allowed. Move, mute, trim or reduce
-  a layer in its inspector. Use fade-out/fade-in on overlapping clips for a crossfade.
+  a layer directly on the timeline. Select it for edge trimming and a volume slider,
+  or use **Details** for exact values. Use fade-out/fade-in on overlapping clips for a crossfade.
+- **Cannot find audio creation:** use **Audio** in the app toolbar or **Add Audio**
+  above the timeline. In compact windows, scroll the panel above the timeline to
+  reach cards and generation controls. Add places at the current playhead.
+- **An edge drag returns to its old position:** the source range or project end
+  would be exceeded, the project changed during the drag, or saving failed.
+  Read the error and retry; the stored layer and undo history are preserved.
 - **The mix is too loud:** inspect a mix preview's peak. Values above 1 need reduced
   gain; Storybird does not silently normalize your mix.
 - **Cannot start a microphone:** finish the current screen or microphone recording.
   Only native Start Recording activates input. Project recording accepts positive
   audio length; the guided voice-profile sample still requires 10 seconds.
-- **Imported audio cannot be used:** select a readable WAV, MP3 or M4A in Audio & TTS.
+- **Imported audio cannot be used:** select a readable WAV, MP3 or M4A with **Import** in the Audio panel.
   Storybird copies and validates it before registration. Failed placement retains
   the asset, and deleting a layer preserves it for reuse and undo.

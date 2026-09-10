@@ -134,9 +134,14 @@ ScreenCaptureKit and TCC behavior require a real signed bundle:
     without changing a project. Cancel during recording or after preview and
     confirm the sheet closes, microphone input stops, and no profile is added.
     Reopen creation and confirm it starts with a fresh name field and unchecked consent.
-16. Open a project’s **Narration** sheet and generate two overlapping clips,
-    preview them, adjust one
-    start time and volume, then export. Confirm the final MP4 contains one AAC
+16. Open a project’s **Audio** panel and generate two overlapping clips.
+    Drag one ready card onto an Audio row and add another at the playhead.
+    Select a block, drag both trim edges and fade handles, and adjust its volume
+    slider. Verify each completed gesture saves once and undo restores it.
+    Exercise split, duplicate, mute and delete from the toolbar and right-click
+    menu. Double-click generated speech to edit and regenerate one sentence.
+    Try a placement past the project end and confirm the ready draft remains.
+    Repeat in a compact window, then export. Confirm the final MP4 contains one AAC
     track with the imported source audio and narration at the expected times.
 17. Rename a voice profile with its pencil button in Settings. Confirm the new
     name appears in profile selectors and survives restarting, while existing
