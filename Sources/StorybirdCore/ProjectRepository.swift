@@ -3,6 +3,7 @@ import Foundation
 public enum RepositoryError: LocalizedError {
     case applicationSupportUnavailable
     case legacyMigrationFailed(String)
+    case storageUnavailable(String)
 
     public var errorDescription: String? {
         switch self {
@@ -10,19 +11,33 @@ public enum RepositoryError: LocalizedError {
             return "The Application Support folder is unavailable."
         case let .legacyMigrationFailed(reason):
             return "Storybird could not copy the existing OpenLane library: \(reason)"
+        case let .storageUnavailable(reason):
+            return "The project folder is unavailable: \(reason)"
         }
     }
 }
 
 public struct ProjectRepository {
     public let rootURL: URL
+    public let sharedRootURL: URL
 
     private let fileManager: FileManager
+    private let requiresExistingRoot: Bool
+    private let unavailableReason: String?
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
-    public init(rootURL: URL, fileManager: FileManager = .default) {
+    public init(
+        rootURL: URL,
+        sharedRootURL: URL? = nil,
+        requiresExistingRoot: Bool = false,
+        unavailableReason: String? = nil,
+        fileManager: FileManager = .default
+    ) {
         self.rootURL = rootURL
+        self.sharedRootURL = sharedRootURL ?? rootURL
+        self.requiresExistingRoot = requiresExistingRoot
+        self.unavailableReason = unavailableReason
         self.fileManager = fileManager
 
         let encoder = JSONEncoder()
@@ -35,7 +50,9 @@ public struct ProjectRepository {
         self.decoder = decoder
     }
 
-    public static func live(fileManager: FileManager = .default) throws -> ProjectRepository {
+    /// Resolves the fixed home for shared voice assets and local IPC without
+    /// creating files or performing legacy migration.
+    public static func defaultRootURL(fileManager: FileManager = .default) throws -> URL {
         guard let applicationSupport = fileManager.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
@@ -43,11 +60,15 @@ public struct ProjectRepository {
             throw RepositoryError.applicationSupportUnavailable
         }
 
-        let storybirdURL = applicationSupport.appendingPathComponent(
+        return applicationSupport.appendingPathComponent(
             "Storybird",
             isDirectory: true
         )
-        let legacyURL = applicationSupport.appendingPathComponent(
+    }
+
+    public static func live(fileManager: FileManager = .default) throws -> ProjectRepository {
+        let storybirdURL = try defaultRootURL(fileManager: fileManager)
+        let legacyURL = storybirdURL.deletingLastPathComponent().appendingPathComponent(
             "OpenLane",
             isDirectory: true
         )
@@ -81,6 +102,7 @@ public struct ProjectRepository {
     }
 
     public func prepare() throws {
+        try checkProjectAccess()
         try fileManager.createDirectory(
             at: rootURL,
             withIntermediateDirectories: true
@@ -93,11 +115,77 @@ public struct ProjectRepository {
 
     public func loadProjects() throws -> [DemoProject] {
         try prepare()
+        return try readProjects()
+    }
+
+    private func readProjects() throws -> [DemoProject] {
         guard fileManager.fileExists(atPath: libraryURL.path) else {
             return []
         }
         let data = try Data(contentsOf: libraryURL)
         return try decoder.decode([DemoProject].self, from: data)
+    }
+
+    /// Validates a candidate without replacing its index or moving any assets.
+    /// The write probe catches ACL/read-only-volume failures that preflight can miss.
+    public func validatedProjectsForSelection() throws -> [DemoProject] {
+        try requireDirectory(rootURL)
+        let projects = try readProjects()
+        guard Set(projects.map(\.id)).count == projects.count else {
+            throw RepositoryError.storageUnavailable("The library contains duplicate projects.")
+        }
+        for project in projects {
+            if project.recording != nil || !project.narrations.isEmpty {
+                try VideoProjectValidator.validate(project)
+            }
+            let filenames = [project.recording?.filename].compactMap { $0 }
+                + project.narrations.map(\.filename)
+            for filename in filenames {
+                let asset = assetURL(projectID: project.id, filename: filename)
+                let values = try asset.resourceValues(forKeys: [.isRegularFileKey])
+                guard values.isRegularFile == true,
+                      fileManager.isReadableFile(atPath: asset.path)
+                else {
+                    throw RepositoryError.storageUnavailable("A project asset cannot be read.")
+                }
+            }
+        }
+        try probeWrite(in: rootURL)
+        if fileManager.fileExists(atPath: assetsRootURL.path) {
+            try requireDirectory(assetsRootURL)
+            try probeWrite(in: assetsRootURL)
+        }
+        return projects
+    }
+
+    private func requireDirectory(_ url: URL) throws {
+        let values = try url.resourceValues(forKeys: [.isDirectoryKey])
+        guard url.isFileURL, values.isDirectory == true,
+              fileManager.isReadableFile(atPath: url.path)
+        else {
+            throw RepositoryError.storageUnavailable("Choose a readable folder on this Mac.")
+        }
+    }
+
+    private func probeWrite(in directory: URL) throws {
+        let probe = directory.appendingPathComponent(
+            ".storybird-write-check-\(UUID().uuidString)"
+        )
+        try Data("Storybird".utf8).write(to: probe, options: .withoutOverwriting)
+        do {
+            try fileManager.removeItem(at: probe)
+        } catch {
+            throw RepositoryError.storageUnavailable(error.localizedDescription)
+        }
+    }
+
+    private func checkProjectAccess() throws {
+        if let unavailableReason {
+            throw RepositoryError.storageUnavailable(unavailableReason)
+        }
+        if requiresExistingRoot {
+            try requireDirectory(rootURL)
+        }
     }
 
     public func saveProjects(_ projects: [DemoProject]) throws {
@@ -109,7 +197,6 @@ public struct ProjectRepository {
     /// Loads the local profile index without reading or returning reference
     /// audio bytes.
     public func loadVoiceProfiles() throws -> [VoiceProfile] {
-        try prepare()
         guard fileManager.fileExists(atPath: voiceProfilesURL.path) else {
             return []
         }
@@ -122,7 +209,6 @@ public struct ProjectRepository {
     /// Atomically replaces the local profile index after its referenced audio
     /// has been copied into Storybird-owned storage.
     public func saveVoiceProfiles(_ profiles: [VoiceProfile]) throws {
-        try prepare()
         try fileManager.createDirectory(
             at: voicesRootURL,
             withIntermediateDirectories: true
@@ -172,6 +258,7 @@ public struct ProjectRepository {
     public func prepareNarrationURL(
         projectID: UUID
     ) throws -> (filename: String, url: URL) {
+        try checkProjectAccess()
         let filename = "narration-\(UUID().uuidString.lowercased()).wav"
         let directory = projectAssetsURL(projectID: projectID)
         try fileManager.createDirectory(
@@ -218,6 +305,7 @@ public struct ProjectRepository {
         projectID: UUID,
         fileExtension: String
     ) throws -> (filename: String, url: URL) {
+        try checkProjectAccess()
         let filename =
             "\(UUID().uuidString.lowercased()).\(fileExtension)"
         let directory = projectAssetsURL(projectID: projectID)
@@ -232,6 +320,7 @@ public struct ProjectRepository {
     }
 
     public func removeProjectAssets(projectID: UUID) throws {
+        try checkProjectAccess()
         let url = projectAssetsURL(projectID: projectID)
         guard fileManager.fileExists(atPath: url.path) else {
             return
@@ -248,7 +337,7 @@ public struct ProjectRepository {
     }
 
     private var voicesRootURL: URL {
-        rootURL.appendingPathComponent("Voices", isDirectory: true)
+        sharedRootURL.appendingPathComponent("Voices", isDirectory: true)
     }
 
     /// Resolves the single profile-owned directory rule reused by reference

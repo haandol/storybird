@@ -11,7 +11,7 @@ final class DocumentationScreenshotTests: XCTestCase {
             contentsOf: repositoryRoot.appendingPathComponent("README.md"),
             encoding: .utf8
         )
-        for name in ["welcome.png", "voice-narration.png"] {
+        for name in ["welcome.png", "voice-narration.png", "storage-settings.png"] {
             let relativePath = "docs/images/\(name)"
             XCTAssertTrue(
                 readme.contains(relativePath),
@@ -72,6 +72,17 @@ final class DocumentationScreenshotTests: XCTestCase {
             to: imageDirectory.appendingPathComponent(
                 "voice-narration.png"
             )
+        )
+        let domain = "storybird.docs.storage.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        try render(
+            StorybirdSettingsView(
+                store: store,
+                shortcutSettings: StorybirdShortcutSettings(defaults: defaults)
+            ).generalTab,
+            size: CGSize(width: 680, height: 720),
+            to: imageDirectory.appendingPathComponent("storage-settings.png")
         )
     }
 

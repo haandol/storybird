@@ -158,6 +158,7 @@ final class RecordingCoordinator: ObservableObject {
     private var sessionToken: UUID?
     private var hiddenWindows: [NSWindow] = []
     private var hud: RecordingHUDController?
+    private var storageOperationID: UUID?
 
     init(store: AppStore) {
         self.store = store
@@ -645,6 +646,12 @@ final class RecordingCoordinator: ObservableObject {
     }
 
     private func setState(_ state: RecordingState) {
+        if state.isActive, storageOperationID == nil {
+            storageOperationID = store.beginStorageOperation(.recording)
+        } else if !state.isActive, let storageOperationID {
+            store.endStorageOperation(storageOperationID)
+            self.storageOperationID = nil
+        }
         self.state = state
         hud?.update(state: state)
     }

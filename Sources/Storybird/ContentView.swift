@@ -40,7 +40,7 @@ struct ContentView: View {
             if let projectID = store.selectedProjectID,
                store.project(id: projectID) != nil {
                 ProjectWorkspaceView(store: store, projectID: projectID)
-                    .id(projectID)
+                    .id("\(store.repository.rootURL.path):\(projectID)")
             } else {
                 WelcomeView(
                     store: store,
@@ -69,6 +69,10 @@ struct ContentView: View {
             }
             store.selectedProjectID = projectID
             store.requestedPreviewProjectID = nil
+        }
+        .onChange(of: store.repository.rootURL) { _, _ in
+            projectPendingDeletion = nil
+            isNarrationComposerPresented = false
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
@@ -328,6 +332,14 @@ struct ContentView: View {
             return
         }
 
+        let exportID: UUID
+        do {
+            exportID = try store.beginExport()
+        } catch {
+            store.errorMessage = error.localizedDescription
+            return
+        }
+
         let panel = NSSavePanel()
         panel.title = "Export Storybird Video"
         panel.prompt = "Export"
@@ -336,14 +348,7 @@ struct ContentView: View {
         panel.canCreateDirectories = true
 
         guard panel.runModal() == .OK, let destinationURL = panel.url else {
-            return
-        }
-
-        let exportID: UUID
-        do {
-            exportID = try store.beginExport()
-        } catch {
-            store.errorMessage = error.localizedDescription
+            store.endExport(exportID)
             return
         }
         let sourceURL = store.repository.assetURL(

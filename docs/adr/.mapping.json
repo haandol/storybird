@@ -72,7 +72,7 @@
       "adrs": [
         {
           "path": "docs/adr/agent-project-editing/0001-versioned-mcp-project-editing.md",
-          "status": "Accepted (2026-09-08)",
+          "status": "Accepted (2026-09-09)",
           "summary": "외부 MCP 편집은 revision 검증으로 프로젝트와 기존 음성 프로필 기반 내레이션을 원자적으로 자동화한다"
         }
       ],
@@ -108,8 +108,8 @@
       "adrs": [
         {
           "path": "docs/adr/library/0001-local-project-library.md",
-          "status": "Accepted (2026-09-08)",
-          "summary": "영상·음성 프로필·생성 내레이션과 편집 상태를 기기 안에 원자적으로 저장하고 자산 수명을 분리한다"
+          "status": "Accepted (2026-09-09)",
+          "summary": "선택한 로컬 폴더의 프로젝트 라이브러리를 비파괴 전환하고 공유 음성 자산은 기본 위치에 유지한다"
         }
       ],
       "dependsOn": []
@@ -171,10 +171,11 @@
         {
           "path": "docs/adr/application-settings/0001-native-settings-and-shortcuts.md",
           "status": "Accepted (2026-09-09)",
-          "summary": "고정 크기 네이티브 설정 창에서 지속 설정과 충돌 검증된 로컬 작업 단축키를 관리한다"
+          "summary": "고정 크기 네이티브 설정에서 프로젝트 저장 폴더·공유 음성 환경·로컬 작업 단축키를 관리한다"
         }
       ],
       "dependsOn": [
+        "library",
         "voice-narration"
       ]
     }

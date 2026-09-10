@@ -100,6 +100,13 @@ final class VoiceSampleRecorder: ObservableObject {
     private var captureURL: URL?
     private var hasInputTap = false
     private var meteringTask: Task<Void, Never>?
+    private weak var store: AppStore?
+    private var storageOperationID: UUID?
+    private var startRequestID: UUID?
+
+    init(store: AppStore? = nil) {
+        self.store = store
+    }
 
     var hasSession: Bool {
         engine != nil || recordedURL != nil
@@ -116,6 +123,21 @@ final class VoiceSampleRecorder: ObservableObject {
         preferredDeviceUID: String? = VoiceInputPreferences
             .preferredDeviceUID()
     ) async throws {
+        guard startRequestID == nil, !hasSession else {
+            throw VoiceProfileError.invalidInput
+        }
+        let requestID = UUID()
+        startRequestID = requestID
+        let operation = store?.beginStorageOperation(.voice)
+        var started = false
+        defer {
+            if startRequestID == requestID {
+                startRequestID = nil
+            }
+            if !started, let operation {
+                store?.endStorageOperation(operation)
+            }
+        }
         errorMessage = nil
         let status = AVCaptureDevice.authorizationStatus(for: .audio)
         let allowed: Bool
@@ -129,6 +151,10 @@ final class VoiceSampleRecorder: ObservableObject {
         @unknown default:
             allowed = false
         }
+        guard startRequestID == requestID else {
+            throw CancellationError()
+        }
+        try Task.checkCancellation()
         guard allowed else {
             errorMessage =
                 "Enable Storybird in System Settings › Privacy & Security › Microphone."
@@ -175,6 +201,8 @@ final class VoiceSampleRecorder: ObservableObject {
         levelSamples = Array(repeating: 0, count: levelSamples.count)
         isPaused = false
         isRecording = true
+        storageOperationID = operation
+        started = true
         startMetering()
     }
 
@@ -221,12 +249,15 @@ final class VoiceSampleRecorder: ObservableObject {
         recordedURL = captureURL
         isRecording = false
         isPaused = false
+        releaseStorageOperation()
         return true
     }
 
     /// Removes the temporary microphone sample so an abandoned recording never
     /// becomes profile data.
     func discard() {
+        startRequestID = nil
+        releaseStorageOperation()
         stopMetering()
         let url = captureURL ?? recordedURL
         stopCapture()
@@ -240,6 +271,13 @@ final class VoiceSampleRecorder: ObservableObject {
         levelSamples = Array(repeating: 0, count: levelSamples.count)
         activeDeviceName = nil
         isUsingFallbackDevice = false
+    }
+
+    private func releaseStorageOperation() {
+        if let storageOperationID {
+            store?.endStorageOperation(storageOperationID)
+            self.storageOperationID = nil
+        }
     }
 
     /// Polls the callback-owned capture snapshot on the main actor so elapsed
@@ -290,6 +328,7 @@ final class VoiceSampleRecorder: ObservableObject {
     /// Converts an engine or file-write failure into a recoverable state and
     /// removes the partial WAV so it can never become a voice profile.
     private func handleUnexpectedStop(message: String) {
+        releaseStorageOperation()
         if let sink {
             elapsedTime = max(elapsedTime, sink.snapshot().duration)
         }

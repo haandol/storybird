@@ -81,6 +81,12 @@ Read these before changing capture, persistence, or export behavior.
 - **Persist projects atomically.** Library JSON writes use atomic replacement.
   A complete project-owned MP4 exists before the project references it; failed
   sessions remove unreferenced partial assets.
+- **Project folder changes preserve each library.** Native Settings may select a
+  persistent project root or restore the default. Validate before switching;
+  never move or merge existing projects. Block changes throughout UI/MCP
+  recording, import, export, and voice work. Unavailable or damaged folders keep
+  the selection and report an error; never silently write to a fallback folder.
+  Shared voice profiles, models, and the MCP socket stay at the default root.
 - **Preserve legacy data.** On first Storybird launch, copy an existing
   `Application Support/OpenLane` library only when the Storybird library does
   not exist. Never delete or move the legacy copy.
@@ -201,7 +207,8 @@ STORYBIRD_UPDATE_DOC_SCREENSHOTS=1 \
   swift test --filter DocumentationScreenshotTests/test_generateSyntheticReadmeScreenshots
 ```
 
-Review `docs/images/welcome.png` and `docs/images/voice-narration.png`; never
+Review `docs/images/welcome.png`, `docs/images/voice-narration.png`, and
+`docs/images/storage-settings.png`; never
 substitute a customer recording or real project library.
 
 ## Commit & Pull Request Guidelines

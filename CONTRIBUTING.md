@@ -132,6 +132,16 @@ ScreenCaptureKit and TCC behavior require a real signed bundle:
 19. Confirm the shortcuts do nothing while another app is active and use the
     same disabled conditions as the toolbar while recording, importing, or
     exporting.
+    In **Settings › General › Storage**, select an empty temporary folder and
+    confirm it displays its own library. Import a synthetic video, generate
+    narration from an existing synthetic profile, export it, and restart.
+    Confirm the selected folder and project persist, shared voice assets stay
+    at the default location, and the MCP client lists the selected library.
+    Restore the default and reselect the custom folder; neither library may
+    move or merge. Cancel the picker and try read-only, missing, and malformed
+    libraries; selection must remain unchanged. During UI/MCP recording,
+    import, export, model preparation, voice input, and narration generation,
+    verify that folder controls are disabled with a reason.
 20. Rebuild and confirm the same signing identity keeps permissions.
 21. On first launch after renaming, confirm an OpenLane library is copied while
     the original remains untouched.

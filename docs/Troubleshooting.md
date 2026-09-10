@@ -80,6 +80,25 @@ video track, positive duration, and valid display dimensions. Unsupported,
 damaged, or audio-only files do not create a project. Confirm the source still
 exists, is readable, and there is enough disk space for a project-owned copy.
 
+## Projects disappear after changing the storage folder
+
+Each folder has a separate library. Open **Settings › General › Storage** and
+select the previous folder, or choose **Use Default** for the original
+Application Support library. Storybird does not move, delete, or merge projects
+when changing the folder. Shared voice profiles and the prepared model stay in
+the default location.
+
+## The selected project folder is unavailable
+
+Reconnect the selected disk, restore access permissions, or choose another
+usable folder in **Settings › General › Storage**. Reselect a repaired folder
+to retry loading it. Storybird retains the saved choice and reports the error
+instead of silently saving elsewhere. Do not delete or replace a damaged
+`library.json`; keep it and its `Assets` folder together for recovery.
+
+Finish any recording, import, export, or voice work before changing the folder.
+The controls explain which active work is preventing the change.
+
 ## The recording or exported video has no audio
 
 Direct Storybird screen recordings are intentionally silent and do not request

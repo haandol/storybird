@@ -6,6 +6,47 @@ import StorybirdCore
 import XCTest
 
 final class StorybirdControlSessionTests: XCTestCase {
+    @MainActor
+    func test_hostRecording_blocksFolderChangeDuringApprovalAndBetweenCommands() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("storybird-host-storage-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repository = ProjectRepository(rootURL: root.appendingPathComponent("default"))
+        let custom = root.appendingPathComponent("custom", isDirectory: true)
+        try FileManager.default.createDirectory(at: custom, withIntermediateDirectories: true)
+        let store = AppStore(repository: repository)
+        let host = StorybirdExternalControlHost(
+            store: store,
+            recordingSession: StorybirdControlSession(platform: FakeDesktopPlatform())
+        )
+        let request = StorybirdControlRequest(
+            name: "storybird_start_session",
+            argumentsJSON: try JSONSerialization.data(withJSONObject: [
+                "source_id": "display-1",
+                "project_name": "Synthetic storage session",
+            ])
+        )
+        let start = Task { await host.handle(request) }
+        let deadline = ContinuousClock.now + .seconds(2)
+        while store.externalControlPrompt == nil, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        XCTAssertNotNil(store.externalControlPrompt)
+        XCTAssertFalse(store.chooseStorageFolder(custom))
+        store.resolveExternalControlApproval(true)
+        let response = await start.value
+        XCTAssertFalse(response.isError, response.text)
+        XCTAssertFalse(store.chooseStorageFolder(custom))
+        XCTAssertNotNil(store.storageChangeDisabledReason)
+
+        let abort = await host.handle(StorybirdControlRequest(
+            name: "storybird_abort_session", argumentsJSON: Data("{}".utf8)
+        ))
+        XCTAssertFalse(abort.isError)
+        XCTAssertNil(store.storageChangeDisabledReason)
+        XCTAssertTrue(store.chooseStorageFolder(custom))
+    }
+
     func test_click_thenStop_returnsTimedVideoProjectPayload() async throws {
         let projectID = UUID()
         let output = URL(

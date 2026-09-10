@@ -27,7 +27,12 @@ final class AppStore: ObservableObject {
     @Published private(set) var voiceProfiles: [VoiceProfile] = []
     @Published private(set) var voiceRuntimeState: VoiceRuntimeState = .notPrepared
 
-    let repository: ProjectRepository
+    @Published private(set) var repository: ProjectRepository
+    @Published private(set) var selectedStorageRootURL: URL?
+    @Published private(set) var storageErrorMessage: String?
+    @Published private var storageOperations: [UUID: StorageOperation] = [:]
+    private let defaultRepository: ProjectRepository
+    private let storagePreferences: StorybirdStoragePreferences?
     private var externalControlContinuation:
         CheckedContinuation<Bool, Never>?
     private var undoHistory: [UUID: [DemoProject]] = [:]
@@ -36,42 +41,147 @@ final class AppStore: ObservableObject {
     private let voiceServiceOverride: (any VoiceSynthesisProviding)?
     private lazy var voiceService: any VoiceSynthesisProviding =
         voiceServiceOverride ?? VoiceSynthesisService(
-            rootURL: repository.rootURL
+            rootURL: repository.sharedRootURL
         )
 
     init(
         repository: ProjectRepository? = nil,
-        voiceService: (any VoiceSynthesisProviding)? = nil
+        voiceService: (any VoiceSynthesisProviding)? = nil,
+        storagePreferences: StorybirdStoragePreferences? = nil
     ) {
         voiceServiceOverride = voiceService
+        let preferences = storagePreferences
+            ?? (repository == nil ? StorybirdStoragePreferences() : nil)
+        self.storagePreferences = preferences
+        let selectedRoot = preferences?.selectedRootURL
+        selectedStorageRootURL = selectedRoot
         let resolvedRepository: ProjectRepository
         do {
             resolvedRepository = try repository ?? .live()
         } catch {
-            let fallback = ProjectRepository(
-                rootURL: FileManager.default.temporaryDirectory
-                    .appendingPathComponent("Storybird", isDirectory: true)
+            let defaultRoot = (try? ProjectRepository.defaultRootURL())
+                ?? FileManager.default.homeDirectoryForCurrentUser
+                    .appendingPathComponent("Library/Application Support/Storybird", isDirectory: true)
+            defaultRepository = ProjectRepository(
+                rootURL: defaultRoot,
+                unavailableReason: error.localizedDescription
             )
-            self.repository = fallback
+            self.repository = ProjectRepository(
+                rootURL: selectedRoot ?? defaultRoot,
+                sharedRootURL: defaultRoot,
+                unavailableReason: error.localizedDescription
+            )
             projects = []
             errorMessage = "Storybird could not open its library: \(error.localizedDescription)"
+            storageErrorMessage = errorMessage
             return
         }
 
-        self.repository = resolvedRepository
+        defaultRepository = resolvedRepository
+        let activeRepository = selectedRoot.map {
+            ProjectRepository(
+                rootURL: $0,
+                sharedRootURL: resolvedRepository.sharedRootURL,
+                requiresExistingRoot: true
+            )
+        } ?? resolvedRepository
+        self.repository = activeRepository
         do {
-            projects = try resolvedRepository.loadProjects()
-            voiceProfiles = try resolvedRepository.loadVoiceProfiles()
+            projects = try selectedStorageRootURL == nil
+                ? activeRepository.loadProjects()
+                : activeRepository.validatedProjectsForSelection()
             selectedProjectID = projects.first?.id
         } catch {
             projects = []
+            self.repository = ProjectRepository(
+                rootURL: activeRepository.rootURL,
+                sharedRootURL: activeRepository.sharedRootURL,
+                requiresExistingRoot: true,
+                unavailableReason: error.localizedDescription
+            )
             errorMessage = "Storybird could not open its library: \(error.localizedDescription)"
+            storageErrorMessage = errorMessage
+        }
+        do {
+            voiceProfiles = try resolvedRepository.loadVoiceProfiles()
+        } catch {
+            errorMessage = "Storybird could not open its voice profiles: \(error.localizedDescription)"
+        }
+    }
+
+    var storageChangeDisabledReason: String? {
+        if isExportActive {
+            return "Wait for the video export to finish before changing the folder."
+        }
+        if let operation = storageOperations.values.sorted(
+            by: { $0.rawValue < $1.rawValue }
+        ).first {
+            return "Finish \(operation.rawValue) before changing the folder."
+        }
+        if externalControlPrompt != nil {
+            return "Resolve the pending MCP approval before changing the folder."
+        }
+        return nil
+    }
+
+    /// Tokens keep overlapping asynchronous jobs from releasing each other's
+    /// folder lock. Every job holds its token until commit or cleanup finishes.
+    func beginStorageOperation(_ operation: StorageOperation) -> UUID {
+        let id = UUID()
+        storageOperations[id] = operation
+        return id
+    }
+
+    func endStorageOperation(_ id: UUID) {
+        storageOperations.removeValue(forKey: id)
+    }
+
+    /// Publishes a fully validated library and its preference in one main-actor
+    /// turn. Failure leaves the old repository, selection, and undo history intact.
+    @discardableResult
+    func chooseStorageFolder(_ url: URL?) -> Bool {
+        do {
+            if let reason = storageChangeDisabledReason {
+                throw RepositoryError.storageUnavailable(reason)
+            }
+            let root = (url ?? defaultRepository.rootURL)
+                .standardizedFileURL.resolvingSymlinksInPath()
+            let defaultRoot = defaultRepository.rootURL
+                .standardizedFileURL.resolvingSymlinksInPath()
+            let candidate = ProjectRepository(
+                rootURL: root,
+                sharedRootURL: defaultRepository.sharedRootURL,
+                requiresExistingRoot: true
+            )
+            // The native picker creates custom directories. Only the app-owned
+            // default may be created here when explicitly restoring it.
+            if root == defaultRoot,
+               !FileManager.default.fileExists(atPath: root.path) {
+                try defaultRepository.prepare()
+            }
+            let loaded = try candidate.validatedProjectsForSelection()
+            let selectedRoot = root == defaultRoot ? nil : root
+            storagePreferences?.save(selectedRoot)
+            repository = candidate
+            projects = loaded
+            selectedProjectID = loaded.first?.id
+            selectedStorageRootURL = selectedRoot
+            undoHistory.removeAll()
+            redoHistory.removeAll()
+            requestedPreviewProjectID = nil
+            storageErrorMessage = nil
+            return true
+        } catch {
+            storageErrorMessage = error.localizedDescription
+            return false
         }
     }
 
     /// Prepares the user-approved local MLX runtime and model without changing
     /// projects or voice profiles if installation or download fails.
     func prepareVoiceRuntime() async {
+        let operation = beginStorageOperation(.voice)
+        defer { endStorageOperation(operation) }
         voiceRuntimeState = .preparing
         do {
             try await voiceService.prepare()
@@ -100,6 +210,8 @@ final class AppStore: ObservableObject {
         source: VoiceReferenceSource = .importedFile,
         consentConfirmed: Bool
     ) async throws -> VoiceProfile {
+        let operation = beginStorageOperation(.voice)
+        defer { endStorageOperation(operation) }
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedTranscript = transcript.trimmingCharacters(
             in: .whitespacesAndNewlines
@@ -173,6 +285,8 @@ final class AppStore: ObservableObject {
         language: String,
         startTime: Double
     ) async throws -> DemoProject {
+        let operation = beginStorageOperation(.voice)
+        defer { endStorageOperation(operation) }
         guard let project = project(id: projectID) else {
             throw RecordingStoreError.projectNotFound
         }
@@ -238,6 +352,8 @@ final class AppStore: ObservableObject {
         startTime: Double? = nil,
         volume: Double? = nil
     ) async throws -> DemoProject {
+        let operation = beginStorageOperation(.voice)
+        defer { endStorageOperation(operation) }
         guard var project = project(id: projectID),
               let index = project.narrations.firstIndex(
                   where: { $0.id == narrationID }
@@ -391,9 +507,15 @@ final class AppStore: ObservableObject {
     /// Creates an empty local placeholder that remains separate from future recordings.
     func createProject(name: String = "Untitled recording") -> UUID {
         let project = DemoProject(name: name)
-        projects.insert(project, at: 0)
-        selectedProjectID = project.id
-        persist()
+        do {
+            var updated = projects
+            updated.insert(project, at: 0)
+            try repository.saveProjects(updated)
+            projects = updated
+            selectedProjectID = project.id
+        } catch {
+            errorMessage = "The project could not be saved: \(error.localizedDescription)"
+        }
         return project.id
     }
 
@@ -581,6 +703,8 @@ final class AppStore: ObservableObject {
     /// Creates a new project only after a user-selected movie has been copied and
     /// validated as a complete project-owned source asset.
     func importVideo(from sourceURL: URL) async throws -> UUID {
+        let operation = beginStorageOperation(.importing)
+        defer { endStorageOperation(operation) }
         let fileExtension = try LocalVideoImporter.supportedFileExtension(
             for: sourceURL
         )

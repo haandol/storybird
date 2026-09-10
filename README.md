@@ -258,7 +258,20 @@ the timeline editor, MP4 export, and native-confirmed project deletion.
 
 ## Project and export layout
 
-Projects remain local:
+Open **Settings › General › Storage** to choose a project folder, open it in
+Finder, or restore the default location. The choice persists across restarts.
+Each folder has its own library: existing projects are not moved or merged.
+Select a previous folder again to see its projects.
+
+Folder changes are disabled during recording (including preparation and
+finalization), import, export, and voice work. An unreadable, unwritable, or
+damaged library leaves the current selection unchanged and shows an error.
+If the selected folder is unavailable at launch, Storybird preserves the choice
+and blocks project writes until you restore or select a usable folder.
+
+![Storybird project folder settings](docs/images/storage-settings.png)
+
+The default layout is:
 
 ```text
 ~/Library/Application Support/Storybird/
@@ -276,6 +289,12 @@ Projects remain local:
     ├── ModelCache/
     └── model-ready.txt
 ```
+
+With a custom folder, `library.json` and `Assets/` live in that folder.
+Shared `Voices/`, `VoiceRuntime/`, and the local MCP connection remain in the
+default Storybird location. A folder change does not download a model again.
+If you select a folder managed by a sync service, that service controls any
+synchronization; Storybird does not upload these files itself.
 
 The library stores the source duration and dimensions, timed normalized clicks,
 subtitles, effects, and narration layers. Imported files and generated
@@ -303,8 +322,9 @@ into video projects.
 
 ## Privacy and security
 
-Original recordings, click positions, projects, and timeline layers remain on
-the Mac unless the user explicitly exports a video. Voice references, exact
+Storybird writes original recordings, click positions, projects, and timeline
+layers to the selected local folder without uploading them. An external sync
+service may synchronize a folder the user chooses. Voice references, exact
 reference transcripts, voice profiles, generated narration, and the prepared
 MLX model also remain local. The initial model preparation is the only
 Storybird-owned network path in the voice workflow.

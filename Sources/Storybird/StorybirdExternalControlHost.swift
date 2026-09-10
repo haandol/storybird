@@ -43,20 +43,26 @@ final class StorybirdExternalControlHost {
     }
 
     private unowned let store: AppStore
-    private let recordingSession = StorybirdControlSession()
+    private let recordingSession: StorybirdControlSession
     private var server: StorybirdLocalControlServer?
     private var exportJobs: [UUID: ExportJob] = [:]
     private var exportTasks: [UUID: Task<Void, Never>] = [:]
+    private var recordingStorageOperationID: UUID?
+    private var isStartingRecording = false
 
-    init(store: AppStore) {
+    init(
+        store: AppStore,
+        recordingSession: StorybirdControlSession = StorybirdControlSession()
+    ) {
         self.store = store
+        self.recordingSession = recordingSession
     }
 
     /// Starts the authenticated gateway once the Storybird app is running.
     func start() {
         guard server == nil else { return }
         let server = StorybirdLocalControlServer(
-            rootURL: store.repository.rootURL
+            rootURL: store.repository.sharedRootURL
         ) { [weak self] request in
             guard let self else {
                 return StorybirdControlResponse(
@@ -79,6 +85,8 @@ final class StorybirdExternalControlHost {
     func handle(
         _ request: StorybirdControlRequest
     ) async -> StorybirdControlResponse {
+        let operation = store.beginStorageOperation(.externalCommand)
+        defer { store.endStorageOperation(operation) }
         do {
             let arguments = try Self.arguments(from: request.argumentsJSON)
             switch request.name {
@@ -227,6 +235,9 @@ final class StorybirdExternalControlHost {
                 await recordingSession.listSources()
             )
         case "storybird_start_session":
+            guard recordingStorageOperationID == nil else {
+                throw StorybirdMCPError.sessionAlreadyActive
+            }
             let sourceID = try Self.string("source_id", in: arguments)
             let projectName = try Self.string("project_name", in: arguments)
             let sources = try await recordingSession.listSources()
@@ -240,10 +251,17 @@ final class StorybirdExternalControlHost {
             ) else {
                 throw StorybirdMCPError.consentRequired
             }
+            guard recordingStorageOperationID == nil else {
+                throw StorybirdMCPError.sessionAlreadyActive
+            }
             let projectID = UUID()
             let target = try store.repository.prepareVideoRecordingURL(
                 projectID: projectID
             )
+            let operation = store.beginStorageOperation(.recording)
+            recordingStorageOperationID = operation
+            isStartingRecording = true
+            defer { isStartingRecording = false }
             do {
                 let frame = try await recordingSession.startSession(
                     sourceID: sourceID,
@@ -260,6 +278,8 @@ final class StorybirdExternalControlHost {
                 try? store.repository.removeProjectAssets(
                     projectID: projectID
                 )
+                store.endStorageOperation(operation)
+                recordingStorageOperationID = nil
                 throw error
             }
         case "storybird_observe":
@@ -312,10 +332,12 @@ final class StorybirdExternalControlHost {
         case "storybird_abort_session":
             store.cancelExternalControlApproval()
             await recordingSession.abort()
+            releaseRecordingStorageOperation()
             return StorybirdControlResponse(
                 text: "Storybird MCP session aborted."
             )
         case "storybird_stop_session":
+            defer { releaseRecordingStorageOperation() }
             let recording = try await recordingSession.stopSession()
             try store.commitRecordedVideo(
                 projectID: recording.projectID,
@@ -329,6 +351,16 @@ final class StorybirdExternalControlHost {
             )
         default:
             throw StorybirdControlWireError.invalidMessage
+        }
+    }
+
+    private func releaseRecordingStorageOperation() {
+        // Abort/Stop may arrive while the capture actor is still opening its
+        // source. That start owns the token until it succeeds or cleans up.
+        guard !isStartingRecording else { return }
+        if let recordingStorageOperationID {
+            store.endStorageOperation(recordingStorageOperationID)
+            self.recordingStorageOperationID = nil
         }
     }
 

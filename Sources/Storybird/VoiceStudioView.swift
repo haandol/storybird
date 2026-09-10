@@ -8,7 +8,7 @@ struct VoiceStudioView: View {
         "안녕하세요. 처음에는 조금 복잡해 보일 수 있죠? 하지만 걱정하지 마세요. 중요한 기능은 또렷하게, 사용 방법은 차분하고 자연스럽게 안내해 드리겠습니다."
 
     @ObservedObject var store: AppStore
-    @StateObject private var recorder = VoiceSampleRecorder()
+    @StateObject private var recorder: VoiceSampleRecorder
     private let refreshRuntimeOnAppear: Bool
 
     @State private var profileName = "My voice"
@@ -26,6 +26,7 @@ struct VoiceStudioView: View {
         refreshRuntimeOnAppear: Bool = true
     ) {
         self.store = store
+        _recorder = StateObject(wrappedValue: VoiceSampleRecorder(store: store))
         self.refreshRuntimeOnAppear = refreshRuntimeOnAppear
     }
 

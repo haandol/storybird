@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct StorybirdSettingsView: View {
@@ -10,6 +11,7 @@ struct StorybirdSettingsView: View {
     @ObservedObject var store: AppStore
     @ObservedObject var shortcutSettings: StorybirdShortcutSettings
     @State private var pane: Pane
+    @State private var folderOpenError: String?
 
     init(
         store: AppStore,
@@ -44,7 +46,7 @@ struct StorybirdSettingsView: View {
         .frame(width: 680, height: 720)
     }
 
-    private var generalTab: some View {
+    var generalTab: some View {
         Form {
             Section("Storybird") {
                 HStack(spacing: 12) {
@@ -60,13 +62,47 @@ struct StorybirdSettingsView: View {
 
             Section("Storage") {
                 LabeledContent("Project library") {
-                    Text(store.repository.rootURL.path)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .textSelection(.enabled)
+                    HStack {
+                        Text(store.repository.rootURL.path)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .textSelection(.enabled)
+                            .help(store.repository.rootURL.path)
+                        Button("Open in Finder") {
+                            folderOpenError = NSWorkspace.shared.open(store.repository.rootURL)
+                                ? nil
+                                : "The folder could not be opened. Check that it is connected and accessible."
+                        }
+                        .buttonStyle(.link)
+                    }
+                }
+                HStack {
+                    Button("Choose Folder…") { chooseProjectFolder() }
+                    Button("Use Default") {
+                        folderOpenError = nil
+                        store.chooseStorageFolder(nil)
+                    }
+                    .disabled(store.selectedStorageRootURL == nil)
+                }
+                .disabled(store.storageChangeDisabledReason != nil)
+
+                if let reason = store.storageChangeDisabledReason {
+                    Label(reason, systemImage: "lock.fill")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if let error = folderOpenError ?? store.storageErrorMessage {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
                 }
                 Text(
-                    "Original recordings, voice references, and timeline layers remain on this Mac until you explicitly export a video."
+                    "This folder holds its own project library, original videos, and narration. Existing files are not moved. Choose a previous folder again to see its projects."
+                )
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                Text(
+                    "Shared voice profiles and the voice model stay in Storybird’s default location. If you choose a folder managed by a sync service, that service controls synchronization."
                 )
                 .font(.callout)
                 .foregroundStyle(.secondary)
@@ -81,6 +117,24 @@ struct StorybirdSettingsView: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// Uses the native folder picker as the only custom-location entry point.
+    /// The store rechecks activity and validates the library after the panel closes.
+    private func chooseProjectFolder() {
+        guard store.storageChangeDisabledReason == nil else { return }
+        let panel = NSOpenPanel()
+        panel.title = "Choose Project Folder"
+        panel.message = "Open the project library in this folder. Existing projects will stay in their previous folder."
+        panel.prompt = "Choose"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = store.repository.rootURL
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        folderOpenError = nil
+        store.chooseStorageFolder(url)
     }
 
     private var shortcutsTab: some View {
