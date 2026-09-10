@@ -89,8 +89,8 @@ included in the finished video. Importing a movie does not require capture permi
 
 ### From a release
 
-Download `Storybird-0.1.1.zip` from the
-[0.1.1 release](https://github.com/haandol/storybird/releases/tag/v0.1.1), verify
+Download `Storybird-0.1.2.zip` from the
+[0.1.2 release](https://github.com/haandol/storybird/releases/tag/v0.1.2), verify
 its SHA-256 against the release notes, unzip it, and move `Storybird.app` to
 `/Applications`. The prebuilt app requires an **Apple Silicon Mac running
 macOS 14 or later**.
