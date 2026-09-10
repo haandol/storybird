@@ -4,6 +4,13 @@ This document is the **major decision-change history** of the voice-narration ca
 Each ADR body describes only the current state, while the timeline of "what changed and
 why" accumulates here, newest first. Git preserves the individual diffs.
 
+## 2026-09-10 — 생성한 음성 프로필의 표시 이름을 변경한다
+
+- **Current ADR**: [local-cloned-voice-narration](./0001-local-cloned-voice-narration.md)
+- **Change type**: requirement rule change
+- **What**: 생성 뒤 이름을 수정할 수 없는 프로필에 네이티브 설정의 이름 변경을 제공한다.
+- **Why**: 참조 음성과 기존 내레이션을 보존하면서 사용자가 프로필 표시 이름을 관리해야 한다.
+
 ## 2026-09-10 — 분리 제작과 오디오 레이어 편집
 
 - **Current ADR**: [0001-local-cloned-voice-narration](./0001-local-cloned-voice-narration.md)

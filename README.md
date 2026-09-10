@@ -150,14 +150,33 @@ Select a Click Cue to fill in its description and subtitle, or remove it if it i
 irrelevant. **Every retained Cue needs both texts before export.** You can also
 add independent subtitles at the top or bottom of the picture.
 
+Each Click Cue, subtitle, audio layer, and effect has its own timeline row.
+Scroll vertically to reach more layers. Drag a block left or right to move its
+timing while keeping its duration; one **Undo** restores the move. Scene-linked
+layers follow the scene at their new position. Invalid moves keep the original
+timing and show an error. Title cards retain their clip-boundary positions, CTA
+cards stay at the end, and matching spotlight or pan/zoom effects cannot overlap.
+
+<div align="center">
+  <img src="docs/images/timeline-layers.png" width="580" alt="Synthetic compact editor scrolled to overlapping subtitles, each on its own row" />
+</div>
+
 The source video stays intact. **Undo** and **Redo** operate on the edits. Use
 **Duplicate** in the project header before making an independent variant.
 
 ### 3. Create a voice profile once
 
 Open **Settings › Voice** (`⌘,`). Prepare the local model and choose your default
-microphone here. The profile list contains preview/delete controls and a
+microphone here. The profile list contains preview, rename, and delete controls and a
 **Create Voice Profile…** button below it.
+
+Use the pencil beside an existing profile to change its name, then choose **Save**.
+The new name is shared across projects and survives restarting Storybird. Renaming
+preserves the reference voice and existing narration. Blank names are rejected.
+
+<div align="center">
+  <img src="docs/images/voice-profile-rename.png" width="420" alt="Rename Voice Profile dialog with a synthetic profile name and Cancel and Save buttons" />
+</div>
 
 <div align="center">
   <img src="docs/images/voice-settings-app.png" width="520" alt="The running Voice settings window: profile list and creation button, microphone selection, and local model status" />

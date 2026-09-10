@@ -122,10 +122,14 @@ Read these before changing capture, persistence, or export behavior.
   placed narration before publishing revision zero. Preserve the source, and do
   not copy unplaced drafts or undo history.
 - **Shared voice assets live in Settings.** Model preparation, voice-profile
-  creation/deletion, and the guided-recording input device are managed in
+  creation/renaming/deletion, and the guided-recording input device are managed in
   Settings. Project UI uses existing profiles only for narration generation.
   Persist a selected microphone by stable UID; if it is absent, keep the choice
   and use the system default for that recording. Never switch an active sample.
+- **Profile renaming changes display metadata only.** Native Settings trims the
+  new name, rejects blanks, allows duplicate names, and publishes only after atomic
+  persistence. Preserve identity, reference assets, and project narration; keep
+  draft input and show an inline error on failure. MCP cannot rename profiles.
 - **Voice profile creation owns a separate sheet.** Voice settings shows the
   profile list and a creation button below it. Enter the name, language, consent,
   and recording or import inputs in the sheet. Close after successful save or
@@ -155,6 +159,12 @@ Read these before changing capture, persistence, or export behavior.
 - **Compact windows change navigation, not reachability.** Below the wide-layout
   threshold, hide the project sidebar automatically and move the timeline
   inspector into a sheet. Playback and every layer action remain reachable.
+- **Each timeline layer owns a visible row.** Click Cue groups, subtitles, audio,
+  and effects remain individually selectable, with internal vertical scrolling.
+  Horizontal block drags preserve duration, reanchor scene-linked content, and
+  commit once on release through revision validation and one undo entry. Invalid
+  moves retain the stored project; video sequencing and suggestion application
+  keep their existing controls and rules.
 
 ## Build, Test, and Development Commands
 

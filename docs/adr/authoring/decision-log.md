@@ -3,6 +3,13 @@
 이 문서는 authoring 카테고리의 주요 결정 변경 이력이다. ADR 본문은 현재 상태만
 서술하고, 주요 전환의 시간축은 여기에 최신 순으로 남긴다.
 
+## 2026-09-10 — 레이어별 행과 드래그 타이밍 편집
+
+- **Current ADR**: [timeline-overlay-editor](./0001-timeline-overlay-editor.md)
+- **Change type**: requirement rule change
+- **What**: 종류별로 겹쳐 표시하던 레이어를 각각 한 행에 표시하고 세로 스크롤과 좌우 드래그 이동을 제공한다.
+- **Why**: 겹치는 항목도 직접 선택하고 길이와 장면 연결을 보존하면서 타이밍을 조정해야 한다.
+
 ## 2026-09-10 — 분리 제작과 오디오 레이어 편집
 
 - **Current ADR**: [0001-timeline-overlay-editor](./0001-timeline-overlay-editor.md)

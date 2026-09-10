@@ -93,6 +93,11 @@ ScreenCaptureKit and TCC behavior require a real signed bundle:
 7. Play the raw video and confirm every click appears at the expected time and
    normalized location.
 8. Add top and bottom subtitles and edit click-caption styles.
+   Overlap several Click Cues, subtitles, audio layers, and different effects.
+   Confirm each has its own row and the last row is reachable by vertical scroll
+   in wide and compact layouts. Drag a block horizontally and verify constant
+   duration, correct scene ownership, one saved revision, and one-step undo.
+   Drop outside the project or into a conflicting effect and confirm unchanged timing.
 9. Export an MP4, play it locally, and confirm the overlays are burned in and
    no audio track exists.
 10. Import a synthetic narrated MP4 or MOV without granting capture permissions.
@@ -129,7 +134,11 @@ ScreenCaptureKit and TCC behavior require a real signed bundle:
     preview them, adjust one
     start time and volume, then export. Confirm the final MP4 contains one AAC
     track with the imported source audio and narration at the expected times.
-17. Delete a voice profile in Settings and confirm existing project-owned narration still
+17. Rename a voice profile with its pencil button in Settings. Confirm the new
+    name appears in profile selectors and survives restarting, while existing
+    narration and reference audio remain unchanged. Reject a blank name, allow a
+    duplicate name, and verify Cancel preserves the old name.
+    Delete a voice profile in Settings and confirm existing project-owned narration still
     plays and exports. Delete a narration clip and confirm its project-owned WAV
     is retained for reuse and undo.
 18. In **Settings › Shortcuts**, change every project shortcut, restart the app,

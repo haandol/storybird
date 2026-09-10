@@ -93,7 +93,7 @@
         {
           "path": "docs/adr/authoring/0001-timeline-overlay-editor.md",
           "status": "Accepted (2026-09-10)",
-          "summary": "여러 오디오 행과 파형을 같은 영상 시간축에서 편집하고 미리듣는다"
+          "summary": "각 레이어를 독립 행에서 선택하고 장면 연결과 길이를 보존하며 드래그로 이동한다"
         }
       ],
       "dependsOn": [
@@ -154,7 +154,7 @@
         {
           "path": "docs/adr/voice-narration/0001-local-cloned-voice-narration.md",
           "status": "Accepted (2026-09-10)",
-          "summary": "대본으로 로컬 TTS 초안을 만들고 실제 길이를 확인해 여러 오디오 레이어로 배치한다"
+          "summary": "공유 음성 프로필 이름을 관리하고 로컬 TTS 초안을 여러 오디오 레이어로 배치한다"
         }
       ],
       "dependsOn": [

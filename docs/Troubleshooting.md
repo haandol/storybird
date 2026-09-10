@@ -1,5 +1,14 @@
 # Troubleshooting Storybird
 
+## A timeline layer is hidden or its drag does not save
+
+Each Click Cue, subtitle, audio layer, and effect has a separate row. Scroll
+inside the timeline to reach later rows. Dragging preserves the complete layer
+duration. A move outside the project, across an invalid scene boundary, or into
+a conflicting same-kind effect is rejected with an error. Titles use clip
+boundaries and CTA cards remain at the project end. Retry from the current
+position after another editor changes the project.
+
 ## Screen Recording is enabled, but Storybird still asks for it
 
 Quit every running Storybird copy, then launch the signed bundle you intend to
@@ -127,6 +136,10 @@ device or choose the current **(System Default)** device, then start a new guide
 Changing the picker does not switch a recording already in progress.
 
 ## Voice cloning fails or sounds unlike the reference
+
+To rename a saved profile, open **Settings › Voice**, click its pencil button,
+and save the new name. A name cannot be blank. If saving fails, the dialog keeps
+your input and shows the error; the saved profile retains its previous name.
 
 Open **Settings › Voice › Create Voice Profile…** to enter the profile name,
 language, and voice-use consent. Choose **Record** or **Import File** in that

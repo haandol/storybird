@@ -14,6 +14,7 @@ struct VoiceStudioView: View {
     @State private var isWorking = false
     @State private var showPrepareConfirmation = false
     @State private var profilePendingDeletion: UUID?
+    @State private var profilePendingRename: VoiceProfile?
     @State private var availableInputDevices: [VoiceInputDevice] = []
     @State private var preferredInputDeviceUID =
         VoiceInputPreferences.preferredDeviceUID()
@@ -37,6 +38,11 @@ struct VoiceStudioView: View {
         .formStyle(.grouped)
         .sheet(isPresented: $isCreationPresented) {
             VoiceProfileCreationView(store: store)
+        }
+        .sheet(item: $profilePendingRename) { profile in
+            VoiceProfileRenameView(
+                model: VoiceProfileRenameModel(profile: profile, store: store)
+            )
         }
         .onDisappear { preview.stop() }
         .confirmationDialog(
@@ -155,6 +161,14 @@ struct VoiceStudioView: View {
                     }
                     .buttonStyle(.borderless)
                     .help(isPlaying ? "Stop previewing \(profile.name)" : "Preview \(profile.name)")
+                    Button {
+                        profilePendingRename = profile
+                    } label: {
+                        Image(systemName: "pencil")
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Rename \(profile.name)")
+                    .help("Rename \(profile.name)")
                     Button(role: .destructive) {
                         profilePendingDeletion = profile.id
                     } label: {

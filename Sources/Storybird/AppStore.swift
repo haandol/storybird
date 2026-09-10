@@ -285,6 +285,21 @@ final class AppStore: ObservableObject {
         }
     }
 
+    /// Changes only a profile's display name, publishing to observers after
+    /// atomic persistence succeeds so failed writes retain the previous name.
+    func renameVoiceProfile(id: UUID, name: String) throws {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { throw VoiceProfileError.invalidName }
+        guard let index = voiceProfiles.firstIndex(where: { $0.id == id }) else {
+            throw VoiceProfileError.profileNotFound
+        }
+        guard voiceProfiles[index].name != trimmedName else { return }
+        var updated = voiceProfiles
+        updated[index].name = trimmedName
+        try repository.saveVoiceProfiles(updated)
+        voiceProfiles = updated
+    }
+
     /// Removes sensitive reference audio and transcript while leaving every
     /// project-owned generated narration asset unchanged.
     func deleteVoiceProfile(id: UUID) throws {
@@ -1257,6 +1272,7 @@ enum RecordingStoreError: LocalizedError, Equatable {
 
 enum VoiceProfileError: LocalizedError {
     case invalidInput
+    case invalidName
     case referenceTooShort
     case profileNotFound
     case microphonePermissionDenied
@@ -1266,6 +1282,8 @@ enum VoiceProfileError: LocalizedError {
         switch self {
         case .invalidInput:
             return "Provide a valid MP3/WAV, matching transcript, name, and voice-use consent."
+        case .invalidName:
+            return "Enter a voice profile name."
         case .referenceTooShort:
             return "The guided microphone recording must contain at least 10 seconds of speech."
         case .profileNotFound:
