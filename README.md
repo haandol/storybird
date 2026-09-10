@@ -35,6 +35,14 @@ The preview shows the edited picture; the timeline below holds clips and timed
 layers. This screenshot was taken from the running app with a separate synthetic
 demo library. No customer screen or personal voice sample is included.
 
+Project details start with an empty video area. Choose **Show Preview** to see
+the edited picture, or **Hide Preview** to give the remaining height to timeline
+layers. Drag the handle between the video area and playback controls up or down
+to resize the preview and timeline. Playback controls remain available in every
+view, and these layout changes do not edit the project.
+The timeline's incomplete-click menu lists missing descriptions or subtitles and
+opens the selected Cue for editing. Export stays disabled until every Cue is complete.
+
 > [!NOTE]
 > Storybird is an early-stage project. Release binaries are not notarized,
 > and the project format can change before a stable release.

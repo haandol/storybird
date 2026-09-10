@@ -140,7 +140,7 @@ enum AgentProjectEditor {
                 if a.has("start_time") || a.has("end_time") {
                     _ = try SceneTiming.anchor(at: result.effects[index].startTime, in: result)
                 }
-                result = VideoTimelineEditor.reanchorChangedContentEffectTimes(from: project, to: result)
+                result = try VideoTimelineEditor.reanchorChangedContentEffectTimes(from: project, to: result)
             }
         case "storybird_apply_suggestion":
             result = try ClickSuggestionGenerator.apply(a.id("suggestion_id"), to: result)
@@ -174,19 +174,7 @@ enum AgentProjectEditor {
         let a = AgentEditArguments(values: arguments)
         var result = original
         if a.has("time") {
-            let time = try a.number("time", range: 0...project.timelineDuration)
-            let anchor = try SceneTiming.anchor(at: time, in: project)
-            let location = VideoTimelineSchedule(project: project).sourceLocation(at: time)!
-            let delta = time - original.time
-            result.time = time
-            result.sourceTime = anchor.sourceTime
-            result.sourceAnchor = ClickSourceAnchor(clipID: anchor.clipID, clipKind: location.clipKind, clipOffset: anchor.clipOffset)
-            result.indicator.startTime = max(0, original.indicator.startTime + delta)
-            result.indicator.endTime = min(project.timelineDuration, original.indicator.endTime + delta)
-            result.description.startTime = max(0, original.description.startTime + delta)
-            result.description.endTime = min(project.timelineDuration, original.description.endTime + delta)
-            result.cueSubtitle.startTime = max(0, original.cueSubtitle.startTime + delta)
-            result.cueSubtitle.endTime = min(project.timelineDuration, original.cueSubtitle.endTime + delta)
+            result.time = try a.number("time", range: 0...project.timelineDuration)
         }
         let numbers: [String: WritableKeyPath<TimedPointerClick, Double>] = [
             "x": \.x, "y": \.y,
@@ -229,7 +217,7 @@ enum AgentProjectEditor {
             guard let value = SubtitlePosition(rawValue: try a.text("subtitle_position")) else { throw AgentEditError.invalidField("subtitle_position") }
             result.cueSubtitle.position = value
         }
-        return result
+        return a.has("time") ? try ClickCueEditor.reanchorTime(result, in: project) : result
     }
 
     /// Preserves unspecified text styling and rejects invalid opacity/font size.

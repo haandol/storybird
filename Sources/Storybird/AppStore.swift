@@ -649,6 +649,11 @@ final class AppStore: ObservableObject {
         guard current.revision == expectedRevision else {
             throw RecordingStoreError.revisionConflict(current.revision)
         }
+        // Legacy screenshot graphs are inventory-only. Even a header rename
+        // would re-encode their index as the current video project format.
+        guard current.recording != nil || (current.steps.isEmpty && current.events.isEmpty) else {
+            throw VideoProjectValidationError.missingRecording
+        }
         var comparable = project
         comparable.narrationDrafts = current.narrationDrafts
         comparable.audioAssets = current.audioAssets
@@ -937,13 +942,18 @@ final class AppStore: ObservableObject {
 
     /// Preserves terminal suggestion states while allowing applied or rejected
     /// metadata cleanup only after the referenced Click Cue has been removed.
+    /// Duplicate IDs fail before indexing so malformed replacements cannot trap
+    /// and discard the current session's undo/redo history.
     private static func validateTransition(
         from current: DemoProject,
         to updated: DemoProject
     ) throws {
-        let updatedByID = Dictionary(
-            uniqueKeysWithValues: updated.suggestions.map { ($0.id, $0) }
-        )
+        var updatedByID: [UUID: ClickEditSuggestion] = [:]
+        for suggestion in updated.suggestions {
+            guard updatedByID.updateValue(suggestion, forKey: suggestion.id) == nil else {
+                throw VideoProjectValidationError.invalidSuggestion(suggestion.id)
+            }
+        }
         let updatedClickIDs = Set(updated.clicks.map(\.id))
         for suggestion in current.suggestions {
             switch suggestion.state {

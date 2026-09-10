@@ -519,6 +519,7 @@ final class StorybirdExternalControlHost {
             )
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
+            decoder.userInfo[.strictProjectEdits] = true
             let replacement = try decoder.decode(
                 DemoProject.self,
                 from: Data(
@@ -691,8 +692,8 @@ final class StorybirdExternalControlHost {
             guard let recording = project.recording else {
                 throw VideoProjectValidationError.missingRecording
             }
-            let projectTime = try Self.double("time", in: arguments)
-            let data = try await LayeredVideoExporter().previewPNG(
+            let projectTime = try AgentEditArguments(values: arguments).number("time")
+            let frame = try await LayeredVideoExporter().previewFrame(
                 project: project,
                 sourceURL: store.repository.assetURL(
                     projectID: project.id,
@@ -701,10 +702,10 @@ final class StorybirdExternalControlHost {
                 projectTime: projectTime
             )
             let metadata = [
-                "time": projectTime,
+                "time": frame.projectTime,
                 "visible_layer_ids": visibleLayerIDs(
                     in: project,
-                    at: projectTime
+                    at: frame.projectTime
                 ),
                 "incomplete_click_ids": project.clicks
                     .filter { !$0.isComplete }
@@ -718,7 +719,7 @@ final class StorybirdExternalControlHost {
                     ),
                     as: UTF8.self
                 ),
-                imageData: data
+                imageData: frame.pngData
             )
         case "storybird_delete_project":
             let project = try project(from: arguments)

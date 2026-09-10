@@ -64,6 +64,17 @@ public enum VideoOverlayTiming {
 }
 
 public enum VideoOverlayLayout {
+    /// Fits the measured caption, including its padding, before choosing its
+    /// origin. Clamping an oversized label's origin alone cannot keep it in frame.
+    public static func captionFitScale(
+        labelSize: CGSize, in frame: CGRect, metrics: VideoOverlayMetrics
+    ) -> CGFloat {
+        guard labelSize.width > 0, labelSize.height > 0 else { return 1 }
+        let width = max(0, frame.width - metrics.edgeInset * 2)
+        let height = max(0, frame.height - metrics.edgeInset * 2)
+        return min(1, width / labelSize.width, height / labelSize.height)
+    }
+
     /// Maps top-left normalized recording coordinates into either renderer coordinate system.
     public static func clickPoint(
         x: Double,

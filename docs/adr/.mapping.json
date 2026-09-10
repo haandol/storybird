@@ -92,8 +92,8 @@
       "adrs": [
         {
           "path": "docs/adr/authoring/0001-timeline-overlay-editor.md",
-          "status": "Proposed",
-          "summary": "타임라인에서 오디오를 드래그 배치하고 파형 트림·음량·페이드·원고를 비파괴 편집한다"
+          "status": "Accepted (2026-09-10)",
+          "summary": "빈 영상 영역으로 시작해 미리보기 토글·경계 드래그로 타임라인 공간을 조절하고 오디오 배치·트림·음량·페이드·원고를 비파괴 편집한다"
         }
       ],
       "dependsOn": [

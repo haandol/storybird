@@ -108,6 +108,10 @@ ScreenCaptureKit and TCC behavior require a real signed bundle:
 2. Confirm the source sheet fits on screen and scrolls internally.
 3. Resize the main window to its minimum size. Confirm the project sidebar
    collapses and the timeline inspector opens as a sheet without clipping.
+   Confirm project details start with an empty video area. Show and hide the
+   preview repeatedly, drag its boundary in both directions, and resize the
+   window. The hidden preview gives all remaining height to the timeline;
+   playback controls and the final layer remain reachable without a project edit.
 4. Verify thumbnails appear for the display and unfocused app windows.
 5. Select a window, create visible motion, perform three clicks, and stop after
    the final click.
@@ -208,6 +212,22 @@ ScreenCaptureKit and TCC behavior require a real signed bundle:
 
 Use synthetic content. Never put customer dashboards, messages, credentials, or
 other private captures in issues, commits, or pull request attachments.
+
+## Rendered Authoring Checks
+
+Authoring's opt-in rendering checks use synthetic media and native test windows.
+Run them alone so unrelated rendering work does not distort the latency result:
+
+```bash
+STORYBIRD_RUN_AUTHORING_RENDER_PERFORMANCE=1 swift test --filter AuthoringRenderPerformanceTests
+STORYBIRD_RUN_PREVIEW_FRAME_UI=1 swift test --filter PreviewFrameContractTests/test_nativeUIRenderedBoundaries
+```
+
+The first measures decoded frame readiness and rendered subtitle pixels for
+100 actions on a 1080p, 120-second, 100-layer project. The second compares native
+UI, PNG and MP4 overlay boundaries at 30, 60 and 120 fps. Ordinary `swift test`
+also covers malformed edits, missing frame metadata, legacy data preservation
+and production MCP protocol flows.
 
 ## Documentation Screenshots
 

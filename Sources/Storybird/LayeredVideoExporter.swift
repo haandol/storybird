@@ -39,6 +39,11 @@ enum LayeredVideoExportError: LocalizedError {
 }
 
 actor LayeredVideoExporter {
+    struct PreviewFrame: Sendable {
+        let pngData: Data
+        let projectTime: Double
+    }
+
     private struct AudioEncodingConfiguration {
         let readerSettings: [String: Any]
         let writerSettings: [String: Any]
@@ -172,6 +177,7 @@ actor LayeredVideoExporter {
             project: project,
             track: videoTrack,
             duration: duration,
+            sourceAsset: sourceAsset,
             sourceTrack: sourceTrack
         )
 
@@ -205,6 +211,8 @@ actor LayeredVideoExporter {
                 AVVideoHeightKey: height,
             ]
         )
+        // Preserve the chosen rational output cadence in encoded timestamps.
+        input.mediaTimeScale = videoComposition.frameDuration.timescale
         guard writer.canAdd(input) else {
             throw LayeredVideoExportError.cannotCreateWriter
         }
@@ -269,6 +277,7 @@ actor LayeredVideoExporter {
                 writer: writer,
                 project: project,
                 duration: duration,
+                frameDuration: videoComposition.frameDuration,
                 progress: progress
             )
         } catch {
@@ -277,6 +286,7 @@ actor LayeredVideoExporter {
             throw error
         }
 
+        writer.endSession(atSourceTime: duration)
         await withCheckedContinuation {
             (continuation: CheckedContinuation<Void, Never>) in
             writer.finishWriting {
@@ -318,25 +328,61 @@ actor LayeredVideoExporter {
         sourceURL: URL,
         projectTime: Double
     ) async throws -> Data {
+        try await previewFrame(
+            project: project,
+            sourceURL: sourceURL,
+            projectTime: projectTime
+        ).pngData
+    }
+
+    /// Carries the decoder's selected frame time into both overlay rendering and
+    /// MCP metadata. Still segments have many project instants for one source frame.
+    func previewFrame(
+        project: DemoProject,
+        sourceURL: URL,
+        projectTime: Double
+    ) async throws -> PreviewFrame {
         try VideoProjectValidator.validate(project)
-        let schedule = VideoTimelineSchedule(project: project)
-        guard projectTime >= 0,
-              projectTime < project.timelineDuration,
-              let sourceTime = schedule.sourceFrameTime(at: projectTime)
+        guard projectTime.isFinite,
+              projectTime >= 0,
+              projectTime < project.timelineDuration
         else {
             throw LayeredVideoExportError.recordingMetadataMismatch
         }
-        let asset = AVURLAsset(url: sourceURL)
-        let generator = AVAssetImageGenerator(asset: asset)
-        generator.appliesPreferredTrackTransform = true
-        let image = try await generator.image(
-            at: CMTime(
-                seconds:
-                    (project.recording?.mediaStartTime ?? 0)
-                        + sourceTime,
-                preferredTimescale: 600
-            )
-        ).image
+        let sourceAsset = AVURLAsset(url: sourceURL)
+        guard let sourceTrack = try await sourceAsset.loadTracks(withMediaType: .video).first else {
+            throw LayeredVideoExportError.missingVideoTrack
+        }
+        // The same edit schedule as export makes actualTime a PROJECT timestamp,
+        // including offsets, repeated clips, speed changes, freezes and cards.
+        let timeline = try VideoTimelineCompositionBuilder.build(
+            project: project,
+            sourceTrack: sourceTrack
+        )
+        let composition = try await makeVideoComposition(
+            project: project,
+            track: timeline.track,
+            duration: timeline.duration,
+            sourceAsset: sourceAsset,
+            sourceTrack: sourceTrack
+        )
+        let generator = AVAssetImageGenerator(asset: timeline.asset)
+        generator.videoComposition = composition
+        // Default tolerances permit distant keyframes, which cannot establish
+        // either source identity or overlay timing near an edit boundary.
+        generator.requestedTimeToleranceBefore = .zero
+        generator.requestedTimeToleranceAfter = .zero
+        let requestedFrame = VideoFrameCadence.frameTime(
+            at: projectTime,
+            frameDuration: composition.frameDuration
+        )
+        let generated = try await generator.image(at: requestedFrame)
+        let image = generated.image
+        let renderTime = generated.actualTime
+        guard renderTime.isNumeric, renderTime >= .zero,
+              renderTime.seconds < project.timelineDuration else {
+            throw LayeredVideoExportError.cannotReadVideo
+        }
         let frame = CGRect(
             x: 0,
             y: 0,
@@ -346,7 +392,7 @@ actor LayeredVideoExporter {
         let composed = FrameOverlayRenderer.compositeFrameOverlays(
             project: project,
             over: CIImage(cgImage: image),
-            at: CMTime(seconds: projectTime, preferredTimescale: 600),
+            at: renderTime,
             frame: frame
         )
         guard let cgImage = imageContext.createCGImage(composed, from: frame),
@@ -379,7 +425,10 @@ actor LayeredVideoExporter {
         guard CGImageDestinationFinalize(destination) else {
             throw LayeredVideoExportError.cannotReadVideo
         }
-        return data as Data
+        return PreviewFrame(
+            pngData: data as Data,
+            projectTime: renderTime.seconds
+        )
     }
 
     /// Interleaves composed video and optional narration with writer backpressure so
@@ -395,6 +444,7 @@ actor LayeredVideoExporter {
         writer: AVAssetWriter,
         project: DemoProject,
         duration: CMTime,
+        frameDuration: CMTime,
         progress: @escaping @Sendable (Double) -> Void
     ) async throws {
         let totalSeconds = max(CMTimeGetSeconds(duration), 0.001)
@@ -403,26 +453,47 @@ actor LayeredVideoExporter {
         var audioFinished = audioOutput == nil
         var pendingAudioSample: CMSampleBuffer?
         var audioCursor = CMTime.zero
+        var videoCursor = CMTime.zero
+        var currentVideoSample: CMSampleBuffer?
+        var nextVideoSample: CMSampleBuffer?
+        var videoStarted = false
 
         while !videoFinished || !audioFinished {
             try Task.checkCancellation()
             var appendedSample = false
             if !videoFinished, videoInput.isReadyForMoreMediaData {
-                if let sample = videoOutput.copyNextSampleBuffer() {
+                if videoCursor < duration {
+                    if !videoStarted {
+                        currentVideoSample = nextVideoFrame(from: videoOutput)
+                        nextVideoSample = nextVideoFrame(from: videoOutput)
+                        videoStarted = true
+                    }
+                    while let next = nextVideoSample,
+                          CMSampleBufferGetPresentationTimeStamp(next) <= videoCursor {
+                        currentVideoSample = next
+                        nextVideoSample = nextVideoFrame(from: videoOutput)
+                    }
+                    guard let sample = currentVideoSample else {
+                        throw reader.error ?? LayeredVideoExportError.cannotReadVideo
+                    }
+                    // A freeze or long VFR interval may contain one source sample.
+                    // Hold video pixels but render layers on every output tick.
                     try appendVideoSample(
                         sample,
+                        at: videoCursor,
                         to: adaptor,
                         writer: writer,
                         project: project
                     )
-                    let seconds = CMTimeGetSeconds(
-                        CMSampleBufferGetPresentationTimeStamp(sample)
-                    )
+                    let seconds = videoCursor.seconds
                     if seconds.isFinite {
                         progress(min(max(seconds / totalSeconds, 0), 1))
                     }
+                    videoCursor = videoCursor + frameDuration
                     appendedSample = true
                 } else {
+                    // Observe late decoding failures before publishing the output.
+                    while videoOutput.copyNextSampleBuffer() != nil {}
                     videoFinished = true
                     videoInput.markAsFinished()
                 }
@@ -497,10 +568,24 @@ actor LayeredVideoExporter {
         }
     }
 
-    /// Renders and appends one video frame while keeping overlay time on the encoded
-    /// presentation timestamp used by the optional narration track.
+    /// Reader outputs can include end/empty-edit marker buffers. They are not
+    /// video frames and must not become the held image or block lookahead.
+    private func nextVideoFrame(
+        from output: AVAssetReaderVideoCompositionOutput
+    ) -> CMSampleBuffer? {
+        while let sample = output.copyNextSampleBuffer() {
+            guard CMSampleBufferGetPresentationTimeStamp(sample).isNumeric,
+                  CMSampleBufferGetImageBuffer(sample) != nil else { continue }
+            return sample
+        }
+        return nil
+    }
+
+    /// Renders and appends one output tick, including repeated source pixels,
+    /// on the same project clock as the optional narration track.
     private func appendVideoSample(
         _ sample: CMSampleBuffer,
+        at timestamp: CMTime,
         to adaptor: AVAssetWriterInputPixelBufferAdaptor,
         writer: AVAssetWriter,
         project: DemoProject
@@ -530,7 +615,6 @@ actor LayeredVideoExporter {
             width: CVPixelBufferGetWidth(writableBuffer),
             height: CVPixelBufferGetHeight(writableBuffer)
         )
-        let timestamp = CMSampleBufferGetPresentationTimeStamp(sample)
         let imageWithText = FrameOverlayRenderer.compositeFrameOverlays(
             project: project,
             over: CIImage(cvPixelBuffer: sourceBuffer),
@@ -694,6 +778,7 @@ actor LayeredVideoExporter {
         project: DemoProject,
         track: AVAssetTrack,
         duration: CMTime,
+        sourceAsset: AVAsset,
         sourceTrack: AVAssetTrack
     ) async throws -> AVMutableVideoComposition {
         let naturalSize = try await sourceTrack.load(.naturalSize)
@@ -725,7 +810,11 @@ actor LayeredVideoExporter {
         let composition = AVMutableVideoComposition()
         composition.instructions = [instruction]
         composition.renderSize = renderSize
-        composition.frameDuration = CMTime(value: 1, timescale: 30)
+        composition.frameDuration = try await VideoFrameCadence.frameDuration(
+            sourceAsset: sourceAsset,
+            sourceTrack: sourceTrack,
+            project: project
+        )
 
         return composition
     }
@@ -839,22 +928,37 @@ actor LayeredVideoExporter {
                 lineLimit: 3,
                 metrics: metrics
             )
-            let origin = VideoOverlayLayout.captionOrigin(
+            let fit = VideoOverlayLayout.captionFitScale(
                 labelSize: geometry.containerSize,
+                in: frame,
+                metrics: metrics
+            )
+            let origin = VideoOverlayLayout.captionOrigin(
+                labelSize: CGSize(
+                    width: geometry.containerSize.width * fit,
+                    height: geometry.containerSize.height * fit
+                ),
                 x: transformed.x,
                 y: transformed.y,
                 in: frame,
                 axis: .bottomUp,
                 metrics: metrics
             )
-            result = compositeLabel(
+            // Fit the entire measured caption, including padding, as the native
+            // canvas does. Scaling one composed label preserves its line breaks.
+            let caption = compositeLabel(
                 click.caption,
                 fontSize: fontSize,
-                origin: origin,
+                origin: .zero,
                 geometry: geometry,
                 style: click.description.style,
-                over: result
+                over: CIImage.empty()
             )
+            result = caption
+                .cropped(to: CGRect(origin: .zero, size: geometry.containerSize))
+                .transformed(by: CGAffineTransform(scaleX: fit, y: fit))
+                .transformed(by: CGAffineTransform(translationX: origin.x, y: origin.y))
+                .composited(over: result)
         }
 
         for click in project.clicks where

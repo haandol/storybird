@@ -8,24 +8,7 @@ struct ProjectWorkspaceView: View {
 
     var body: some View {
         if let project = store.project(id: projectID) {
-            let projectBinding = Binding(
-                get: { store.project(id: projectID) ?? project },
-                set: {
-                    do {
-                        let current = store.project(id: projectID) ?? project
-                        let cards = try DemoEffectEditor.reconcileCardEdit(from: current, to: $0)
-                        let timed = try SceneTiming.reanchorTimeEdits(
-                            from: current, to: cards
-                        )
-                        let reanchored =
-                        VideoTimelineEditor.reanchorChangedContentEffectTimes(
-                            from: store.project(id: projectID) ?? project,
-                            to: timed
-                        )
-                        store.replaceProject(VideoTimelineEditor.remapContentLayers(reanchored))
-                    } catch { store.errorMessage = error.localizedDescription }
-                }
-            )
+            let projectBinding = projectBinding(for: project)
 
             VStack(spacing: 0) {
                 HStack {
@@ -94,6 +77,30 @@ struct ProjectWorkspaceView: View {
                 systemImage: "exclamationmark.triangle"
             )
         }
+    }
+
+    /// Uses the same value-edit pipeline for every native inspector. Click time
+    /// edits reanchor before remapping and invalid edits leave the stored project intact.
+    func projectBinding(for fallback: DemoProject) -> Binding<DemoProject> {
+        Binding(
+            get: { store.project(id: projectID) ?? fallback },
+            set: {
+                do {
+                    let current = store.project(id: projectID) ?? fallback
+                    let cards = try DemoEffectEditor.reconcileCardEdit(from: current, to: $0)
+                    let cues = try ClickCueEditor.reconcileTimeEdits(from: current, to: cards)
+                    let timed = try SceneTiming.reanchorTimeEdits(
+                        from: current, to: cues
+                    )
+                    let reanchored =
+                    try VideoTimelineEditor.reanchorChangedContentEffectTimes(
+                        from: store.project(id: projectID) ?? fallback,
+                        to: timed
+                    )
+                    store.replaceProject(VideoTimelineEditor.remapContentLayers(reanchored))
+                } catch { store.errorMessage = error.localizedDescription }
+            }
+        )
     }
 }
 

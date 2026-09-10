@@ -391,6 +391,9 @@ final class TimelineAudioTests: XCTestCase {
             let project = try XCTUnwrap(store.project(id: initial.id))
             let row = try XCTUnwrap(TimelineTrackLayout.rows(in: project).firstIndex { $0.kind == .narration })
             let y = 32.0 + Double(row) * 44 + 19
+            // The resizable preview may leave this row below the visible viewport.
+            try scrollAudioRow(canvas, centerY: y)
+            try await Task.sleep(for: .milliseconds(150))
             let selected = canvas.convert(NSPoint(x: 190, y: canvas.isFlipped ? y : canvas.bounds.height - y), to: nil)
             sendMouse(.leftMouseDown, at: selected, window: window)
             sendMouse(.leftMouseUp, at: selected, window: window)
@@ -400,6 +403,8 @@ final class TimelineAudioTests: XCTestCase {
                 ($0.documentView?.bounds.width ?? 0) > $0.contentSize.width + 50
                     && ($0.documentView?.bounds.height ?? 0) > 150
             }?.documentView)
+            try scrollAudioRow(canvas, centerY: y)
+            try await Task.sleep(for: .milliseconds(150))
             try snapshot(view, name: "audio-panel-\(Int(width))")
             let start = canvas.convert(NSPoint(x: 100, y: canvas.isFlipped ? y : canvas.bounds.height - y), to: nil)
             sendMouse(.leftMouseDown, at: start, window: window)
@@ -438,6 +443,22 @@ final class TimelineAudioTests: XCTestCase {
                 _ = try store.undo(projectID: project.id)
             }
         }
+    }
+
+    /// Scrolls the outer layer viewport; the nested horizontal canvas cannot scroll vertically itself.
+    private func scrollAudioRow(_ canvas: NSView, centerY: CGFloat) throws {
+        var ancestor = canvas.superview
+        while let current = ancestor {
+            if let scroll = current as? NSScrollView, scroll.hasVerticalScroller,
+               let document = scroll.documentView {
+                let row = canvas.convert(NSPoint(x: 0, y: canvas.isFlipped ? centerY : canvas.bounds.height - centerY),
+                    to: document)
+                document.scroll(NSPoint(x: 0, y: max(0, row.y - scroll.contentSize.height / 2)))
+                return
+            }
+            ancestor = current.superview
+        }
+        XCTFail("Missing vertical timeline viewport.")
     }
 
     /// Sends synthetic pointer events only to the isolated test window.

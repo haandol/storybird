@@ -159,6 +159,11 @@ Read these before changing capture, persistence, or export behavior.
 - **Compact windows change navigation, not reachability.** Below the wide-layout
   threshold, hide the project sidebar automatically and move the timeline
   inspector into a sheet. Playback and every layer action remain reachable.
+- **Preview space is a local view choice.** Start with an empty video area,
+  allow preview display and repeated hiding, and give hidden preview space to
+  timeline layers. Dragging the boundary resizes the viewports, not layer rows.
+  Keep playback and layer scrolling reachable in both window layouts without
+  changing project data, revision, or undo.
 - **Timeline rows are a view of independent layers.** Click Cue groups, subtitles,
   audio, and effects reuse non-overlapping rows by default. Each kind's disclosure
   control toggles individual rows without changing project data, revision, or undo.

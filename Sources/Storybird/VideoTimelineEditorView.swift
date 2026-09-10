@@ -3,144 +3,6 @@ import AVKit
 import StorybirdCore
 import SwiftUI
 
-private final class VideoTimeObserverBox: @unchecked Sendable {
-    weak var player: AVPlayer?
-    var token: Any?
-
-    deinit {
-        if let token {
-            player?.removeTimeObserver(token)
-        }
-    }
-}
-
-private struct VideoPlayerSurface: NSViewRepresentable {
-    let player: AVPlayer
-
-    /// Creates a stable AppKit player surface while Storybird owns playback controls.
-    func makeNSView(context: Context) -> AVPlayerView {
-        let view = AVPlayerView()
-        view.player = player
-        view.controlsStyle = .none
-        view.videoGravity = .resizeAspect
-        return view
-    }
-
-    /// Keeps the reusable AppKit view attached to the current project player.
-    func updateNSView(_ view: AVPlayerView, context: Context) {
-        if view.player !== player {
-            view.player = player
-        }
-    }
-
-    /// Detaches media resources when the project view leaves the SwiftUI tree.
-    static func dismantleNSView(
-        _ view: AVPlayerView,
-        coordinator: ()
-    ) {
-        view.player = nil
-    }
-}
-
-@MainActor
-final class VideoPlaybackModel: ObservableObject {
-    @Published private(set) var currentTime: Double = 0
-    @Published private(set) var isPlaying = false
-    @Published private(set) var duration: Double
-    @Published private(set) var errorMessage: String?
-
-    let player: AVPlayer
-    private let timeObserver = VideoTimeObserverBox()
-    private var rebuildTask: Task<Void, Never>?
-    private var rebuildID = UUID()
-
-    /// Creates one player whose periodic observer drives every preview layer on the same clock.
-    init(url: URL, project: DemoProject) {
-        duration = max(project.timelineDuration, 0)
-        player = AVPlayer()
-        timeObserver.player = player
-        timeObserver.token = player.addPeriodicTimeObserver(
-            forInterval: CMTime(value: 1, timescale: 30),
-            queue: .main
-        ) { [weak self] time in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                self.currentTime = min(
-                    max(CMTimeGetSeconds(time), 0),
-                    self.duration
-                )
-                self.isPlaying = self.player.rate != 0
-            }
-        }
-        rebuild(url: url, project: project)
-    }
-
-    /// Replaces the current composition only if this is still the newest load.
-    /// Cancelled/stale loads cannot restore obsolete audio or an emptied timeline.
-    func rebuild(url: URL, project: DemoProject) {
-        rebuildTask?.cancel()
-        let requestID = UUID()
-        rebuildID = requestID
-        let resumeTime = min(currentTime, project.timelineDuration)
-        errorMessage = nil
-        guard !project.clips.isEmpty else {
-            player.pause()
-            player.replaceCurrentItem(with: nil)
-            duration = 0
-            currentTime = 0
-            isPlaying = false
-            return
-        }
-        rebuildTask = Task {
-            do {
-                let result = try await EditedVideoAssetBuilder.build(
-                    project: project,
-                    sourceURL: url
-                )
-                try Task.checkCancellation()
-                guard rebuildID == requestID else { return }
-                let item = AVPlayerItem(asset: result.asset)
-                AmplifiedAudioFiles.retainLeases(from: result.asset, on: item)
-                item.audioMix = result.audioMix
-                player.replaceCurrentItem(with: item)
-                duration = max(result.duration, 0)
-                seek(to: resumeTime)
-            } catch {
-                guard rebuildID == requestID, !Task.isCancelled else { return }
-                player.pause()
-                player.replaceCurrentItem(with: nil)
-                duration = 0
-                currentTime = 0
-                isPlaying = false
-                errorMessage =
-                    "The edited preview could not be composed: \(error.localizedDescription)"
-            }
-        }
-    }
-
-    /// Toggles the raw recording while keeping the overlay clock tied to player time.
-    func togglePlayback() {
-        if player.rate == 0 {
-            player.play()
-            isPlaying = true
-        } else {
-            player.pause()
-            isPlaying = false
-        }
-    }
-
-    /// Seeks the video and overlay preview to one bounded project-time value.
-    func seek(to seconds: Double) {
-        let bounded = min(max(seconds, 0), duration)
-        player.seek(
-            to: CMTime(seconds: bounded, preferredTimescale: 600),
-            toleranceBefore: .zero,
-            toleranceAfter: .zero
-        )
-        currentTime = bounded
-    }
-}
-
 private enum TimelineLayerSelection: Equatable {
     case clip(UUID)
     case click(UUID)
@@ -356,6 +218,7 @@ struct VideoTimelineEditorView: View {
     @State private var selection: TimelineLayerSelection?
     @State private var isInspectorPresented = false
     @State private var isPlacingClick = false
+    @State private var previewLayout = TimelinePreviewLayout()
     @State private var showAudioComposer = false
     @StateObject private var audioModel = TimelineAudioModel()
     @State private var editingNarration: NarrationClip?
@@ -423,12 +286,20 @@ struct VideoTimelineEditorView: View {
     }
 
     var body: some View {
-        GeometryReader { proxy in
-            let timelineHeight = min(360, max(160, proxy.size.height * 0.45))
-            if proxy.size.width < 820 {
-                compactLayout(timelineHeight: timelineHeight)
+        Group {
+            if let message = playback.errorMessage {
+                ContentUnavailableView(
+                    "Preview unavailable", systemImage: "video.slash",
+                    description: Text(message)
+                )
             } else {
-                regularLayout(timelineHeight: timelineHeight)
+                GeometryReader { proxy in
+                    if proxy.size.width < 820 {
+                        compactLayout
+                    } else {
+                        regularLayout(height: proxy.size.height)
+                    }
+                }
             }
         }
         .sheet(item: $editingNarration) { layer in
@@ -448,6 +319,8 @@ struct VideoTimelineEditorView: View {
             audioModel.cancel()
             dragRows = nil
             expandedTrackKinds = []
+            previewLayout = TimelinePreviewLayout()
+            isPlacingClick = false
         }
         .onChange(of: isDraggingLayer) { _, active in
             if !active {
@@ -469,24 +342,23 @@ struct VideoTimelineEditorView: View {
         }
     }
 
-    private func regularLayout(timelineHeight: CGFloat) -> some View {
+    /// Gives AppKit's horizontal split an explicit height instead of its content's ideal size.
+    private func regularLayout(height: CGFloat) -> some View {
         HSplitView {
-            VStack(spacing: 0) {
-                playerStage
-                Divider()
-                timeline(height: timelineHeight)
-            }
-            .frame(minWidth: 460)
+            editingWorkspace(compact: false)
+                .frame(minWidth: 460)
+                .frame(height: height)
 
             Group {
                 if showAudioComposer { audioPanel }
                 else { inspector }
             }
             .frame(minWidth: 250, idealWidth: 280, maxWidth: 340)
+            .frame(height: height)
         }
     }
 
-    private func compactLayout(timelineHeight: CGFloat) -> some View {
+    private var compactLayout: some View {
         VStack(spacing: 0) {
             HStack {
                 Spacer()
@@ -501,13 +373,7 @@ struct VideoTimelineEditorView: View {
             .padding(.vertical, 8)
             .background(.bar)
 
-            playerStage
-            Divider()
-            if showAudioComposer {
-                audioPanel.frame(height: 190)
-                Divider()
-            }
-            timeline(height: timelineHeight)
+            editingWorkspace(compact: true)
         }
     }
 
@@ -515,132 +381,154 @@ struct VideoTimelineEditorView: View {
         TimelineAudioPanel(store: store, model: audioModel, projectID: project.id, playhead: playback.currentTime)
     }
 
+    /// Budgets the compact audio panel before the split, preserving playback and layer access.
+    private func editingWorkspace(compact: Bool) -> some View {
+        GeometryReader { proxy in
+            let audioHeight: CGFloat = compact && showAudioComposer
+                ? min(190, max(80, proxy.size.height * 0.24)) : 0
+            let toolsHeight: CGFloat = selectedNarrationID == nil ? 160 : 204
+            TimelinePreviewSplitView(
+                layout: $previewLayout,
+                minimumTimelineHeight: toolsHeight + 48 + audioHeight
+            ) {
+                playerStage
+            } timeline: {
+                VStack(spacing: 0) {
+                    playbackControls.frame(height: 48)
+                    if compact && showAudioComposer {
+                        audioPanel.frame(height: audioHeight)
+                        Divider()
+                    }
+                    timeline
+                }
+            }
+        }
+    }
+
     private var playerStage: some View {
-        VStack(spacing: 10) {
-            GeometryReader { proxy in
-                let frame = AspectFit.frame(
-                    contentSize: CGSize(
-                        width: project.recording?.width ?? 1,
-                        height: project.recording?.height ?? 1
-                    ),
-                    in: CGRect(origin: .zero, size: proxy.size)
-                )
+        GeometryReader { proxy in
+            let frame = AspectFit.frame(
+                contentSize: CGSize(
+                    width: project.recording?.width ?? 1,
+                    height: project.recording?.height ?? 1
+                ),
+                in: CGRect(origin: .zero, size: proxy.size)
+            )
+            ZStack(alignment: .topLeading) {
+                Color(nsColor: .controlBackgroundColor)
                 ZStack(alignment: .topLeading) {
-                    Color(nsColor: .controlBackgroundColor)
-                    ZStack(alignment: .topLeading) {
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(.black)
-                            .frame(
-                                width: frame.width,
-                                height: frame.height
-                            )
-                            .position(x: frame.midX, y: frame.midY)
-                        VideoPlayerSurface(player: playback.player)
-                            .frame(
-                                width: frame.width,
-                                height: frame.height
-                            )
-                            .position(x: frame.midX, y: frame.midY)
-                            .clipShape(
-                                RoundedRectangle(cornerRadius: 10)
-                            )
-                        VideoOverlayCanvas(
-                            project: project,
-                            time: playback.currentTime,
-                            imageFrame: frame
-                        )
-                        if isPlacingClick {
-                            Rectangle()
-                                .fill(.clear)
-                                .contentShape(Rectangle())
-                                .frame(
-                                    width: frame.width,
-                                    height: frame.height
-                                )
-                                .position(x: frame.midX, y: frame.midY)
-                                .gesture(
-                                    SpatialTapGesture()
-                                        .onEnded { value in
-                                            addClickCue(
-                                                at: value.location,
-                                                in: frame.size
-                                            )
-                                        }
-                                )
-                        }
-                    }
-                    .scaleEffect(
-                        CGFloat(activeCamera.scale),
-                        anchor: UnitPoint(
-                            x: CGFloat(activeCamera.x),
-                            y: CGFloat(activeCamera.y)
-                        )
-                    )
-                    VideoScreenOverlayCanvas(
-                        project: project,
-                        time: playback.currentTime,
-                        imageFrame: frame
-                    )
-                    if isPlacingClick {
-                        Text("Click a point in the video")
-                            .font(.callout.weight(.semibold))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 7)
-                            .background(.regularMaterial, in: Capsule())
-                            .position(
-                                x: proxy.size.width / 2,
-                                y: 34
-                            )
-                    }
-                    if let errorMessage = playback.errorMessage {
-                        ContentUnavailableView(
-                            "Preview unavailable",
-                            systemImage: "video.slash",
-                            description: Text(errorMessage)
-                        )
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(.black)
                         .frame(
                             width: frame.width,
                             height: frame.height
                         )
                         .position(x: frame.midX, y: frame.midY)
-                        .background(.regularMaterial)
+                    VideoPlayerSurface(player: playback.player)
+                        .frame(
+                            width: frame.width,
+                            height: frame.height
+                        )
+                        .position(x: frame.midX, y: frame.midY)
+                        .clipShape(
+                            RoundedRectangle(cornerRadius: 10)
+                        )
+                    if isPlacingClick {
+                        Rectangle()
+                            .fill(.clear)
+                            .contentShape(Rectangle())
+                            .frame(
+                                width: frame.width,
+                                height: frame.height
+                            )
+                            .position(x: frame.midX, y: frame.midY)
+                            .gesture(
+                                SpatialTapGesture()
+                                    .onEnded { value in
+                                        addClickCue(
+                                            at: value.location,
+                                            in: frame.size
+                                        )
+                                    }
+                            )
                     }
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 16)
-
-            HStack(spacing: 12) {
-                Button {
-                    playback.togglePlayback()
-                } label: {
-                    Image(
-                        systemName: playback.isPlaying
-                            ? "pause.fill"
-                            : "play.fill"
+                .scaleEffect(
+                    CGFloat(activeCamera.scale),
+                    anchor: UnitPoint(
+                        x: (frame.minX + CGFloat(activeCamera.x) * frame.width) / max(proxy.size.width, 1),
+                        y: (frame.minY + CGFloat(activeCamera.y) * frame.height) / max(proxy.size.height, 1)
                     )
+                )
+                VideoOverlayCanvas(
+                    project: project, time: playback.currentTime,
+                    imageFrame: frame, camera: activeCamera
+                )
+                VideoScreenOverlayCanvas(
+                    project: project,
+                    time: playback.currentTime,
+                    imageFrame: frame
+                )
+                if isPlacingClick {
+                    Text("Click a point in the video")
+                        .font(.callout.weight(.semibold))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(.regularMaterial, in: Capsule())
+                        .position(
+                            x: proxy.size.width / 2,
+                            y: 34
+                        )
                 }
-                .buttonStyle(.borderedProminent)
-
-                Slider(
-                    value: Binding(
-                        get: { playback.currentTime },
-                        set: { playback.seek(to: $0) }
-                    ),
-                    in: 0...max(playback.duration, 0.001)
-                )
-
-                Text(
-                    "\(Self.time(playback.currentTime)) / \(Self.time(playback.duration))"
-                )
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
-                .frame(minWidth: 104, alignment: .trailing)
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 12)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    }
+
+    private var playbackControls: some View {
+        HStack(spacing: 12) {
+            Button {
+                previewLayout.toggleVisibility()
+                if previewLayout.visibility == .hidden { isPlacingClick = false }
+            } label: {
+                Label(
+                    previewLayout.visibility == .hidden ? "Show Preview" : "Hide Preview",
+                    systemImage: previewLayout.visibility == .hidden ? "video" : "video.slash"
+                )
+            }
+            .accessibilityIdentifier("timeline-preview-toggle")
+            Button {
+                playback.togglePlayback()
+            } label: {
+                Image(
+                    systemName: playback.isPlaying
+                        ? "pause.fill"
+                        : "play.fill"
+                )
+            }
+            .buttonStyle(.borderedProminent)
+            .accessibilityLabel(playback.isPlaying ? "Pause" : "Play")
+            .accessibilityIdentifier("timeline-playback-toggle")
+
+            Slider(
+                value: Binding(
+                    get: { playback.currentTime },
+                    set: { playback.seek(to: $0) }
+                ),
+                in: 0...max(playback.duration, 0.001)
+            )
+            .accessibilityLabel("Playhead")
+
+            Text(
+                "\(Self.time(playback.currentTime)) / \(Self.time(playback.duration))"
+            )
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.secondary)
+            .frame(minWidth: 104, alignment: .trailing)
+        }
+        .padding(.horizontal, 16)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
     }
 
@@ -653,7 +541,7 @@ struct VideoTimelineEditorView: View {
 
     /// Budgets toolbar, padding, and the scroll viewport together so the final
     /// row stays reachable even below the compact layout's inspector control.
-    private func timeline(height: CGFloat) -> some View {
+    private var timeline: some View {
         VStack(alignment: .leading, spacing: 10) {
             timelineToolbar
                 .fixedSize(horizontal: false, vertical: true)
@@ -681,7 +569,7 @@ struct VideoTimelineEditorView: View {
             }
         }
         .padding(14)
-        .frame(height: height, alignment: .top)
+        .frame(maxHeight: .infinity, alignment: .top)
         .background(.bar.opacity(0.65))
     }
 
@@ -690,6 +578,10 @@ struct VideoTimelineEditorView: View {
             HStack(spacing: 8) {
                 Text("Timeline layers")
                     .font(.headline)
+                ClickCueReviewMenu(clicks: project.clicks) { id in
+                    selection = .click(id)
+                    isInspectorPresented = true
+                }
                 Button {
                     showAudioComposer.toggle()
                 } label: {
@@ -791,6 +683,7 @@ struct VideoTimelineEditorView: View {
                 Button {
                     isPlacingClick.toggle()
                     if isPlacingClick {
+                        previewLayout.visibility = .visible
                         playback.player.pause()
                     }
                 } label: {
@@ -988,7 +881,9 @@ struct VideoTimelineEditorView: View {
             guard let clip = project.clips.first(where: { $0.id == id }) else { return row.title }
             return clip.kind == .freeze ? "Freeze" : "Clip · \(Self.speed(clip.playbackRate))"
         case .click:
-            return project.clicks.first(where: { $0.id == id })?.button == .right ? "Right click" : "Click"
+            guard let click = project.clicks.first(where: { $0.id == id }) else { return row.title }
+            let name = click.button == .right ? "Right click" : "Click"
+            return click.isComplete ? name : "\(name) · Incomplete"
         case .subtitle:
             let text = project.subtitles.first(where: { $0.id == id })?.text ?? ""
             return text.isEmpty ? row.title : text
@@ -1596,10 +1491,11 @@ struct VideoTimelineEditorView: View {
     }
 }
 
-private struct VideoOverlayCanvas: View {
+struct VideoOverlayCanvas: View {
     let project: DemoProject
     let time: Double
     let imageFrame: CGRect
+    var camera: VideoCameraPresentation = .identity
 
     var body: some View {
         let metrics = VideoOverlayMetrics(frameSize: imageFrame.size)
@@ -1611,7 +1507,7 @@ private struct VideoOverlayCanvas: View {
                 let presentation = VideoOverlayPresentation.clickRing(
                     for: click,
                     at: time,
-                    camera: .identity
+                    camera: camera
                 )
                 let point = VideoOverlayLayout.clickPoint(
                     x: presentation.point.x,
@@ -1625,14 +1521,14 @@ private struct VideoOverlayCanvas: View {
                         Circle()
                             .stroke(
                                 Color(hex: click.indicator.colorHex),
-                                lineWidth: 3
+                                lineWidth: 3 * camera.scale
                             )
                     )
                     .frame(
                         width: metrics.clickRingDiameter * click.indicator.size
-                            * CGFloat(presentation.diameterScale),
+                            * CGFloat(presentation.diameterScale * camera.scale),
                         height: metrics.clickRingDiameter * click.indicator.size
-                            * CGFloat(presentation.diameterScale)
+                            * CGFloat(presentation.diameterScale * camera.scale)
                     )
                     .opacity(
                         click.indicator.opacity
@@ -1651,7 +1547,8 @@ private struct VideoOverlayCanvas: View {
                 VideoClickCaptionOverlay(
                     click: click,
                     imageFrame: imageFrame,
-                    metrics: metrics
+                    metrics: metrics,
+                    camera: camera
                 )
             }
         }
@@ -1659,7 +1556,7 @@ private struct VideoOverlayCanvas: View {
     }
 }
 
-private struct VideoScreenOverlayCanvas: View {
+struct VideoScreenOverlayCanvas: View {
     let project: DemoProject
     let time: Double
     let imageFrame: CGRect
@@ -1848,6 +1745,7 @@ private struct VideoClickCaptionOverlay: View {
     let click: TimedPointerClick
     let imageFrame: CGRect
     let metrics: VideoOverlayMetrics
+    let camera: VideoCameraPresentation
     @State private var labelSize = CGSize(
         width: 1,
         height: 1
@@ -1867,7 +1765,8 @@ private struct VideoClickCaptionOverlay: View {
             style: click.captionStyle,
             fontSize: VideoOverlayPresentation.fontSize(
                 style: click.captionStyle,
-                metrics: metrics
+                metrics: metrics,
+                contentScale: camera.scale
             ),
             metrics: metrics
         )
@@ -1884,23 +1783,27 @@ private struct VideoClickCaptionOverlay: View {
         .onPreferenceChange(VideoCaptionSizeKey.self) {
             labelSize = $0
         }
+        .scaleEffect(captionScale)
         .position(
-            x: captionOrigin.x + labelSize.width / 2,
-            y: captionOrigin.y + labelSize.height / 2
+            x: captionOrigin.x + fittedLabelSize.width / 2,
+            y: captionOrigin.y + fittedLabelSize.height / 2
         )
     }
 
+    private var captionScale: CGFloat {
+        VideoOverlayLayout.captionFitScale(labelSize: labelSize, in: imageFrame, metrics: metrics)
+    }
+
+    private var fittedLabelSize: CGSize {
+        CGSize(width: labelSize.width * captionScale, height: labelSize.height * captionScale)
+    }
+
     private var captionOrigin: CGPoint {
-        let x = click.description.position == .custom
-            ? click.description.x
-            : click.x
-        let y = click.description.position == .custom
-            ? click.description.y
-            : click.y
+        let point = VideoOverlayPresentation.descriptionPoint(for: click, camera: camera)
         return VideoOverlayLayout.captionOrigin(
-            labelSize: labelSize,
-            x: x,
-            y: y,
+            labelSize: fittedLabelSize,
+            x: point.x,
+            y: point.y,
             in: imageFrame,
             axis: .topDown,
             metrics: metrics
@@ -1953,6 +1856,11 @@ private struct ClickLayerInspector: View {
     var body: some View {
         Form {
             Section("Click") {
+                Label(
+                    click.isComplete ? "Complete" : ClickCueReviewMenu.missingText(click),
+                    systemImage: click.isComplete ? "checkmark.circle" : "exclamationmark.triangle"
+                )
+                .foregroundStyle(click.isComplete ? Color.secondary : .orange)
                 TextField("Time", value: $click.time, format: .number)
                 Picker("Button", selection: $click.button) {
                     ForEach(PointerButton.allCases) { button in

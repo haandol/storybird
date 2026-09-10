@@ -1103,7 +1103,7 @@ final class StorybirdCoreTests: XCTestCase {
         draft.effects[0] = .spotlight(value)
 
         let reanchored =
-            VideoTimelineEditor.reanchorChangedContentEffectTimes(
+            try VideoTimelineEditor.reanchorChangedContentEffectTimes(
                 from: current,
                 to: draft
             )
@@ -1127,7 +1127,7 @@ final class StorybirdCoreTests: XCTestCase {
         )
     }
 
-    func test_videoTimeline_invalidEffectTimingEditPreservesPreviousRange() {
+    func test_videoTimeline_invalidEffectTimingEditRejectsWholeChange() {
         let first = VideoClip(sourceStart: 0, sourceEnd: 2)
         let second = VideoClip(sourceStart: 2, sourceEnd: 4)
         var current = DemoProject(
@@ -1171,19 +1171,11 @@ final class StorybirdCoreTests: XCTestCase {
             value.endScale = 2
             draft.effects[0] = .panZoom(value)
 
-            let reanchored =
-                VideoTimelineEditor.reanchorChangedContentEffectTimes(
-                    from: current,
-                    to: draft
-                )
-            let saved = VideoTimelineEditor.remapContentLayers(reanchored)
-
-            XCTAssertEqual(saved.effects[0].startTime, 0.5, accuracy: 0.001)
-            XCTAssertEqual(saved.effects[0].endTime, 1.5, accuracy: 0.001)
-            guard case let .panZoom(savedValue) = saved.effects[0] else {
-                return XCTFail("Expected pan zoom")
+            XCTAssertThrowsError(try VideoTimelineEditor.reanchorChangedContentEffectTimes(
+                from: current, to: draft
+            )) { error in
+                XCTAssertEqual(error as? VideoProjectValidationError, .invalidEffect(value.id))
             }
-            XCTAssertEqual(savedValue.endScale, 2, accuracy: 0.001)
         }
     }
 

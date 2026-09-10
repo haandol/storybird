@@ -944,6 +944,12 @@ public enum SubtitlePosition: String, Codable, CaseIterable, Identifiable, Hasha
     }
 }
 
+extension CodingUserInfoKey {
+    /// Edit requests reject invalid raw values before legacy decoding can clamp
+    /// them. Library reads leave this unset to retain their compatibility rules.
+    public static let strictProjectEdits = CodingUserInfoKey(rawValue: "strictProjectEdits")!
+}
+
 public struct TextOverlayStyle: Codable, Hashable, Sendable {
     public var backgroundHex: String
     public var foregroundHex: String
@@ -981,21 +987,32 @@ public struct TextOverlayStyle: Codable, Hashable, Sendable {
             String.self,
             forKey: .backgroundHex
         ) ?? Self.default.backgroundHex
-        backgroundOpacity = Self.clampedOpacity(
-            try container.decodeIfPresent(
-                Double.self,
-                forKey: .backgroundOpacity
-            ) ?? Self.default.backgroundOpacity
-        )
+        let decodedOpacity = try container.decodeIfPresent(
+            Double.self,
+            forKey: .backgroundOpacity
+        ) ?? Self.default.backgroundOpacity
         foregroundHex = try container.decodeIfPresent(
             String.self,
             forKey: .foregroundHex
         ) ?? Self.default.foregroundHex
-        fontSize = max(
-            try container.decodeIfPresent(Double.self, forKey: .fontSize)
-                ?? Self.default.fontSize,
-            1
-        )
+        let decodedFontSize = try container.decodeIfPresent(Double.self, forKey: .fontSize)
+            ?? Self.default.fontSize
+        if decoder.userInfo[.strictProjectEdits] as? Bool == true {
+            guard decodedOpacity.isFinite, (0...1).contains(decodedOpacity) else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .backgroundOpacity, in: container,
+                    debugDescription: "Background opacity must be finite and between 0 and 1."
+                )
+            }
+            guard decodedFontSize.isFinite, decodedFontSize >= 1 else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .fontSize, in: container,
+                    debugDescription: "Font size must be finite and at least 1."
+                )
+            }
+        }
+        backgroundOpacity = Self.clampedOpacity(decodedOpacity)
+        fontSize = max(decodedFontSize, 1)
     }
 
     private static func clampedOpacity(_ value: Double) -> Double {

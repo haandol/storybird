@@ -88,9 +88,15 @@ parity audit. Run the focused command in [CONTRIBUTING](../CONTRIBUTING.md#mcp-s
 and `swift test` before declaring the change complete. Recording/pointer changes
 also require the signed native smoke checks.
 
-The 2026-09-10 repository review found implementation paths for the supported
-groups above. It did not test an installed companion, real permissions, real
-microphone input, every property combination or subjective speech quality.
-At the start of that review, the in-progress authoring ADR was Proposed in the
-working tree. This inventory does not promote it or approve its preview layout
-decision.
+`AuthoringMCPProtocolTests` uses the production service and SDK client to exercise
+project creation, discovery, clip/Cue/subtitle/effect editing, PNG inspection,
+invalid and stale edits, strict full replacement, compound effect-retiming rejection,
+undo/redo and MP4 export.
+`MCPAudioProtocolTests` covers the complementary TTS and overlapping-audio flow.
+These tests also check the advertised schemas and reject unknown tools or
+arguments before app IPC. Frame timing and rendered boundaries are measured
+separately by `PreviewFrameContractTests`.
+
+This inventory does not claim real permission prompts, microphone input, every
+property combination or subjective speech quality were tested. Native-only
+setup boundaries remain as listed above.

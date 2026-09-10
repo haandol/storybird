@@ -39,7 +39,8 @@ public enum VideoProjectValidationError: LocalizedError, Equatable {
 }
 
 public enum VideoProjectValidator {
-    /// Rejects invalid time and coordinate metadata before it can replace a persisted project.
+    /// Rejects invalid time, coordinate and overlay style metadata before atomic
+    /// publication, including full-project edits that bypass narrow tool checks.
     public static func validate(_ project: DemoProject) throws {
         try NarrationDraft.validate(project.narrationDrafts)
         guard project.sourceAudioVolume.isFinite, project.sourceAudioVolume >= 0 else {
@@ -115,19 +116,25 @@ public enum VideoProjectValidator {
                   (0...1).contains(click.y),
                   click.time >= previousClickTime,
                   isHexColor(click.indicator.colorHex),
-                  click.indicator.startTime <= click.time,
-                  click.indicator.endTime > click.time,
-                  click.description.startTime <= click.time,
-                  click.description.endTime > click.time,
-                  click.cueSubtitle.startTime <= click.time,
-                  click.cueSubtitle.endTime > click.time,
-                  click.indicator.endTime <= timelineDuration,
-                  click.description.endTime <= timelineDuration,
-                  click.cueSubtitle.endTime <= timelineDuration,
-                  isHexColor(click.description.style.backgroundHex),
-                  isHexColor(click.description.style.foregroundHex),
-                  isHexColor(click.cueSubtitle.style.backgroundHex),
-                  isHexColor(click.cueSubtitle.style.foregroundHex)
+                  click.indicator.size.isFinite,
+                  click.indicator.size > 0,
+                  click.indicator.opacity.isFinite,
+                  (0...1).contains(click.indicator.opacity),
+                  isCueWindow(
+                      start: click.indicator.startTime, end: click.indicator.endTime,
+                      clickTime: click.time, duration: timelineDuration
+                  ),
+                  isCueWindow(
+                      start: click.description.startTime, end: click.description.endTime,
+                      clickTime: click.time, duration: timelineDuration
+                  ),
+                  isCueWindow(
+                      start: click.cueSubtitle.startTime, end: click.cueSubtitle.endTime,
+                      clickTime: click.time, duration: timelineDuration
+                  ),
+                  normalizedPoint(x: click.description.x, y: click.description.y),
+                  isTextOverlayStyle(click.description.style),
+                  isTextOverlayStyle(click.cueSubtitle.style)
             else {
                 throw VideoProjectValidationError.invalidClick(click.id)
             }
@@ -171,8 +178,7 @@ public enum VideoProjectValidator {
                   !subtitle.text.trimmingCharacters(
                       in: .whitespacesAndNewlines
                   ).isEmpty,
-                  isHexColor(subtitle.style.backgroundHex),
-                  isHexColor(subtitle.style.foregroundHex)
+                  isTextOverlayStyle(subtitle.style)
             else {
                 throw VideoProjectValidationError.invalidSubtitle(subtitle.id)
             }
@@ -253,6 +259,8 @@ public enum VideoProjectValidator {
                     width: value.width,
                     height: value.height
                 ),
+                    value.dimOpacity.isFinite,
+                    (0...1).contains(value.dimOpacity),
                     !spotlightRanges.contains(where: { overlaps($0, range) })
                 else {
                     throw VideoProjectValidationError.invalidEffect(effect.id)
@@ -273,7 +281,9 @@ public enum VideoProjectValidator {
             case let .title(value):
                 guard !value.title.trimmingCharacters(
                     in: .whitespacesAndNewlines
-                ).isEmpty else {
+                ).isEmpty,
+                    isTextOverlayStyle(value.style)
+                else {
                     throw VideoProjectValidationError.invalidEffect(effect.id)
                 }
             case let .cta(value):
@@ -283,6 +293,7 @@ public enum VideoProjectValidator {
                     !value.buttonLabel.trimmingCharacters(
                         in: .whitespacesAndNewlines
                     ).isEmpty,
+                    isTextOverlayStyle(value.style),
                     abs(value.endTime - duration) <= 0.001
                 else {
                     throw VideoProjectValidationError.invalidEffect(effect.id)
@@ -300,6 +311,28 @@ public enum VideoProjectValidator {
                 throw VideoProjectValidationError.invalidSuggestion(suggestion.id)
             }
         }
+    }
+
+    /// Keeps every Cue component on the project clock and containing its click.
+    /// Explicit finite/lower bounds also reject decoded values constructors never checked.
+    private static func isCueWindow(
+        start: Double,
+        end: Double,
+        clickTime: Double,
+        duration: Double
+    ) -> Bool {
+        start.isFinite && end.isFinite
+            && start >= 0 && start <= clickTime
+            && clickTime < end && end <= duration
+    }
+
+    /// Enforces the same supported text style for Cue text, independent subtitles
+    /// and title/CTA cards before publication; mutable properties cannot rely on defaults.
+    private static func isTextOverlayStyle(_ style: TextOverlayStyle) -> Bool {
+        isHexColor(style.backgroundHex) && isHexColor(style.foregroundHex)
+            && style.fontSize.isFinite && style.fontSize >= 1
+            && style.backgroundOpacity.isFinite
+            && (0...1).contains(style.backgroundOpacity)
     }
 
     /// Rejects persisted content-effect anchors that outlive their owning clip or

@@ -69,7 +69,7 @@ not control every Settings or window action.
 | `storybird_update_click` | Edits the complete Cue: timing, indicator, description, subtitle, position, and styling |
 | `storybird_upsert_subtitle` | Adds or updates a timed subtitle, including text color and font size |
 | `storybird_preview_project` | Opens the native video timeline editor |
-| `storybird_render_preview` | Returns a composited project-resolution PNG, visible layer IDs, and incomplete click IDs |
+| `storybird_render_preview` | Returns a composited project-resolution PNG, its actual frame time, visible layer IDs, and incomplete click IDs |
 | `storybird_list_audio_assets` | Lists reusable project sounds with measured duration, peak and waveform |
 | `storybird_place_audio_asset` | Places an asset source range as a new independent audio layer |
 | `storybird_update_audio_layer` | Atomically edits start, source trim, duration, gain, mute and linear fades |
@@ -219,6 +219,24 @@ complete model and use `storybird_replace_project` with the latest revision.
 Preserve unrelated fields, IDs, source media and relationships. Draft states are
 app-owned and cannot be rewritten through this endpoint. Never edit library
 files or project assets directly.
+
+For `storybird_update_click`, changing only `time` keeps the indicator,
+description and subtitle windows fixed. They must all contain the new time.
+To move the entire Cue, supply `time` and all three start/end pairs explicitly;
+Storybird reanchors the Cue to the owning clip and commits once.
+Font sizes are finite numbers of at least 1, and opacity is between 0 and 1.
+Full replacement rejects invalid raw style values rather than normalizing them.
+Unknown tool arguments, including misspelled field names, are rejected before
+app IPC; correct the request and reuse the unchanged revision.
+An anchored effect's edited interval must fit one playable owner clip. An invalid
+interval rejects accompanying style or scale changes too; the server never silently
+restores the old interval while saving the other fields.
+
+Frame inspection accepts `0 <= time < project duration`. A subframe request
+can resolve to an earlier output frame. The response's `time` is the actual
+rendered project time, and `visible_layer_ids` describes that same frame.
+Successful and failed frame inspection preserve project data, source bytes,
+revision, and undo history.
 
 ### Recording input and multiple versions
 

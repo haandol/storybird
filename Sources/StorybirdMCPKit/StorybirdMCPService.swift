@@ -47,6 +47,11 @@ public struct StorybirdMCPService: Sendable {
             once the user has prepared the local model and voice profile. \
             Screen capture still requires native approval of the selected source. \
             Project editing does not require an active screen-control session. \
+            Resolve scene and layer IDs with storybird_get_edit_context, make targeted edits, \
+            then inspect storybird_render_preview using its returned actual frame time and layer IDs. \
+            Updating only a Cue time preserves its component windows; to move a whole Cue, \
+            supply the indicator, description and subtitle windows together. \
+            Use exact advertised argument names; unknown arguments are rejected without changes. \
             A ready draft survives placement failure: edit the picture or placement and reuse it. \
             Do not infer speech quality from a generated file or waveform alone.
             """,
@@ -77,7 +82,7 @@ public struct StorybirdMCPService: Sendable {
         sourceTools + projectTools + layerTools + voiceTools + draftTools + audioTools + exportTools
     }
 
-    private static let exposedToolNames = Set(toolDefinitions.map(\.name))
+    private static let exposedTools = Dictionary(uniqueKeysWithValues: toolDefinitions.map { ($0.name, $0) })
 
     /// Lists complete audio assets and exposes the same independent layer edits
     /// as the native editor. Sensitive microphone/file selection stays native.
@@ -224,11 +229,16 @@ public struct StorybirdMCPService: Sendable {
         for key in ["time", "indicator_start_time", "indicator_end_time", "description_start_time", "description_end_time", "subtitle_start_time", "subtitle_end_time"] {
             fields[key] = .object(["type": "number", "minimum": 0])
         }
+        fields["time"] = .object([
+            "type": "number", "minimum": 0,
+            "description": "Project seconds. On update, omitted component windows stay fixed and must contain this time. Supply all windows explicitly to move the whole Cue.",
+        ])
         for key in ["x", "y", "description_x", "description_y", "indicator_opacity", "background_opacity", "description_background_opacity", "subtitle_background_opacity"] {
             fields[key] = .object(["type": "number", "minimum": 0, "maximum": 1])
         }
-        for key in ["indicator_size", "description_font_size", "subtitle_font_size"] {
-            fields[key] = .object(["type": "number", "exclusiveMinimum": 0])
+        fields["indicator_size"] = .object(["type": "number", "exclusiveMinimum": 0])
+        for key in ["description_font_size", "subtitle_font_size"] {
+            fields[key] = .object(["type": "number", "minimum": 1])
         }
         return fields
     }
@@ -646,7 +656,7 @@ public struct StorybirdMCPService: Sendable {
             Tool(
                 name: "storybird_render_preview",
                 title: "Render a composited preview frame",
-                description: "Return one project-resolution PNG with the visible Storybird layers at project time.",
+                description: "Return a project-resolution PNG, its actual rendered project time, visible layer IDs and incomplete Cue IDs. Non-frame-aligned requests resolve to a frame; use the returned time for verification. Does not edit the project.",
                 inputSchema: Self.objectSchema(
                     properties: [
                         "project_id": .object(["type": "string"]),
@@ -737,13 +747,18 @@ public struct StorybirdMCPService: Sendable {
     private func callTool(
         _ parameters: CallTool.Parameters
     ) async -> CallTool.Result {
-        guard Self.exposedToolNames.contains(parameters.name) else {
-            return .init(content: [.text(text: "Unknown Storybird tool: \(parameters.name)", annotations: nil, _meta: nil)], isError: true)
+        guard let tool = Self.exposedTools[parameters.name] else {
+            return Self.toolError("Unknown Storybird tool: \(parameters.name)")
+        }
+        let arguments = parameters.arguments ?? [:]
+        if let schema = tool.inputSchema.objectValue,
+           schema["additionalProperties"]?.boolValue == false,
+           let properties = schema["properties"]?.objectValue,
+           let unknown = Set(arguments.keys).subtracting(properties.keys).sorted().first {
+            return Self.toolError("Unknown argument for \(parameters.name): \(unknown). No changes were made.")
         }
         do {
-            let argumentsData = try JSONEncoder().encode(
-                parameters.arguments ?? [:]
-            )
+            let argumentsData = try JSONEncoder().encode(arguments)
             let response = try await client.call(
                 name: parameters.name,
                 argumentsJSON: argumentsData
@@ -763,17 +778,13 @@ public struct StorybirdMCPService: Sendable {
             }
             return .init(content: content, isError: response.isError)
         } catch {
-            return .init(
-                content: [
-                    .text(
-                        text: error.localizedDescription,
-                        annotations: nil,
-                        _meta: nil
-                    ),
-                ],
-                isError: true
-            )
+            return Self.toolError(error.localizedDescription)
         }
+    }
+
+    /// Formats routing and transport failures consistently without any further IPC.
+    private static func toolError(_ message: String) -> CallTool.Result {
+        .init(content: [.text(text: message, annotations: nil, _meta: nil)], isError: true)
     }
 
     /// Builds a closed JSON Schema object for MCP arguments.

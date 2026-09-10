@@ -1,5 +1,14 @@
 # Troubleshooting Storybird
 
+## The preview is blank or the timeline is too short
+
+Project details initially show an empty video area. Click **Show Preview** inside
+it to display the edited picture. **Hide Preview** beside the playback button
+removes that area and expands the timeline; the same button shows it again.
+Drag the horizontal handle above the playback controls to adjust the video and
+timeline heights. Rows keep their height, and extra layers scroll inside the
+timeline. These controls also work in compact windows.
+
 ## A timeline layer is hidden or its drag does not save
 
 Non-overlapping layers share rows within their kind. Use the arrow beside

@@ -3,6 +3,20 @@
 이 문서는 authoring 카테고리의 주요 결정 변경 이력이다. ADR 본문은 현재 상태만
 서술하고, 주요 전환의 시간축은 여기에 최신 순으로 남긴다.
 
+## 2026-09-10 — 기본 빈 영상 화면과 경계 드래그
+
+- **Current ADR**: [timeline-overlay-editor](./0001-timeline-overlay-editor.md)
+- **Change type**: requirement rule change
+- **What**: 기본 숨김 제안을 빈 영상 영역과 타임라인을 함께 표시하는 초기 상태로 바꾼다. 빈 영역에서 실제 미리보기를 켜고, 빈 영역이나 실제 영상 모두 숨길 수 있다. 영상·타임라인 경계를 드래그해 높이를 조절하며 숨김 상태의 타임라인 전체 높이 사용은 유지한다.
+- **Why**: 처음부터 영상 영역의 위치를 파악하고 작업에 맞게 영상과 레이어 사이의 공간을 직접 배분해야 한다. 보기 조절은 프로젝트 수정이나 실행 취소 기록을 만들지 않는다.
+
+## 2026-09-10 — 미리보기 토글과 타임라인 높이 확장
+
+- **Current ADR**: [timeline-overlay-editor](./0001-timeline-overlay-editor.md)
+- **Change type**: requirement rule change
+- **What**: 영상 미리보기의 기본 숨김과 반복 가능한 표시·숨김 토글을 정의한다. 숨김 상태에서는 재생 컨트롤과 열려 있는 편집 패널을 제외한 하단의 남은 높이 전체를 타임라인이 사용한다.
+- **Why**: 영상을 확인한 뒤 다시 레이어 편집 공간을 확보하고, 넓은 창과 좁은 창 모두에서 더 많은 레이어를 볼 수 있어야 한다.
+
 ## 2026-09-10 — 타임라인에서 오디오를 직접 배치하고 편집한다
 
 - **Current ADR**: [timeline-overlay-editor](./0001-timeline-overlay-editor.md)

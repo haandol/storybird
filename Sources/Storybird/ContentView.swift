@@ -271,8 +271,7 @@ struct ContentView: View {
     }
 
     private var canExportVideo: Bool {
-        store.selectedProject?.recording != nil
-            && store.selectedProject?.clips.isEmpty == false
+        VideoExportAvailability.isReady(store.selectedProject)
             && !recorder.isActive
             && !isImporting
             && !isExporting

@@ -321,14 +321,14 @@ public enum VideoTimelineEditor {
     public static func reanchorChangedContentEffectTimes(
         from current: DemoProject,
         to draft: DemoProject
-    ) -> DemoProject {
+    ) throws -> DemoProject {
         var result = draft
         let currentByID = Dictionary(
             uniqueKeysWithValues: current.effects.map { ($0.id, $0) }
         )
-        result.effects = result.effects.map { effect in
+        result.effects = try result.effects.map { effect in
             guard let previous = currentByID[effect.id],
-                  let previousAnchor = effectAnchor(previous),
+                  effectAnchor(previous) != nil,
                   abs(previous.startTime - effect.startTime) > 0.000_001
                     || abs(previous.endTime - effect.endTime) > 0.000_001
             else {
@@ -340,12 +340,7 @@ public enum VideoTimelineEditor {
                   effect.startTime < effect.endTime,
                   effect.endTime <= result.timelineDuration
             else {
-                return effectWithTimesAndAnchor(
-                    effect,
-                    previous.startTime,
-                    previous.endTime,
-                    previousAnchor
-                )
+                throw VideoProjectValidationError.invalidEffect(effect.id)
             }
             let schedule = VideoTimelineSchedule(project: result)
             let endProbe = max(
@@ -358,12 +353,7 @@ public enum VideoTimelineEditor {
                 let endLocation = schedule.sourceLocation(at: endProbe),
                 startLocation.clipID == endLocation.clipID
             else {
-                return effectWithTimesAndAnchor(
-                    effect,
-                    previous.startTime,
-                    previous.endTime,
-                    previousAnchor
-                )
+                throw VideoProjectValidationError.invalidEffect(effect.id)
             }
             let anchorTime = min(
                 max(
@@ -381,12 +371,7 @@ public enum VideoTimelineEditor {
                   abs(reanchored.startTime - effect.startTime) <= 0.000_001,
                   abs(reanchored.endTime - effect.endTime) <= 0.000_001
             else {
-                return effectWithTimesAndAnchor(
-                    effect,
-                    previous.startTime,
-                    previous.endTime,
-                    previousAnchor
-                )
+                throw VideoProjectValidationError.invalidEffect(effect.id)
             }
             return reanchored
         }
