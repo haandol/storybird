@@ -44,8 +44,14 @@ flowchart LR
   choice that falls back to the system default while disconnected.
 - Local Qwen3-TTS 1.7B Base 8-bit MLX voice cloning after one approved model
   download.
-- Project-owned sentence narration with editable text, timing, volume,
-  regeneration, and deletion.
+- Korean and English reference prompts and independent narration-language selection.
+- Durable sentence narration drafts with status, cancellation, local listening,
+  and revision-checked placement after the actual duration is known.
+- Scene-linked narration and subtitles that follow a clip's start frame while
+  preserving speech/display duration, plus fixed-time placement for existing work.
+- Independent project duplication for separately editable Korean and English versions.
+- Agent editing context with scene numbers, current text, and targeted Cue,
+  subtitle, effect, and suggestion commands for text-driven edits.
 - Local H.264 MP4 export with layers burned into the video and imported audio
   plus project narration mixed into at most one AAC track.
 - Local stdio MCP companion for source observation and real pointer movement,
@@ -161,14 +167,16 @@ To edit an existing video:
 5. Fill the Click Cue description and subtitle, then add any independent
    subtitles or effects.
 6. Optionally add generated Narration layers from a local voice profile.
-7. Export the finished MP4. Imported audio and project narration stay
-   synchronized with trimmed, reordered, or speed-adjusted video clips.
+7. Export the finished MP4. Imported audio follows video edits. Scene-linked narration follows its start
+   frame while preserving the original speech duration.
 
 Importing does not require Screen Recording or Input Monitoring permission.
 
 ## Generate narration with your cloned voice
 
 ![Storybird local voice narration setup](docs/images/voice-narration.png)
+
+![Storybird reusable narration draft and placement controls](docs/images/narration-drafts.png)
 
 1. Install `uv`, open **Settings › Voice**, and approve preparation of
    `mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit`. Storybird displays the
@@ -178,27 +186,44 @@ Importing does not require Screen Recording or Input Monitoring permission.
    Storybird temporarily uses the system default.
 3. Confirm that you own the reference voice or have permission to use it.
    File import and microphone recording stay disabled until this confirmation.
-4. Import an MP3/WAV plus its exact spoken transcript, or choose
-   **Record Guided Sample**.
+4. Select the reference language (한국어 or English), then import an MP3/WAV
+   plus its exact spoken transcript or choose **Record Guided Sample**. The
+   selected prompt and language remain fixed during the guided recording.
 5. For a guided sample, read the displayed 10–15 second prosody prompt. The
    recording screen shows a live input waveform, elapsed time, remaining time,
    pause/resume, and the 10-second completion boundary. Preview or rerecord the
    sample before saving the profile. Storybird normalizes different microphone
    sample rates and channel layouts into one 24kHz mono WAV.
-6. Return to a project, choose **Narration**, then select a voice profile,
-   narration text, and project start time.
-7. Generate the sentence, then edit its start time and volume on the Narration
-   timeline track. Change its text and choose **Regenerate This Narration** to
-   replace only that sentence's WAV.
-8. Export the project. Storybird mixes imported source audio and project
-   narration into one synchronized AAC track.
+6. Return to a project, choose **Narration**, select an existing profile and
+   Korean or English output, enter a sentence, and choose **Generate Draft**.
+7. Wait for **Ready**, check the measured duration and **Listen**. Choose a start
+   time and **Follow scene** or **Fixed project time**, then **Place at Start Time**.
+   If the sentence does not fit, the draft remains available while you extend or
+   rearrange the picture. A ready draft survives restarting the app.
+8. Edit a placed sentence in the Narration inspector and choose **Regenerate This
+   Narration**. Text and language changes regenerate that sentence only. Complete
+   previous WAVs are retained for undo until the project is deleted.
+9. Use **Duplicate** in the project header to create an independent editable
+   version before translating its text and voice. Original deletion or changes
+   do not affect the copy. Unplaced drafts and undo history are not copied.
+10. Export the project. Storybird mixes imported source audio and project
+    narration into one synchronized AAC track.
 
 Model preparation is staged and replaces the active runtime only after the
 model loads successfully. Later synthesis forces the local model cache into
 offline mode.
 
-Narration clips cannot overlap or extend beyond the edited project. Storybird
-validates each generated WAV before publishing the project revision. Deleting a
+Narration clips cannot overlap or extend beyond the edited project. Scene-linked
+starts follow clip movement, splitting and speed changes; speech duration and
+pitch stay unchanged. Trimming away the start or deleting the owning clip removes
+the linked layer, and undo restores it. Existing layers remain fixed-time unless
+you change their timing mode. Titles shift later layers together.
+
+Draft generation does not change the edit revision. Placement consumes a ready
+draft once and advances revision atomically. Failed placement keeps the ready
+WAV; interrupted generation is marked failed after restart rather than retried.
+
+Storybird validates each generated WAV before publishing the project revision. Deleting a
 voice profile removes its sensitive reference audio and transcript but keeps
 the generated narration already owned by projects.
 
@@ -225,6 +250,10 @@ do not require Accessibility or Input Monitoring permission.
 ## Control a recording through MCP
 
 Architecture, tools, and security details are in [Storybird MCP](docs/MCP.md).
+A repository-local
+[`create-storybird-video` skill](.agents/skills/create-storybird-video/SKILL.md)
+guides agents through Korean or English scripts, recording, sentence narration,
+visual checks, and export completion using the available MCP tools.
 A ready-to-merge Kiro configuration is provided at
 [`mcp/storybird.kiro.json`](mcp/storybird.kiro.json).
 
@@ -309,7 +338,8 @@ Export produces one MP4:
 ```
 
 Storybird renders click highlights, click captions, subtitles, and optional
-branding into the exported video. Direct Storybird recordings remain silent.
+branding into the exported video. The raw screen recording remains silent;
+generated project narration is included in its export when present.
 If an imported source or project narration exists, export includes one mixed,
 synchronized AAC audio track. A failed or cancelled export does not replace an
 existing destination.

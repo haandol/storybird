@@ -13,6 +13,7 @@ public struct DemoProject: Codable, Identifiable, Hashable, Sendable {
     public var subtitles: [TimedSubtitle]
     public var effects: [DemoEffect]
     public var narrations: [NarrationClip]
+    public var narrationDrafts: [NarrationDraft]
     public var suggestions: [ClickEditSuggestion]
     public var steps: [DemoStep]
     public var events: [AnalyticsEvent]
@@ -33,6 +34,7 @@ public struct DemoProject: Codable, Identifiable, Hashable, Sendable {
         subtitles: [TimedSubtitle] = [],
         effects: [DemoEffect] = [],
         narrations: [NarrationClip] = [],
+        narrationDrafts: [NarrationDraft] = [],
         suggestions: [ClickEditSuggestion] = [],
         steps: [DemoStep] = [],
         events: [AnalyticsEvent] = [],
@@ -59,6 +61,7 @@ public struct DemoProject: Codable, Identifiable, Hashable, Sendable {
         self.subtitles = subtitles
         self.effects = effects
         self.narrations = narrations
+        self.narrationDrafts = narrationDrafts
         self.suggestions = suggestions
         self.steps = steps
         self.events = events
@@ -78,6 +81,7 @@ public struct DemoProject: Codable, Identifiable, Hashable, Sendable {
         case subtitles
         case effects
         case narrations
+        case narrationDrafts
         case suggestions
         case steps
         case events
@@ -116,6 +120,9 @@ public struct DemoProject: Codable, Identifiable, Hashable, Sendable {
         narrations = try container.decodeIfPresent(
             [NarrationClip].self,
             forKey: .narrations
+        ) ?? []
+        narrationDrafts = try container.decodeIfPresent(
+            [NarrationDraft].self, forKey: .narrationDrafts
         ) ?? []
         suggestions = try container.decodeIfPresent(
             [ClickEditSuggestion].self,
@@ -174,6 +181,22 @@ public struct VoiceProfile: Codable, Identifiable, Hashable, Sendable {
         self.consentConfirmed = consentConfirmed
         self.createdAt = createdAt
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, referenceFilename, referenceText, language, consentConfirmed, createdAt
+    }
+
+    /// Retains unknown stored languages and supplies Korean only when absent.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        referenceFilename = try c.decode(String.self, forKey: .referenceFilename)
+        referenceText = try c.decode(String.self, forKey: .referenceText)
+        language = try c.decodeIfPresent(String.self, forKey: .language) ?? "korean"
+        consentConfirmed = try c.decode(Bool.self, forKey: .consentConfirmed)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+    }
 }
 
 public struct NarrationClip: Codable, Identifiable, Hashable, Sendable {
@@ -185,6 +208,7 @@ public struct NarrationClip: Codable, Identifiable, Hashable, Sendable {
     public var startTime: Double
     public var duration: Double
     public var volume: Double
+    public var sceneAnchor: LayerSceneAnchor?
 
     /// Creates one project-time narration layer that references a complete
     /// project-owned WAV and retains the profile identity used to generate it.
@@ -196,7 +220,8 @@ public struct NarrationClip: Codable, Identifiable, Hashable, Sendable {
         language: String = "korean",
         startTime: Double,
         duration: Double,
-        volume: Double = 1
+        volume: Double = 1,
+        sceneAnchor: LayerSceneAnchor? = nil
     ) {
         self.id = id
         self.voiceProfileID = voiceProfileID
@@ -206,6 +231,25 @@ public struct NarrationClip: Codable, Identifiable, Hashable, Sendable {
         self.startTime = startTime
         self.duration = duration
         self.volume = volume
+        self.sceneAnchor = sceneAnchor
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, voiceProfileID, filename, text, language, startTime, duration, volume, sceneAnchor
+    }
+
+    /// Missing fields retain Korean fixed-time behavior for existing narration.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        voiceProfileID = try c.decode(UUID.self, forKey: .voiceProfileID)
+        filename = try c.decode(String.self, forKey: .filename)
+        text = try c.decode(String.self, forKey: .text)
+        language = try c.decodeIfPresent(String.self, forKey: .language) ?? "korean"
+        startTime = try c.decode(Double.self, forKey: .startTime)
+        duration = try c.decode(Double.self, forKey: .duration)
+        volume = try c.decodeIfPresent(Double.self, forKey: .volume) ?? 1
+        sceneAnchor = try c.decodeIfPresent(LayerSceneAnchor.self, forKey: .sceneAnchor)
     }
 
     public var endTime: Double {
@@ -460,6 +504,7 @@ public struct TimedSubtitle: Codable, Identifiable, Hashable, Sendable {
     public var text: String
     public var position: SubtitlePosition
     public var style: TextOverlayStyle
+    public var sceneAnchor: LayerSceneAnchor?
 
     public init(
         id: UUID = UUID(),
@@ -467,7 +512,8 @@ public struct TimedSubtitle: Codable, Identifiable, Hashable, Sendable {
         endTime: Double,
         text: String = "",
         position: SubtitlePosition = .bottom,
-        style: TextOverlayStyle = .default
+        style: TextOverlayStyle = .default,
+        sceneAnchor: LayerSceneAnchor? = nil
     ) {
         self.id = id
         self.startTime = max(startTime, 0)
@@ -475,6 +521,7 @@ public struct TimedSubtitle: Codable, Identifiable, Hashable, Sendable {
         self.text = text
         self.position = position
         self.style = style
+        self.sceneAnchor = sceneAnchor
     }
 }
 

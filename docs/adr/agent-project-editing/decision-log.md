@@ -2,6 +2,13 @@
 
 이 문서는 agent-project-editing 카테고리의 주요 결정 변경 이력이다.
 
+## 2026-09-10 — 텍스트 요청용 편집과 음성 초안·독립 복제
+
+- **현재 ADR**: [versioned-mcp-project-editing](./0001-versioned-mcp-project-editing.md)
+- **변경 유형**: 자동 제작 범위와 데이터 수명
+- **무엇이**: 기존 편집 경계에 시작 장면 연결, 재사용 가능한 음성 초안과 독립 프로젝트 복제를 포함한다.
+- **왜**: 사용자의 텍스트 요청을 문장·장면별 변경으로 반영하고, 생성과 배치의 실패를 분리하면서 기존 프로젝트를 보존한다.
+
 ## 2026-09-08 — 기존 음성 프로필을 사용하는 내레이션 자동화 추가
 
 - **현재 ADR**: [versioned-mcp-project-editing](./0001-versioned-mcp-project-editing.md)

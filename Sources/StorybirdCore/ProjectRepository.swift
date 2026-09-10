@@ -140,6 +140,7 @@ public struct ProjectRepository {
             }
             let filenames = [project.recording?.filename].compactMap { $0 }
                 + project.narrations.map(\.filename)
+                + project.narrationDrafts.filter { $0.state == .ready }.map(\.filename)
             for filename in filenames {
                 let asset = assetURL(projectID: project.id, filename: filename)
                 let values = try asset.resourceValues(forKeys: [.isRegularFileKey])

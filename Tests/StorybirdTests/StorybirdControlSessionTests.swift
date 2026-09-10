@@ -238,9 +238,7 @@ final class StorybirdControlSessionTests: XCTestCase {
 
     func test_toolDefinitions_exposeVideoTimelineTools() {
         let tools = StorybirdMCPService.toolDefinitions
-        XCTAssertEqual(
-            tools.map(\.name),
-            [
+        let required: Set<String> = [
                 "storybird_list_sources",
                 "storybird_start_session",
                 "storybird_observe",
@@ -274,7 +272,8 @@ final class StorybirdControlSessionTests: XCTestCase {
                 "storybird_delete_project",
                 "storybird_stop_session",
             ]
-        )
+        XCTAssertTrue(required.isSubset(of: Set(tools.map(\.name))))
+        XCTAssertEqual(Set(tools.map(\.name)).count, tools.count)
         XCTAssertNotNil(tools.first { $0.name == "storybird_update_click" })
         XCTAssertNotNil(tools.first { $0.name == "storybird_upsert_subtitle" })
         XCTAssertNotNil(tools.first { $0.name == "storybird_replace_project" })

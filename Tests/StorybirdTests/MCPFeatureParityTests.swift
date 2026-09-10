@@ -57,9 +57,6 @@ final class MCPFeatureParityTests: XCTestCase {
     }
 
     func test_toolDefinitions_remainingNativeEditingOperations_areExposed() {
-        XCTExpectFailure(
-            "Non-clip dedicated MCP domain tools are not implemented yet."
-        )
         let available = Set(
             StorybirdMCPService.toolDefinitions.map(\.name)
         )
@@ -114,9 +111,6 @@ final class MCPFeatureParityTests: XCTestCase {
     }
 
     func test_toolDefinitions_targetedLayerTools_coverInspectorProperties() throws {
-        XCTExpectFailure(
-            "Targeted click and subtitle tools expose only a subset of inspector properties."
-        )
         let clickProperties = try propertyNames(
             for: "storybird_update_click"
         )
@@ -180,9 +174,6 @@ final class MCPFeatureParityTests: XCTestCase {
     }
 
     func test_externalControl_createProject_matchesNativeProjectCreation() async throws {
-        XCTExpectFailure(
-            "MCP cannot create an empty recording project yet."
-        )
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let store = AppStore(
@@ -205,6 +196,80 @@ final class MCPFeatureParityTests: XCTestCase {
         XCTAssertFalse(response.isError)
         XCTAssertEqual(store.projects.first?.name, "MCP project")
         XCTAssertEqual(store.projects.first?.revision, 0)
+    }
+
+    func test_externalControl_subtitleStyleUpdatePreservesOmittedFields() async throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repository = ProjectRepository(rootURL: root)
+        var project = validVideoProject()
+        var subtitle = TimedSubtitle(
+            startTime: 0,
+            endTime: 2,
+            text: "한국어 tutorial",
+            position: .top
+        )
+        subtitle.style.foregroundHex = "#AABBCC"
+        subtitle.style.fontSize = 28
+        project.subtitles = [subtitle]
+        try repository.saveProjects([project])
+        let store = AppStore(repository: repository)
+        let host = StorybirdExternalControlHost(store: store)
+
+        let response = try await request(
+            host,
+            name: "storybird_upsert_subtitle",
+            arguments: [
+                "project_id": project.id.uuidString,
+                "expected_revision": 0,
+                "subtitle_id": subtitle.id.uuidString,
+                "start_time": 1.0,
+                "end_time": 3.0,
+                "font_size": 32.0,
+                "foreground_hex": "#112233",
+            ]
+        )
+        XCTAssertFalse(response.isError, response.text)
+        let saved = try XCTUnwrap(store.project(id: project.id))
+        XCTAssertEqual(saved.revision, 1)
+        XCTAssertEqual(saved.subtitles[0].text, subtitle.text)
+        XCTAssertEqual(saved.subtitles[0].position, .top)
+        XCTAssertEqual(saved.subtitles[0].style.fontSize, 32)
+        XCTAssertEqual(saved.subtitles[0].style.foregroundHex, "#112233")
+    }
+
+    func test_externalControl_subtitleRejectsInvalidTargetAndPositionWithoutMutation() async throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repository = ProjectRepository(rootURL: root)
+        let project = validVideoProject()
+        try repository.saveProjects([project])
+        let store = AppStore(repository: repository)
+        let host = StorybirdExternalControlHost(store: store)
+        let before = try XCTUnwrap(store.project(id: project.id))
+        for invalid: [String: Any] in [
+            ["subtitle_id": UUID().uuidString],
+            ["subtitle_id": "invalid-id"],
+            ["position": "center"],
+            ["start_time": -1.0],
+            ["background_opacity": 2.0],
+        ] {
+            var arguments: [String: Any] = [
+                "project_id": project.id.uuidString,
+                "expected_revision": 0,
+                "text": "Keep valid projects intact",
+                "start_time": 0.0,
+                "end_time": 2.0,
+            ]
+            arguments.merge(invalid) { _, value in value }
+            let response = try await request(
+                host,
+                name: "storybird_upsert_subtitle",
+                arguments: arguments
+            )
+            XCTAssertTrue(response.isError, "\(invalid): \(response.text)")
+            XCTAssertEqual(store.project(id: project.id), before)
+        }
     }
 
     func test_externalControl_setClipSpeed_matchesNativeTimelineEditor() async throws {
@@ -389,9 +454,6 @@ final class MCPFeatureParityTests: XCTestCase {
     }
 
     func test_externalControl_applySuggestion_matchesNativeSuggestionEditor() async throws {
-        XCTExpectFailure(
-            "MCP does not expose the native suggestion apply command yet."
-        )
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let repository = ProjectRepository(rootURL: root)
@@ -426,9 +488,16 @@ final class MCPFeatureParityTests: XCTestCase {
         }
         let stored = try XCTUnwrap(store.project(id: project.id))
 
-        XCTAssertEqual(stored.clips, expected.clips)
-        XCTAssertEqual(stored.effects, expected.effects)
-        XCTAssertEqual(stored.suggestions, expected.suggestions)
+        // Child clip UUIDs are allocated independently by each invocation.
+        // Canonicalize only those IDs, preserving every property and relationship.
+        var normalizedJSON = String(decoding: try JSONEncoder().encode(expected), as: UTF8.self)
+        for (native, actual) in zip(expected.clips, stored.clips) {
+            normalizedJSON = normalizedJSON.replacingOccurrences(of: native.id.uuidString, with: actual.id.uuidString)
+        }
+        let normalized = try JSONDecoder().decode(DemoProject.self, from: Data(normalizedJSON.utf8))
+        XCTAssertEqual(stored.clips, normalized.clips)
+        XCTAssertEqual(stored.effects, normalized.effects)
+        XCTAssertEqual(stored.suggestions, normalized.suggestions)
         XCTAssertEqual(stored.revision, 1)
     }
 

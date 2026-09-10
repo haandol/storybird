@@ -38,6 +38,7 @@ final class AppStore: ObservableObject {
     private var undoHistory: [UUID: [DemoProject]] = [:]
     private var redoHistory: [UUID: [DemoProject]] = [:]
     private var activeExportID: UUID?
+    private var narrationTasks: [UUID: Task<Void, Never>] = [:]
     private let voiceServiceOverride: (any VoiceSynthesisProviding)?
     private lazy var voiceService: any VoiceSynthesisProviding =
         voiceServiceOverride ?? VoiceSynthesisService(
@@ -91,6 +92,7 @@ final class AppStore: ObservableObject {
                 ? activeRepository.loadProjects()
                 : activeRepository.validatedProjectsForSelection()
             selectedProjectID = projects.first?.id
+            projects = try Self.recoverNarrationDrafts(projects, repository: activeRepository)
         } catch {
             projects = []
             self.repository = ProjectRepository(
@@ -159,7 +161,9 @@ final class AppStore: ObservableObject {
                !FileManager.default.fileExists(atPath: root.path) {
                 try defaultRepository.prepare()
             }
-            let loaded = try candidate.validatedProjectsForSelection()
+            let loaded = try Self.recoverNarrationDrafts(
+                candidate.validatedProjectsForSelection(), repository: candidate
+            )
             let selectedRoot = root == defaultRoot ? nil : root
             storagePreferences?.save(selectedRoot)
             repository = candidate
@@ -283,13 +287,18 @@ final class AppStore: ObservableObject {
         voiceProfileID: UUID,
         text: String,
         language: String,
-        startTime: Double
+        startTime: Double,
+        timingMode: LayerTimingMode = .project
     ) async throws -> DemoProject {
         let operation = beginStorageOperation(.voice)
         defer { endStorageOperation(operation) }
         guard let project = project(id: projectID) else {
             throw RecordingStoreError.projectNotFound
         }
+        guard project.revision == expectedRevision else {
+            throw RecordingStoreError.revisionConflict(project.revision)
+        }
+        let anchor = timingMode == .scene ? try SceneTiming.anchor(at: startTime, in: project) : nil
         guard let profile = voiceProfiles.first(
             where: { $0.id == voiceProfileID }
         ), profile.consentConfirmed else {
@@ -327,7 +336,8 @@ final class AppStore: ObservableObject {
                     text: trimmed,
                     language: language,
                     startTime: startTime,
-                    duration: duration
+                    duration: duration,
+                    sceneAnchor: anchor
                 )
             )
             updated.narrations.sort { $0.startTime < $1.startTime }
@@ -350,7 +360,8 @@ final class AppStore: ObservableObject {
         text: String? = nil,
         language: String? = nil,
         startTime: Double? = nil,
-        volume: Double? = nil
+        volume: Double? = nil,
+        timingMode: LayerTimingMode? = nil
     ) async throws -> DemoProject {
         let operation = beginStorageOperation(.voice)
         defer { endStorageOperation(operation) }
@@ -364,8 +375,15 @@ final class AppStore: ObservableObject {
         if text == nil, language != nil {
             throw VoiceProfileError.invalidInput
         }
+        guard project.revision == expectedRevision else {
+            throw RecordingStoreError.revisionConflict(project.revision)
+        }
+        if timingMode != nil || startTime != nil {
+            let mode = timingMode ?? (project.narrations[index].sceneAnchor == nil ? .project : .scene)
+            project.narrations[index].sceneAnchor = mode == .scene
+                ? try SceneTiming.anchor(at: startTime ?? project.narrations[index].startTime, in: project) : nil
+        }
         var replacementURL: URL?
-        let previousFilename = project.narrations[index].filename
         do {
             if let text {
                 let trimmed = text.trimmingCharacters(
@@ -417,14 +435,7 @@ final class AppStore: ObservableObject {
                 project,
                 expectedRevision: expectedRevision
             )
-            if replacementURL != nil {
-                try? FileManager.default.removeItem(
-                    at: repository.assetURL(
-                        projectID: projectID,
-                        filename: previousFilename
-                    )
-                )
-            }
+            // Previous complete WAVs remain available to this project’s undo history.
             return saved
         } catch {
             if let replacementURL {
@@ -434,8 +445,8 @@ final class AppStore: ObservableObject {
         }
     }
 
-    /// Removes one narration through revision validation and deletes its WAV only
-    /// after the project no longer references the asset.
+    /// Removes the layer through revision validation while retaining its WAV for
+    /// undo. Project deletion removes all generated assets together.
     func deleteNarration(
         projectID: UUID,
         narrationID: UUID,
@@ -448,18 +459,8 @@ final class AppStore: ObservableObject {
         else {
             throw RecordingStoreError.projectNotFound
         }
-        let narration = project.narrations.remove(at: index)
-        let saved = try saveProject(
-            project,
-            expectedRevision: expectedRevision
-        )
-        try? FileManager.default.removeItem(
-            at: repository.assetURL(
-                projectID: projectID,
-                filename: narration.filename
-            )
-        )
-        return saved
+        project.narrations.remove(at: index)
+        return try saveProject(project, expectedRevision: expectedRevision)
     }
 
     /// Rejects non-audio and empty references before any profile directory or
@@ -541,37 +542,248 @@ final class AppStore: ObservableObject {
     func saveProject(
         _ project: DemoProject,
         expectedRevision: Int,
-        recordUndo: Bool = true
+        recordUndo: Bool = true,
+        placingDraftID: UUID? = nil
     ) throws -> DemoProject {
         guard let index = projects.firstIndex(where: { $0.id == project.id }) else {
             throw RecordingStoreError.projectNotFound
         }
         let current = projects[index]
+        guard project.recording == current.recording else {
+            throw VideoProjectValidationError.invalidRecording
+        }
         guard current.revision == expectedRevision else {
             throw RecordingStoreError.revisionConflict(current.revision)
         }
         var comparable = project
+        comparable.narrationDrafts = current.narrationDrafts
+        for narration in comparable.narrations {
+            if let draft = current.narrationDrafts.first(where: { $0.filename == narration.filename }),
+               draft.state != .placed, draft.id != placingDraftID {
+                throw NarrationDraftError.notReady
+            }
+        }
+        if let placingDraftID {
+            guard let draftIndex = comparable.narrationDrafts.firstIndex(where: {
+                $0.id == placingDraftID && $0.state == .ready
+            }), let narration = comparable.narrations.first(where: { $0.id == placingDraftID }),
+                narration.filename == comparable.narrationDrafts[draftIndex].filename,
+                narration.duration == comparable.narrationDrafts[draftIndex].duration
+            else { throw NarrationDraftError.notReady }
+            comparable.narrationDrafts[draftIndex].state = .placed
+        }
         comparable.revision = current.revision
         comparable.updatedAt = current.updatedAt
+        // The JSON wire format uses whole seconds. Preserve stored precision
+        // when a round trip still identifies the same creation second.
+        if comparable.createdAt.timeIntervalSince1970.rounded(.down)
+            == current.createdAt.timeIntervalSince1970.rounded(.down) {
+            comparable.createdAt = current.createdAt
+        }
         guard current != comparable else {
             return current
         }
         var updated = comparable
-        updated.revision = current.revision + 1
-        updated.updatedAt = Date()
-        try Self.validateTransition(from: current, to: updated)
+        var outputOnly = comparable
+        outputOnly.suggestions = current.suggestions
+        let suggestionMetadataOnly = outputOnly == current
+            && comparable.suggestions.allSatisfy { $0.state != .applied || current.suggestions.contains($0) }
+        updated.revision = current.revision + (suggestionMetadataOnly ? 0 : 1)
+        updated.updatedAt = suggestionMetadataOnly ? current.updatedAt : Date()
+        if recordUndo {
+            try Self.validateTransition(from: current, to: updated)
+        }
         if updated.recording != nil {
             try VideoProjectValidator.validate(updated)
         }
         var updatedProjects = projects
         updatedProjects[index] = updated
         try repository.saveProjects(updatedProjects)
-        if recordUndo {
+        if recordUndo && !suggestionMetadataOnly {
             undoHistory[project.id, default: []].append(current)
             redoHistory[project.id] = []
         }
         projects = updatedProjects
         return updated
+    }
+
+    /// Saves draft metadata without an edit revision; placement uses saveProject
+    /// instead so the playable layer and consumed state commit in one replacement.
+    func saveNarrationDraft(_ draft: NarrationDraft, projectID: UUID) throws {
+        try NarrationDraft.validate([draft])
+        guard let projectIndex = projects.firstIndex(where: { $0.id == projectID }) else {
+            throw RecordingStoreError.projectNotFound
+        }
+        var updated = projects
+        if let index = updated[projectIndex].narrationDrafts.firstIndex(where: { $0.id == draft.id }) {
+            let previous = updated[projectIndex].narrationDrafts[index]
+            guard previous.filename == draft.filename, previous.text == draft.text,
+                  previous.language == draft.language, previous.voiceProfileID == draft.voiceProfileID,
+                  (previous.state == .generating && [.ready, .failed, .cancelled].contains(draft.state))
+                    || (previous.state == .ready && draft.state == .cancelled)
+            else { throw NarrationDraftError.notReady }
+            updated[projectIndex].narrationDrafts[index] = draft
+        } else {
+            guard draft.state == .generating else { throw NarrationDraftError.notReady }
+            updated[projectIndex].narrationDrafts.append(draft)
+        }
+        try repository.saveProjects(updated)
+        projects = updated
+    }
+
+    /// Starts a local sentence job after validating ownership. Its storage lease
+    /// covers generation, validation and cleanup, not just the initiating call.
+    func startNarrationDraft(
+        projectID: UUID, voiceProfileID: UUID, text: String, language: String
+    ) throws -> NarrationDraft {
+        guard project(id: projectID)?.recording != nil else {
+            throw RecordingStoreError.projectNotFound
+        }
+        guard let profile = voiceProfiles.first(where: { $0.id == voiceProfileID && $0.consentConfirmed }),
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw VoiceProfileError.invalidInput
+        }
+        let prepared = try repository.prepareNarrationURL(projectID: projectID)
+        let draft = NarrationDraft(
+            voiceProfileID: voiceProfileID, text: text.trimmingCharacters(in: .whitespacesAndNewlines),
+            language: language, filename: prepared.filename
+        )
+        try saveNarrationDraft(draft, projectID: projectID)
+        let operation = beginStorageOperation(.voice)
+        narrationTasks[draft.id] = Task {
+            defer {
+                narrationTasks.removeValue(forKey: draft.id)
+                endStorageOperation(operation)
+            }
+            do {
+                try Task.checkCancellation()
+                let result = try await voiceService.generate(
+                    text: draft.text,
+                    referenceAudioURL: repository.voiceReferenceURL(profileID: profile.id, filename: profile.referenceFilename),
+                    referenceText: profile.referenceText,
+                    language: language,
+                    outputURL: prepared.url
+                )
+                try Task.checkCancellation()
+                let measured = try await Self.validatedNarrationDuration(at: prepared.url, reportedDuration: result.duration)
+                try Task.checkCancellation()
+                guard project(id: projectID)?.narrationDrafts.first(where: { $0.id == draft.id })?.state == .generating else {
+                    throw CancellationError()
+                }
+                var ready = draft
+                ready.state = .ready
+                ready.duration = measured
+                try saveNarrationDraft(ready, projectID: projectID)
+            } catch {
+                try? FileManager.default.removeItem(at: prepared.url)
+                if project(id: projectID)?.narrationDrafts.first(where: { $0.id == draft.id })?.state == .generating {
+                    var failed = draft
+                    failed.state = error is CancellationError ? .cancelled : .failed
+                    failed.error = error.localizedDescription
+                    do { try saveNarrationDraft(failed, projectID: projectID) }
+                    catch {
+                        if let p = projects.firstIndex(where: { $0.id == projectID }),
+                           let d = projects[p].narrationDrafts.firstIndex(where: { $0.id == draft.id }) {
+                            projects[p].narrationDrafts[d] = failed
+                        }
+                        errorMessage = "Could not save narration job failure: \(error.localizedDescription)"
+                    }
+                }
+                if project(id: projectID) == nil { try? repository.removeProjectAssets(projectID: projectID) }
+            }
+        }
+        return draft
+    }
+
+    /// Cancels running synthesis or discards a ready draft only after recording
+    /// the terminal state. A placed draft cannot delete playable audio.
+    func cancelNarrationDraft(projectID: UUID, draftID: UUID) throws {
+        guard var draft = project(id: projectID)?.narrationDrafts.first(where: { $0.id == draftID }) else {
+            throw NarrationDraftError.notReady
+        }
+        if draft.state == .cancelled {
+            let file = repository.assetURL(projectID: projectID, filename: draft.filename)
+            if narrationTasks[draftID] == nil, FileManager.default.fileExists(atPath: file.path) {
+                try FileManager.default.removeItem(at: file)
+            }
+            return
+        }
+        guard draft.state == .generating || draft.state == .ready else {
+            throw NarrationDraftError.notReady
+        }
+        let wasReady = draft.state == .ready
+        draft.state = .cancelled
+        draft.error = nil
+        try saveNarrationDraft(draft, projectID: projectID)
+        narrationTasks[draftID]?.cancel()
+        if wasReady {
+            try FileManager.default.removeItem(
+                at: repository.assetURL(projectID: projectID, filename: draft.filename)
+            )
+        }
+    }
+
+    /// Marks interrupted workers as failed without restarting synthesis or
+    /// changing the edit revision; completed drafts keep their durable WAVs.
+    private static func recoverNarrationDrafts(
+        _ projects: [DemoProject], repository: ProjectRepository
+    ) throws -> [DemoProject] {
+        var recovered = projects
+        var changed = false
+        for p in recovered.indices {
+            try NarrationDraft.validate(recovered[p].narrationDrafts)
+            for d in recovered[p].narrationDrafts.indices
+            where recovered[p].narrationDrafts[d].state == .generating {
+                recovered[p].narrationDrafts[d].state = .failed
+                recovered[p].narrationDrafts[d].error = "Generation was interrupted. Create a new draft to retry."
+                changed = true
+            }
+        }
+        if changed {
+            try repository.saveProjects(recovered)
+            for project in projects {
+                for draft in project.narrationDrafts where draft.state == .generating {
+                    guard !project.narrations.contains(where: { $0.filename == draft.filename }),
+                          !project.narrationDrafts.contains(where: { $0.state == .ready && $0.filename == draft.filename }) else { continue }
+                    try? FileManager.default.removeItem(
+                        at: repository.assetURL(projectID: project.id, filename: draft.filename)
+                    )
+                }
+            }
+        }
+        return recovered
+    }
+
+    /// Reuses a measured ready WAV after a timing conflict. The consumed state
+    /// and layer share the same atomic write, so restart and undo cannot replay it.
+    func placeNarrationDraft(
+        projectID: UUID, draftID: UUID, expectedRevision: Int, startTime: Double,
+        timingMode: LayerTimingMode = .project
+    ) async throws -> DemoProject {
+        let operation = beginStorageOperation(.voice)
+        defer { endStorageOperation(operation) }
+        guard var project = project(id: projectID) else {
+            throw RecordingStoreError.projectNotFound
+        }
+        guard project.revision == expectedRevision else {
+            throw RecordingStoreError.revisionConflict(project.revision)
+        }
+        guard let draft = project.narrationDrafts.first(where: { $0.id == draftID }),
+              draft.state == .ready, let duration = draft.duration else {
+            throw NarrationDraftError.notReady
+        }
+        _ = try await Self.validatedNarrationDuration(
+            at: repository.assetURL(projectID: projectID, filename: draft.filename),
+            reportedDuration: duration
+        )
+        try Task.checkCancellation()
+        project.narrations.append(NarrationClip(
+            id: draft.id, voiceProfileID: draft.voiceProfileID, filename: draft.filename,
+            text: draft.text, language: draft.language, startTime: startTime, duration: duration,
+            sceneAnchor: timingMode == .scene ? try SceneTiming.anchor(at: startTime, in: project) : nil
+        ))
+        project.narrations.sort { $0.startTime < $1.startTime }
+        return try saveProject(project, expectedRevision: expectedRevision, placingDraftID: draftID)
     }
 
     /// Preserves terminal suggestion states while allowing applied or rejected
@@ -625,15 +837,12 @@ final class AppStore: ObservableObject {
         else {
             throw RecordingStoreError.noUndo
         }
-        undoHistory[projectID] = history
-        redoHistory[projectID, default: []].append(current)
         var replacement = previous
         replacement.revision = current.revision
-        return try saveProject(
-            replacement,
-            expectedRevision: current.revision,
-            recordUndo: false
-        )
+        let saved = try saveProject(replacement, expectedRevision: current.revision, recordUndo: false)
+        undoHistory[projectID] = history
+        redoHistory[projectID, default: []].append(current)
+        return saved
     }
 
     /// Reapplies one previously undone project edit.
@@ -653,15 +862,12 @@ final class AppStore: ObservableObject {
         else {
             throw RecordingStoreError.noRedo
         }
-        redoHistory[projectID] = history
-        undoHistory[projectID, default: []].append(current)
         var replacement = next
         replacement.revision = current.revision
-        return try saveProject(
-            replacement,
-            expectedRevision: current.revision,
-            recordUndo: false
-        )
+        let saved = try saveProject(replacement, expectedRevision: current.revision, recordUndo: false)
+        redoHistory[projectID] = history
+        undoHistory[projectID, default: []].append(current)
+        return saved
     }
 
     /// Publishes a completed recording only after its MP4 and timed clicks validate together.
@@ -740,6 +946,68 @@ final class AppStore: ObservableObject {
         }
     }
 
+    /// Copies only playable project assets before publishing a new independent
+    /// language version. Rechecks revision after I/O and cleans incomplete copies.
+    func duplicateProject(
+        projectID: UUID,
+        expectedRevision: Int,
+        name: String? = nil
+    ) async throws -> DemoProject {
+        let operation = beginStorageOperation(.importing)
+        defer { endStorageOperation(operation) }
+        guard let source = project(id: projectID),
+              let recording = source.recording else {
+            throw RecordingStoreError.projectNotFound
+        }
+        guard source.revision == expectedRevision else {
+            throw RecordingStoreError.revisionConflict(source.revision)
+        }
+        try VideoProjectValidator.validate(source)
+        let newID = UUID()
+        var copy = source
+        copy.id = newID
+        copy.revision = 0
+        copy.name = name ?? "\(source.name) copy"
+        copy.createdAt = Date()
+        copy.updatedAt = copy.createdAt
+        copy.narrationDrafts = []
+        guard !copy.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw VoiceProfileError.invalidInput
+        }
+        let directory = repository.assetsDirectory(projectID: newID)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            _ = try await LocalVideoImporter.copyAndInspect(
+                sourceURL: repository.assetURL(projectID: projectID, filename: recording.filename),
+                destinationURL: directory.appendingPathComponent(recording.filename)
+            )
+            for filename in Set(source.narrations.map(\.filename)) {
+                let destination = directory.appendingPathComponent(filename)
+                try FileManager.default.copyItem(
+                    at: repository.assetURL(projectID: projectID, filename: filename),
+                    to: destination
+                )
+                for narration in source.narrations where narration.filename == filename {
+                    _ = try await Self.validatedNarrationDuration(
+                        at: destination, reportedDuration: narration.duration
+                    )
+                }
+            }
+            try Task.checkCancellation()
+            guard let current = project(id: projectID) else {
+                throw RecordingStoreError.projectNotFound
+            }
+            guard current.revision == expectedRevision else {
+                throw RecordingStoreError.revisionConflict(current.revision)
+            }
+            try publishNewVideoProject(copy)
+            return copy
+        } catch {
+            try? repository.removeProjectAssets(projectID: newID)
+            throw error
+        }
+    }
+
     /// Validates and atomically publishes one completed source-video project so
     /// recording and import share the same save-before-selection ordering.
     private func publishNewVideoProject(
@@ -803,33 +1071,24 @@ final class AppStore: ObservableObject {
         resolveExternalControlApproval(false)
     }
 
-    /// Removes one project and its owned recording before persisting the remaining library.
+    /// Commits deletion before removing assets, so a failed index write cannot
+    /// leave the previous durable project pointing at deleted media.
     func deleteProject(id: UUID) {
-        guard let index = projects.firstIndex(where: { $0.id == id }) else {
-            return
-        }
-
+        guard let project = project(id: id) else { return }
         do {
+            let remaining = projects.filter { $0.id != id }
+            try repository.saveProjects(remaining)
+            projects = remaining
+            for draft in project.narrationDrafts { narrationTasks[draft.id]?.cancel() }
+            undoHistory.removeValue(forKey: id)
+            redoHistory.removeValue(forKey: id)
+            if selectedProjectID == id { selectedProjectID = projects.first?.id }
             try repository.removeProjectAssets(projectID: id)
         } catch {
-            errorMessage = "Some project files could not be removed: \(error.localizedDescription)"
-        }
-
-        projects.remove(at: index)
-        if selectedProjectID == id {
-            selectedProjectID = projects.first?.id
-        }
-        persist()
-    }
-
-    /// Persists the full in-memory library through atomic JSON replacement.
-    private func persist() {
-        do {
-            try repository.saveProjects(projects)
-        } catch {
-            errorMessage = "Changes could not be saved: \(error.localizedDescription)"
+            errorMessage = "Project deletion failed: \(error.localizedDescription)"
         }
     }
+
 }
 
 enum RecordingStoreError: LocalizedError, Equatable {

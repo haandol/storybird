@@ -99,6 +99,18 @@ Read these before changing capture, persistence, or export behavior.
   Qwen3-TTS 1.7B Base 8-bit model on 24GB+ Apple Silicon. Model download,
   microphone capture, voice-file selection, and profile deletion require native
   user action. MCP may use existing profiles but never register or delete them.
+- **Narration timing is explicit.** Existing layers remain at fixed project
+  times; new scene-linked narration and subtitles follow their start frame through
+  clip edits without changing speech or display duration. Removing the start or
+  owner excludes the layer but retains audio for undo. Reject overlapping or
+  out-of-project results atomically.
+- **Ready narration drafts survive placement failure.** Generate and validate the
+  local WAV before placement. Draft metadata does not advance edit revision;
+  placement and consumed state commit together exactly once. Interrupted jobs
+  fail on restart and never auto-run. Drafts stay with their project library.
+- **Duplicated projects own their media.** Copy and validate the source video and
+  placed narration before publishing revision zero. Preserve the source, and do
+  not copy unplaced drafts or undo history.
 - **Shared voice assets live in Settings.** Model preparation, voice-profile
   creation/deletion, and the guided-recording input device are managed in
   Settings. Project UI uses existing profiles only for narration generation.

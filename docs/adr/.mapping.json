@@ -28,8 +28,8 @@
       "adrs": [
         {
           "path": "docs/adr/timeline-editing/0001-non-destructive-clip-timeline.md",
-          "status": "Accepted (2026-09-08)",
-          "summary": "원본 영상·기본 음성과 프로젝트 소유 문장별 내레이션을 하나의 비파괴 시간축에서 편집한다"
+          "status": "Accepted (2026-09-10)",
+          "summary": "원본을 보존하며 장면 연결 음성과 자막의 시작점을 클립 편집에 동기화한다"
         }
       ],
       "dependsOn": [
@@ -72,8 +72,8 @@
       "adrs": [
         {
           "path": "docs/adr/agent-project-editing/0001-versioned-mcp-project-editing.md",
-          "status": "Accepted (2026-09-09)",
-          "summary": "외부 MCP 편집은 revision 검증으로 프로젝트와 기존 음성 프로필 기반 내레이션을 원자적으로 자동화한다"
+          "status": "Accepted (2026-09-10)",
+          "summary": "에이전트가 최신 revision으로 대상 레이어와 음성 초안·언어별 복제본을 편집한다"
         }
       ],
       "dependsOn": [
@@ -92,8 +92,8 @@
       "adrs": [
         {
           "path": "docs/adr/authoring/0001-timeline-overlay-editor.md",
-          "status": "Accepted (2026-09-05)",
-          "summary": "Click Cue·독립 자막과 합성 프리뷰가 하나의 프로젝트 시간·좌표·스타일 계약을 사용한다"
+          "status": "Accepted (2026-09-10)",
+          "summary": "Click Cue와 고정 시각 또는 장면 연결 자막을 같은 시간축에서 편집하고 합성한다"
         }
       ],
       "dependsOn": [
@@ -108,8 +108,8 @@
       "adrs": [
         {
           "path": "docs/adr/library/0001-local-project-library.md",
-          "status": "Accepted (2026-09-09)",
-          "summary": "선택한 로컬 폴더의 프로젝트 라이브러리를 비파괴 전환하고 공유 음성 자산은 기본 위치에 유지한다"
+          "status": "Accepted (2026-09-10)",
+          "summary": "로컬 라이브러리가 독립 프로젝트 복제와 프로젝트 소유 음성 초안을 원자적으로 보존한다"
         }
       ],
       "dependsOn": []
@@ -153,8 +153,8 @@
       "adrs": [
         {
           "path": "docs/adr/voice-narration/0001-local-cloned-voice-narration.md",
-          "status": "Accepted (2026-09-09)",
-          "summary": "설정에서 로컬 음성 모델·프로필·마이크 장치를 관리하고 프로젝트에서 기존 프로필로 문장별 내레이션을 생성한다"
+          "status": "Accepted (2026-09-10)",
+          "summary": "한국어·영어 음성을 로컬 초안으로 보존하고 고정 시각 또는 장면에 문장별로 배치한다"
         }
       ],
       "dependsOn": [

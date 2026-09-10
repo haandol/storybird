@@ -4,8 +4,7 @@ import SwiftUI
 
 struct VoiceStudioView: View {
 
-    static let recordingPrompt =
-        "안녕하세요. 처음에는 조금 복잡해 보일 수 있죠? 하지만 걱정하지 마세요. 중요한 기능은 또렷하게, 사용 방법은 차분하고 자연스럽게 안내해 드리겠습니다."
+    static let recordingPrompt = VoiceLanguage.korean.referencePrompt
 
     @ObservedObject var store: AppStore
     @StateObject private var recorder: VoiceSampleRecorder
@@ -13,6 +12,7 @@ struct VoiceStudioView: View {
 
     @State private var profileName = "My voice"
     @State private var transcript = ""
+    @State private var referenceLanguage: VoiceLanguage = .korean
     @State private var consentConfirmed = false
     @State private var isWorking = false
     @State private var showPrepareConfirmation = false
@@ -38,7 +38,7 @@ struct VoiceStudioView: View {
             if recorder.hasSession {
                 GuidedVoiceRecordingSection(
                     recorder: recorder,
-                    prompt: Self.recordingPrompt,
+                    prompt: referenceLanguage.referencePrompt,
                     isWorking: isWorking,
                     consentConfirmed: consentConfirmed,
                     profileName: profileName,
@@ -46,7 +46,7 @@ struct VoiceStudioView: View {
                     onSave: { recordedURL in
                         createProfile(
                             from: recordedURL,
-                            transcriptOverride: Self.recordingPrompt,
+                            transcriptOverride: referenceLanguage.referencePrompt,
                             source: .microphone
                         )
                     },
@@ -175,6 +175,12 @@ struct VoiceStudioView: View {
     private var profileCreationSection: some View {
         Section("Create Voice Profile") {
             TextField("Profile name", text: $profileName)
+            Picker("Reference language", selection: $referenceLanguage) {
+                ForEach(VoiceLanguage.allCases, id: \.self) { language in
+                    Text(language.displayName).tag(language)
+                }
+            }
+            .disabled(recorder.hasSession || isWorking)
             TextField(
                 "Exact transcript for imported MP3/WAV",
                 text: $transcript,
@@ -331,6 +337,7 @@ struct VoiceStudioView: View {
                     name: profileName,
                     sourceURL: url,
                     transcript: transcriptOverride ?? transcript,
+                    language: referenceLanguage.rawValue,
                     source: source,
                     consentConfirmed: consentConfirmed
                 )

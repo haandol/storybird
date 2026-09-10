@@ -54,7 +54,7 @@ public struct StorybirdMCPService: Sendable {
 
     /// Defines the public computer-use surface and its side-effect hints.
     static var toolDefinitions: [Tool] {
-        sourceTools + projectTools + voiceTools + exportTools
+        sourceTools + projectTools + layerTools + voiceTools + draftTools + exportTools
     }
 
     private static var voiceTools: [Tool] {
@@ -77,6 +77,7 @@ public struct StorybirdMCPService: Sendable {
                         "voice_profile_id": .object(["type": "string"]),
                         "text": .object(["type": "string"]),
                         "language": .object(["type": "string"]),
+                        "timing_mode": .object(["type": "string", "enum": ["project", "scene"]]),
                         "start_time": .object(["type": "number", "minimum": 0]),
                     ],
                     required: [
@@ -100,6 +101,7 @@ public struct StorybirdMCPService: Sendable {
                         "narration_id": .object(["type": "string"]),
                         "text": .object(["type": "string"]),
                         "language": .object(["type": "string"]),
+                        "timing_mode": .object(["type": "string", "enum": ["project", "scene"]]),
                         "start_time": .object(["type": "number", "minimum": 0]),
                         "volume": .object(["type": "number", "minimum": 0, "maximum": 2]),
                     ],
@@ -129,6 +131,107 @@ public struct StorybirdMCPService: Sendable {
                 ),
                 annotations: .init(readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false)
             ),
+        ]
+    }
+
+    private static var clickProperties: [String: Value] {
+        var fields: [String: Value] = [
+            "click_id": .object(["type": "string"]),
+            "button": .object(["type": "string", "enum": ["left", "right"]]),
+            "description_position": .object(["type": "string", "enum": ["automatic", "custom"]]),
+            "subtitle_position": .object(["type": "string", "enum": ["top", "bottom"]]),
+        ]
+        for key in ["caption", "description", "subtitle", "background_hex", "indicator_color_hex",
+                    "description_background_hex", "description_foreground_hex", "subtitle_background_hex", "subtitle_foreground_hex"] {
+            fields[key] = .object(["type": "string"])
+        }
+        for key in ["time", "indicator_start_time", "indicator_end_time", "description_start_time", "description_end_time", "subtitle_start_time", "subtitle_end_time"] {
+            fields[key] = .object(["type": "number", "minimum": 0])
+        }
+        for key in ["x", "y", "description_x", "description_y", "indicator_opacity", "background_opacity", "description_background_opacity", "subtitle_background_opacity"] {
+            fields[key] = .object(["type": "number", "minimum": 0, "maximum": 1])
+        }
+        for key in ["indicator_size", "description_font_size", "subtitle_font_size"] {
+            fields[key] = .object(["type": "number", "exclusiveMinimum": 0])
+        }
+        return fields
+    }
+
+    private static var layerTools: [Tool] {
+        let id: Value = .object(["type": "string"])
+        let time: Value = .object(["type": "number", "minimum": 0])
+        let unit: Value = .object(["type": "number", "minimum": 0, "maximum": 1])
+        let scale: Value = .object(["type": "number", "minimum": 1, "maximum": 3])
+        let spotlight: [String: Value] = ["start_time": time, "end_time": time, "x": unit, "y": unit, "width": unit, "height": unit, "dim_opacity": unit]
+        let zoom: [String: Value] = ["start_time": time, "end_time": time, "start_x": unit, "start_y": unit, "end_x": unit, "end_y": unit, "start_scale": scale, "end_scale": scale]
+        let card: [String: Value] = ["title": id, "subtitle": id, "button_label": id, "duration": .object(["type": "number", "exclusiveMinimum": 0]), "after_clip_id": id]
+        let style: [String: Value] = ["foreground_hex": id, "background_hex": id, "background_opacity": unit, "font_size": .object(["type": "number", "minimum": 1])]
+        var effect = spotlight.merging(zoom) { _, new in new }.merging(style) { _, new in new }
+        for key in ["effect_id", "title", "subtitle", "button_label"] { effect[key] = id }
+        return [
+            Tool(name: "storybird_get_edit_context", title: "Resolve text requests to scenes and layers",
+                 description: "Read the current revision, one-based scene numbers and clip times, plus current click captions, subtitles, effects and narration. Use returned IDs for text-driven edits; Storybird does not interpret natural language.",
+                 inputSchema: projectIDSchema(), annotations: .init(readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false)),
+            Tool(name: "storybird_create_project", title: "Create an empty project",
+                 description: "Create a named placeholder. Every later recording still creates a separate video project.",
+                 inputSchema: objectSchema(properties: ["name": id], required: ["name"]),
+                 annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false)),
+            Tool(name: "storybird_abort_session", title: "Discard an active recording",
+                 description: "Abort the active session and discard its incomplete recording. Use stop_session to save a finished video instead.",
+                 inputSchema: objectSchema(), annotations: .init(readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false)),
+            layerTool("storybird_create_click", "Add a Click Cue", "Add a Cue at project time, optionally supplying its description and subtitle.", clickProperties.filter { $0.key != "click_id" }, ["time", "x", "y"]),
+            layerTool("storybird_delete_click", "Delete a Click Cue", "Remove a Cue and its suggestion metadata; previously applied effects remain.", ["click_id": id], ["click_id"]),
+            layerTool("storybird_delete_subtitle", "Delete a subtitle", "Remove one independent subtitle.", ["subtitle_id": id], ["subtitle_id"]),
+            layerTool("storybird_create_spotlight", "Add a spotlight", "Emphasize a normalized rectangle for a time interval.", spotlight, ["start_time", "end_time", "x", "y", "width", "height"]),
+            layerTool("storybird_create_pan_zoom", "Add pan and zoom", "Move and zoom the picture between normalized centers.", zoom, ["start_time", "end_time", "end_x", "end_y", "end_scale"]),
+            layerTool("storybird_insert_title", "Insert a title card", "Insert at the beginning or after a nonfinal clip; later layers shift together.", card.filter { $0.key != "button_label" && $0.key != "subtitle" }, ["title", "duration"]),
+            layerTool("storybird_insert_cta", "Insert a closing CTA", "Append one noninteractive closing card.", card.filter { $0.key != "after_clip_id" && $0.key != "subtitle" }, ["title", "button_label", "duration"]),
+            layerTool("storybird_update_effect", "Edit effect properties", "Change only supplied properties of one effect; fields must match its type.", effect, ["effect_id"]),
+            layerTool("storybird_delete_effect", "Delete an effect", "Remove a visual effect or close a title/CTA gap with linked timing changes.", ["effect_id": id], ["effect_id"]),
+            layerTool("storybird_update_suggestion", "Edit a pending suggestion", "Change split time or nested spotlight/pan_zoom properties before applying.", ["suggestion_id": id, "split_time": time, "spotlight": objectSchema(properties: spotlight), "pan_zoom": objectSchema(properties: zoom)], ["suggestion_id"]),
+            layerTool("storybird_apply_suggestion", "Apply a suggestion", "Apply its split and effects as one undoable project edit.", ["suggestion_id": id], ["suggestion_id"]),
+            layerTool("storybird_reject_suggestion", "Reject a suggestion", "Reject a pending suggestion without changing output or edit revision.", ["suggestion_id": id], ["suggestion_id"]),
+        ]
+    }
+
+    /// Uses the same revision envelope for every narrow, undoable layer edit.
+    private static func layerTool(_ name: String, _ title: String, _ description: String, _ fields: [String: Value], _ required: [String]) -> Tool {
+        Tool(name: name, title: title, description: description,
+             inputSchema: revisionedProjectSchema(properties: fields, required: required),
+             annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false))
+    }
+
+    private static var draftTools: [Tool] {
+        let project: [String: Value] = ["project_id": .object(["type": "string"])]
+        let identified = project.merging(["draft_id": .object(["type": "string"])]) { _, new in new }
+        return [
+            Tool(name: "storybird_start_narration_draft", title: "Generate a reusable narration draft",
+                 description: "Start local sentence synthesis without placing it or changing the edit revision. Poll the draft and place its measured WAV after editing the scene length.",
+                 inputSchema: objectSchema(properties: project.merging([
+                    "voice_profile_id": .object(["type": "string"]), "text": .object(["type": "string"]),
+                    "language": .object(["type": "string"]),
+                 ]) { _, new in new }, required: ["project_id", "voice_profile_id", "text"]),
+                 annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false)),
+            Tool(name: "storybird_list_narration_drafts", title: "List narration drafts",
+                 description: "List project-owned generation jobs, states, text, languages and measured durations.",
+                 inputSchema: objectSchema(properties: project, required: ["project_id"]),
+                 annotations: .init(readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false)),
+            Tool(name: "storybird_get_narration_draft", title: "Get narration draft state",
+                 description: "Return generating, ready, failed, cancelled or placed state. Ready drafts survive restart and timing conflicts.",
+                 inputSchema: objectSchema(properties: identified, required: ["project_id", "draft_id"]),
+                 annotations: .init(readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false)),
+            Tool(name: "storybird_cancel_narration_draft", title: "Cancel or discard a narration draft",
+                 description: "Cancel synthesis or discard a ready draft; never removes placed narration.",
+                 inputSchema: objectSchema(properties: identified, required: ["project_id", "draft_id"]),
+                 annotations: .init(readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false)),
+            Tool(name: "storybird_place_narration_draft", title: "Place a ready narration draft",
+                 description: "Place the existing WAV at project seconds with optional scene timing. Conflicts retain the ready draft. A draft can be placed only once.",
+                 inputSchema: objectSchema(properties: identified.merging([
+                    "expected_revision": .object(["type": "integer", "minimum": 0]),
+                    "start_time": .object(["type": "number", "minimum": 0]),
+                    "timing_mode": .object(["type": "string", "enum": ["project", "scene"]]),
+                 ]) { _, new in new }, required: ["project_id", "draft_id", "expected_revision", "start_time"]),
+                 annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false)),
         ]
     }
 
@@ -250,6 +353,16 @@ public struct StorybirdMCPService: Sendable {
 
     private static var projectTools: [Tool] {
         [
+            Tool(
+                name: "storybird_duplicate_project",
+                title: "Duplicate a video project",
+                description: "Copy a video and its narration into an independent editable project. The source revision is checked; draft jobs and undo history are not copied.",
+                inputSchema: Self.revisionedProjectSchema(
+                    properties: ["name": .object(["type": "string"])],
+                    required: []
+                ),
+                annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false)
+            ),
             Tool(
                 name: "storybird_list_projects",
                 title: "List Storybird projects",
@@ -416,19 +529,7 @@ public struct StorybirdMCPService: Sendable {
                 name: "storybird_update_click",
                 title: "Update a click layer",
                 description: "Update one timed click caption, normalized position, or background style and return the new project revision.",
-                inputSchema: Self.objectSchema(
-                    properties: [
-                        "project_id": .object(["type": "string"]),
-                        "expected_revision": .object(["type": "integer", "minimum": 0]),
-                        "click_id": .object(["type": "string"]),
-                        "caption": .object(["type": "string"]),
-                        "x": .object(["type": "number", "minimum": 0.0, "maximum": 1.0]),
-                        "y": .object(["type": "number", "minimum": 0.0, "maximum": 1.0]),
-                        "background_hex": .object(["type": "string"]),
-                        "background_opacity": .object(["type": "number", "minimum": 0.0, "maximum": 1.0]),
-                    ],
-                    required: ["project_id", "expected_revision", "click_id"]
-                ),
+                inputSchema: Self.revisionedProjectSchema(properties: clickProperties, required: ["click_id"]),
                 annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false)
             ),
             Tool(
@@ -440,12 +541,15 @@ public struct StorybirdMCPService: Sendable {
                         "project_id": .object(["type": "string"]),
                         "expected_revision": .object(["type": "integer", "minimum": 0]),
                         "subtitle_id": .object(["type": "string"]),
+                        "timing_mode": .object(["type": "string", "enum": ["project", "scene"]]),
                         "start_time": .object(["type": "number", "minimum": 0.0]),
                         "end_time": .object(["type": "number", "minimum": 0.0]),
                         "text": .object(["type": "string"]),
                         "position": .object(["type": "string", "enum": ["top", "bottom"]]),
                         "background_hex": .object(["type": "string"]),
                         "background_opacity": .object(["type": "number", "minimum": 0.0, "maximum": 1.0]),
+                        "foreground_hex": .object(["type": "string"]),
+                        "font_size": .object(["type": "number", "minimum": 1.0]),
                     ],
                     required: [
                         "project_id",

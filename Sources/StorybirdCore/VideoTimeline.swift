@@ -8,6 +8,7 @@ public enum VideoTimelineEditError: LocalizedError, Equatable {
     case invalidFreeze
     case invalidDestination
     case invalidClickPlacement
+    case invalidScenePlacement
 
     public var errorDescription: String? {
         switch self {
@@ -19,6 +20,8 @@ public enum VideoTimelineEditError: LocalizedError, Equatable {
         case .invalidDestination: "The destination index is outside the timeline."
         case .invalidClickPlacement:
             "A Click Cue must use a playable video time and a position inside the frame."
+        case .invalidScenePlacement:
+            "Scene timing needs a start inside a video or freeze clip. Use fixed project time for title and CTA cards."
         }
     }
 }
@@ -125,6 +128,7 @@ public enum VideoTimelineEditor {
                 or: right
             )
         }
+        result = SceneTiming.transferSplit(in: result, originalID: clipID, left: left, right: right)
         return remapContentLayers(result)
     }
 
@@ -258,7 +262,7 @@ public enum VideoTimelineEditor {
             moved.panZoom.endTime += offset
             return moved
         }
-        return result
+        return SceneTiming.remap(result)
     }
 
     /// Anchors a spotlight or pan/zoom draft to the clip visible at one project time.
@@ -670,6 +674,55 @@ public enum DemoEffectEditError: LocalizedError, Equatable {
 }
 
 public enum DemoEffectEditor {
+    /// Replaces card timing by closing the old gap and inserting the new one.
+    /// Fixed-time and scene-linked layers use the same shifts as card insertion.
+    public static func replaceCard(_ replacement: DemoEffect, in project: DemoProject) throws -> DemoProject {
+        guard let old = project.effects.first(where: { $0.id == replacement.id }),
+              old.isFullScreenCard, replacement.isFullScreenCard,
+              old.isCTA == replacement.isCTA else { throw DemoEffectEditError.effectNotFound }
+        if old.startTime == replacement.startTime && old.endTime == replacement.endTime {
+            var result = project
+            result.effects[result.effects.firstIndex { $0.id == replacement.id }!] = replacement
+            return result
+        }
+        let duration = replacement.endTime - replacement.startTime
+        guard replacement.startTime.isFinite, duration.isFinite, duration > 0 else {
+            throw DemoEffectEditError.invalidTitlePosition
+        }
+        let removed = try delete(old.id, from: project)
+        let schedule = VideoTimelineSchedule(project: removed)
+        if replacement.isCTA {
+            guard abs(replacement.startTime - removed.timelineDuration) < 0.001 else {
+                throw DemoEffectEditError.invalidTitlePosition
+            }
+        } else if replacement.startTime != 0 {
+            guard let index = schedule.items.firstIndex(where: {
+                abs($0.projectStart - replacement.startTime) < 0.001
+            }), schedule.items[index...].contains(where: {
+                if case .clip = $0 { return true }
+                return false
+            }) else { throw DemoEffectEditError.invalidTitlePosition }
+        }
+        var result = shiftProjectTimes(in: removed, from: replacement.startTime, by: duration)
+        result.effects.append(replacement)
+        try VideoProjectValidator.validate(result)
+        return result
+    }
+
+    /// Handles one native card inspector edit without shifting an already
+    /// transformed timeline a second time.
+    public static func reconcileCardEdit(from old: DemoProject, to edited: DemoProject) throws -> DemoProject {
+        guard old.clips == edited.clips, old.clicks == edited.clicks,
+              old.subtitles == edited.subtitles, old.narrations == edited.narrations else { return edited }
+        let changed = edited.effects.filter { effect in
+            effect.isFullScreenCard && old.effects.contains {
+                $0.id == effect.id && ($0.startTime != effect.startTime || $0.endTime != effect.endTime)
+            }
+        }
+        guard changed.count == 1, let card = changed.first else { return edited }
+        return try replaceCard(card, in: old)
+    }
+
     /// Inserts a full-screen title at the start or after one clip and shifts all later project-time layers.
     public static func insertTitle(
         in project: DemoProject,
@@ -783,6 +836,10 @@ public enum DemoEffectEditor {
         where result.subtitles[index].startTime >= threshold {
             result.subtitles[index].startTime += delta
             result.subtitles[index].endTime += delta
+        }
+        for index in result.narrations.indices
+        where result.narrations[index].startTime >= threshold {
+            result.narrations[index].startTime += delta
         }
         result.effects = result.effects.map {
             shift(effect: $0, from: threshold, by: delta)

@@ -9,6 +9,7 @@ public enum VideoProjectValidationError: LocalizedError, Equatable {
     case invalidClip(UUID)
     case invalidEffect(UUID)
     case invalidSuggestion(UUID)
+    case invalidNarration(UUID, String)
     case duplicateLayerID(UUID)
 
     public var errorDescription: String? {
@@ -29,6 +30,8 @@ public enum VideoProjectValidationError: LocalizedError, Equatable {
             return "Effect \(id.uuidString) is invalid."
         case let .invalidSuggestion(id):
             return "Suggestion \(id.uuidString) is invalid."
+        case let .invalidNarration(id, reason):
+            return "Narration \(id.uuidString): \(reason)"
         case let .duplicateLayerID(id):
             return "Layer \(id.uuidString) appears more than once."
         }
@@ -38,6 +41,7 @@ public enum VideoProjectValidationError: LocalizedError, Equatable {
 public enum VideoProjectValidator {
     /// Rejects invalid time and coordinate metadata before it can replace a persisted project.
     public static func validate(_ project: DemoProject) throws {
+        try NarrationDraft.validate(project.narrationDrafts)
         guard let recording = project.recording else {
             throw VideoProjectValidationError.missingRecording
         }
@@ -82,6 +86,7 @@ public enum VideoProjectValidator {
             }
         }
         let timelineDuration = project.timelineDuration
+        try SceneTiming.validate(project)
         var previousClickTime = -Double.infinity
         for click in project.clicks {
             guard layerIDs.insert(click.id).inserted else {
@@ -176,11 +181,21 @@ public enum VideoProjectValidator {
                   narration.volume.isFinite,
                   narration.startTime >= 0,
                   narration.duration > 0,
-                  narration.endTime <= timelineDuration,
-                  narration.volume >= 0,
-                  narration.startTime >= previousNarrationEnd
+                  narration.volume >= 0
             else {
-                throw VideoProjectValidationError.invalidRecording
+                throw VideoProjectValidationError.invalidNarration(narration.id, "Invalid audio, text, timing, or volume.")
+            }
+            guard narration.endTime <= timelineDuration else {
+                throw VideoProjectValidationError.invalidNarration(
+                    narration.id,
+                    "Ends at \(narration.endTime)s, beyond the \(timelineDuration)s project. Extend the picture or move the start."
+                )
+            }
+            guard narration.startTime >= previousNarrationEnd else {
+                throw VideoProjectValidationError.invalidNarration(
+                    narration.id,
+                    "Starts at \(narration.startTime)s before the previous sentence ends at \(previousNarrationEnd)s. Adjust placement."
+                )
             }
             previousNarrationEnd = narration.endTime
         }

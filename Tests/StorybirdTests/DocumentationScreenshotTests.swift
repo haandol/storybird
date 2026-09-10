@@ -11,7 +11,7 @@ final class DocumentationScreenshotTests: XCTestCase {
             contentsOf: repositoryRoot.appendingPathComponent("README.md"),
             encoding: .utf8
         )
-        for name in ["welcome.png", "voice-narration.png", "storage-settings.png"] {
+        for name in ["welcome.png", "voice-narration.png", "storage-settings.png", "narration-drafts.png"] {
             let relativePath = "docs/images/\(name)"
             XCTAssertTrue(
                 readme.contains(relativePath),
@@ -83,6 +83,27 @@ final class DocumentationScreenshotTests: XCTestCase {
             ).generalTab,
             size: CGSize(width: 680, height: 720),
             to: imageDirectory.appendingPathComponent("storage-settings.png")
+        )
+        let profile = VoiceProfile(
+            name: "Demo narrator", referenceFilename: "reference.wav",
+            referenceText: "Synthetic reference.", language: "english", consentConfirmed: true
+        )
+        try store.repository.saveVoiceProfiles([profile])
+        let project = DemoProject(
+            name: "Service tutorial",
+            recording: VideoRecordingAsset(filename: "synthetic.mp4", duration: 20, width: 1280, height: 720),
+            narrationDrafts: [NarrationDraft(
+                voiceProfileID: profile.id, text: "Create your first project and see the result.",
+                language: "english", filename: "synthetic.wav", state: .ready, duration: 3.2
+            )]
+        )
+        try store.repository.saveProjects([project])
+        let narrationStore = AppStore(repository: store.repository, voiceService: DocumentationVoiceService())
+        await narrationStore.refreshVoiceRuntimeState()
+        try render(
+            NarrationComposerView(store: narrationStore),
+            size: CGSize(width: 680, height: 680),
+            to: imageDirectory.appendingPathComponent("narration-drafts.png")
         )
     }
 

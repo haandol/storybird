@@ -3,6 +3,13 @@
 이 문서는 authoring 카테고리의 주요 결정 변경 이력이다. ADR 본문은 현재 상태만
 서술하고, 주요 전환의 시간축은 여기에 최신 순으로 남긴다.
 
+## 2026-09-10 — 장면 연결 독립 자막
+
+- **현재 ADR**: [0001-timeline-overlay-editor](./0001-timeline-overlay-editor.md)
+- **변경 유형**: 시간 연결 규칙
+- **무엇이**: 프로젝트 고정 시각에 선택적 장면 연결을 추가한다.
+- **왜**: 자막 시작점을 원본 장면과 연결하고 고정 시각을 선택할 수 있게 한다.
+
 ## 2026-09-05 — 클릭 안내를 완성 상태가 있는 Click Cue로 묶음
 
 - **현재 ADR**: [timeline-overlay-editor](./0001-timeline-overlay-editor.md)

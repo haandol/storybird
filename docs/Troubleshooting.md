@@ -215,3 +215,26 @@ codesign --verify --deep --strict --verbose=2 Storybird.app
 
 Then use System Settings › Privacy & Security › Security › **Open Anyway** if
 macOS presents the option.
+
+## Narration is ready but will not fit
+
+A ready draft keeps its WAV when placement overlaps another narration or exceeds
+the project duration. Move its start or edit the picture (for example, insert a
+freeze segment), refresh the project revision, and place the same draft again.
+Do not regenerate solely to recover from a placement error. A draft that already
+shows `placed` cannot be placed again, including after undo; use redo to restore
+that placement.
+
+## A narration does not follow the moved scene
+
+Check its **Timing** selection. Existing narration and subtitles retain **Fixed
+project time**. Choose **Follow scene** to anchor the start to its current clip.
+Cards use fixed project time. Scene linking moves only the start, preserving
+speech/display duration; a resulting overlap rejects the entire edit.
+
+## A voice generation was interrupted by restart
+
+Interrupted draft jobs are marked failed and do not automatically run again.
+Create a new draft explicitly. Ready drafts are retained. Check the native Voice
+Settings if the model is not prepared; MCP cannot install the model or register
+a voice profile.

@@ -51,6 +51,8 @@ final class VideoPlaybackModel: ObservableObject {
 
     let player: AVPlayer
     private let timeObserver = VideoTimeObserverBox()
+    private var rebuildTask: Task<Void, Never>?
+    private var rebuildID = UUID()
 
     /// Creates one player whose periodic observer drives every preview layer on the same clock.
     init(url: URL, project: DemoProject) {
@@ -73,8 +75,12 @@ final class VideoPlaybackModel: ObservableObject {
         rebuild(url: url, project: project)
     }
 
-    /// Replaces the player item with the current non-destructive clip composition.
+    /// Replaces the current composition only if this is still the newest load.
+    /// Cancelled/stale loads cannot restore obsolete audio or an emptied timeline.
     func rebuild(url: URL, project: DemoProject) {
+        rebuildTask?.cancel()
+        let requestID = UUID()
+        rebuildID = requestID
         let resumeTime = min(currentTime, project.timelineDuration)
         errorMessage = nil
         guard !project.clips.isEmpty else {
@@ -85,18 +91,21 @@ final class VideoPlaybackModel: ObservableObject {
             isPlaying = false
             return
         }
-        Task {
+        rebuildTask = Task {
             do {
                 let result = try await EditedVideoAssetBuilder.build(
                     project: project,
                     sourceURL: url
                 )
+                try Task.checkCancellation()
+                guard rebuildID == requestID else { return }
                 let item = AVPlayerItem(asset: result.asset)
                 item.audioMix = result.audioMix
                 player.replaceCurrentItem(with: item)
                 duration = max(result.duration, 0)
                 seek(to: resumeTime)
             } catch {
+                guard rebuildID == requestID, !Task.isCancelled else { return }
                 player.pause()
                 player.replaceCurrentItem(with: nil)
                 duration = 0
@@ -245,6 +254,27 @@ enum TimelineTrackLayout {
     }
 }
 
+private struct PlaybackCompositionState: Equatable {
+    struct Card: Equatable {
+        let id: UUID
+        let start: Double
+        let end: Double
+    }
+    let clips: [VideoClip]
+    let narrations: [NarrationClip]
+    let cards: [Card]
+
+    /// Reloads media only for changes affecting the picture clock or sound;
+    /// subtitle and visual style edits remain lightweight SwiftUI overlays.
+    init(project: DemoProject) {
+        clips = project.clips
+        narrations = project.narrations
+        cards = project.effects.filter(\.isFullScreenCard).map {
+            Card(id: $0.id, start: $0.startTime, end: $0.endTime)
+        }
+    }
+}
+
 struct VideoTimelineEditorView: View {
     @ObservedObject var store: AppStore
     @Binding var project: DemoProject
@@ -324,7 +354,7 @@ struct VideoTimelineEditorView: View {
         .onDisappear {
             playback.player.pause()
         }
-        .onChange(of: project.clips) {
+        .onChange(of: PlaybackCompositionState(project: project)) {
             playback.rebuild(url: videoURL, project: project)
         }
     }
@@ -1023,6 +1053,12 @@ struct VideoTimelineEditorView: View {
             } else if let index = project.subtitles.firstIndex(where: {
                 $0.id == selectedSubtitleID
             }) {
+                LayerTimingPicker(
+                    anchor: $project.subtitles[index].sceneAnchor,
+                    time: project.subtitles[index].startTime,
+                    project: project,
+                    onError: { store.errorMessage = $0.localizedDescription }
+                )
                 SubtitleLayerInspector(
                     subtitle: $project.subtitles[index],
                     duration: playback.duration,
@@ -1034,9 +1070,15 @@ struct VideoTimelineEditorView: View {
             } else if let index = project.narrations.firstIndex(where: {
                 $0.id == selectedNarrationID
             }) {
+                LayerTimingPicker(
+                    anchor: $project.narrations[index].sceneAnchor,
+                    time: project.narrations[index].startTime,
+                    project: project,
+                    onError: { store.errorMessage = $0.localizedDescription }
+                )
                 NarrationLayerInspector(
                     narration: $project.narrations[index],
-                    onRegenerate: { replacementText in
+                    onRegenerate: { replacementText, replacementLanguage in
                         let narrationID = project.narrations[index].id
                         let expectedRevision = project.revision
                         do {
@@ -1044,7 +1086,8 @@ struct VideoTimelineEditorView: View {
                                 projectID: project.id,
                                 narrationID: narrationID,
                                 expectedRevision: expectedRevision,
-                                text: replacementText
+                                text: replacementText,
+                                language: replacementLanguage
                             )
                         } catch {
                             store.errorMessage = error.localizedDescription
@@ -1223,7 +1266,8 @@ struct VideoTimelineEditorView: View {
         let subtitle = TimedSubtitle(
             startTime: start,
             endTime: end,
-            text: "New subtitle"
+            text: "New subtitle",
+            sceneAnchor: try? SceneTiming.anchor(at: start, in: project)
         )
         project.subtitles.append(subtitle)
         selection = .subtitle(subtitle.id)
@@ -2121,19 +2165,21 @@ private struct SubtitleLayerInspector: View {
 
 private struct NarrationLayerInspector: View {
     @Binding var narration: NarrationClip
-    let onRegenerate: (String) async -> Void
+    let onRegenerate: (String, String) async -> Void
     let onDelete: () -> Void
     @State private var replacementText: String
+    @State private var replacementLanguage: String
     @State private var isRegenerating = false
 
     init(
         narration: Binding<NarrationClip>,
-        onRegenerate: @escaping (String) async -> Void,
+        onRegenerate: @escaping (String, String) async -> Void,
         onDelete: @escaping () -> Void
     ) {
         _narration = narration
         self.onRegenerate = onRegenerate
         self.onDelete = onDelete
+        _replacementLanguage = State(initialValue: narration.wrappedValue.language)
         _replacementText = State(
             initialValue: narration.wrappedValue.text
         )
@@ -2148,11 +2194,19 @@ private struct NarrationLayerInspector: View {
                     axis: .vertical
                 )
                 .lineLimit(4)
+                Picker("Language", selection: $replacementLanguage) {
+                    ForEach(VoiceLanguage.allCases, id: \.self) { value in
+                        Text(value.displayName).tag(value.rawValue)
+                    }
+                    if VoiceLanguage(rawValue: narration.language) == nil {
+                        Text(narration.language).tag(narration.language)
+                    }
+                }
                 Button("Regenerate This Narration") {
                     let text = replacementText
                     isRegenerating = true
                     Task {
-                        await onRegenerate(text)
+                        await onRegenerate(text, replacementLanguage)
                         isRegenerating = false
                     }
                 }
@@ -2161,7 +2215,7 @@ private struct NarrationLayerInspector: View {
                         || replacementText.trimmingCharacters(
                             in: .whitespacesAndNewlines
                         ).isEmpty
-                        || replacementText == narration.text
+                        || (replacementText == narration.text && replacementLanguage == narration.language)
                 )
                 TextField(
                     "Start",
@@ -2187,6 +2241,7 @@ private struct NarrationLayerInspector: View {
             }
         }
         .formStyle(.grouped)
+        .onChange(of: narration.language) { _, value in replacementLanguage = value }
         .onChange(of: narration.text) { _, value in
             replacementText = value
         }

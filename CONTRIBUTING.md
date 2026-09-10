@@ -217,3 +217,16 @@ Use a commit-style title and this body:
 
 List exact commands and manual checks. Include synthetic screenshots for UI
 changes and call out permission, storage, bundle identity, and export changes.
+
+## Agent production regression checks
+
+`AgentProductionTests` exercises independent project copies, reusable narration
+jobs, revision conflicts, scene timing, text-driven Cue edits and composited
+preview with temporary synthetic media. `SceneTimingTests` covers movement,
+split boundaries, trim/delete, freeze segments, cards and legacy decoding.
+
+For changes to this workflow, verify that a failed placement keeps its ready WAV,
+that undo never points at a deleted generated WAV, and that a text-only edit
+preserves the target's unrequested properties. Keep the public tool table in
+`docs/MCP.md` and the repository's `create-storybird-video` skill aligned with the
+actual advertised tools. Use synthetic documentation screenshots for UI changes.

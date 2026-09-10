@@ -757,10 +757,10 @@ final class AppStoreTests: XCTestCase {
         } catch RecordingStoreError.revisionConflict {}
 
         XCTAssertTrue(store.project(id: project.id)?.narrations.isEmpty == true)
-        let files = try FileManager.default.contentsOfDirectory(
-            at: repository.assetsDirectory(projectID: project.id),
-            includingPropertiesForKeys: nil
-        )
+        let directory = repository.assetsDirectory(projectID: project.id)
+        let files = FileManager.default.fileExists(atPath: directory.path)
+            ? try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+            : []
         XCTAssertFalse(
             files.contains { $0.lastPathComponent.hasPrefix("narration-") }
         )
@@ -829,7 +829,7 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(updated.text, "바뀐 첫 문장")
         XCTAssertNotEqual(updated.filename, first.filename)
         XCTAssertEqual(unchanged, secondClip)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: first.url.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: first.url.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: second.url.path))
         XCTAssertTrue(
             FileManager.default.fileExists(
@@ -903,7 +903,7 @@ final class AppStoreTests: XCTestCase {
         )
     }
 
-    func test_deleteNarration_removesWAVAfterRevisionedSave() throws {
+    func test_deleteNarration_preservesWAVForUndo() throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let repository = ProjectRepository(rootURL: root)
@@ -930,7 +930,9 @@ final class AppStoreTests: XCTestCase {
         )
 
         XCTAssertTrue(saved.narrations.isEmpty)
-        XCTAssertFalse(
+        let restored = try store.undo(projectID: project.id)
+        XCTAssertEqual(restored.narrations, [narration])
+        XCTAssertTrue(
             FileManager.default.fileExists(atPath: prepared.url.path)
         )
     }

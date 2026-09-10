@@ -4,6 +4,13 @@ This document is the **major decision-change history** of the voice-narration ca
 Each ADR body describes only the current state, while the timeline of "what changed and
 why" accumulates here, newest first. Git preserves the individual diffs.
 
+## 2026-09-10 — 언어 선택과 재사용 가능한 음성 초안
+
+- **현재 ADR**: [local-cloned-voice-narration](./0001-local-cloned-voice-narration.md)
+- **변경 유형**: 합성·배치 수명과 언어 선택
+- **무엇이**: 한국어·영어를 선택하고 합성 완료 음성을 초안으로 보관한 뒤 고정 시각 또는 장면에 배치한다.
+- **왜**: 문장 길이를 확인한 뒤 화면을 편집하고, 실패한 배치를 재합성 없이 다시 시도한다.
+
 ## 2026-09-09 — 공유 음성 관리와 프로젝트 내레이션 작성을 분리한다
 
 - **Current ADR**: [local-cloned-voice-narration](./0001-local-cloned-voice-narration.md)

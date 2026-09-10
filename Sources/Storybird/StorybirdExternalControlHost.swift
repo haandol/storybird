@@ -102,7 +102,22 @@ final class StorybirdExternalControlHost {
                     request.name,
                     arguments: arguments
                 )
-            case "storybird_list_projects",
+            case "storybird_get_edit_context",
+                 "storybird_create_project",
+                 "storybird_create_click",
+                 "storybird_delete_click",
+                 "storybird_delete_subtitle",
+                 "storybird_create_spotlight",
+                 "storybird_create_pan_zoom",
+                 "storybird_insert_title",
+                 "storybird_insert_cta",
+                 "storybird_update_effect",
+                 "storybird_delete_effect",
+                 "storybird_update_suggestion",
+                 "storybird_apply_suggestion",
+                 "storybird_reject_suggestion",
+                 "storybird_list_projects",
+                 "storybird_duplicate_project",
                  "storybird_get_project",
                  "storybird_replace_project",
                  "storybird_split_clip",
@@ -131,7 +146,12 @@ final class StorybirdExternalControlHost {
                     request.name,
                     arguments: arguments
                 )
-            case "storybird_list_voice_profiles",
+            case "storybird_start_narration_draft",
+                 "storybird_list_narration_drafts",
+                 "storybird_get_narration_draft",
+                 "storybird_cancel_narration_draft",
+                 "storybird_place_narration_draft",
+                 "storybird_list_voice_profiles",
                  "storybird_generate_narration",
                  "storybird_update_narration",
                  "storybird_delete_narration":
@@ -160,6 +180,32 @@ final class StorybirdExternalControlHost {
         arguments: [String: Any]
     ) async throws -> StorybirdControlResponse {
         switch name {
+        case "storybird_start_narration_draft":
+            return try Self.jsonResponse(store.startNarrationDraft(
+                projectID: Self.uuid("project_id", in: arguments),
+                voiceProfileID: Self.uuid("voice_profile_id", in: arguments),
+                text: Self.string("text", in: arguments),
+                language: Self.string("language", in: arguments, default: "korean")
+            ))
+        case "storybird_list_narration_drafts":
+            return try Self.jsonResponse(project(from: arguments).narrationDrafts)
+        case "storybird_get_narration_draft":
+            let project = try project(from: arguments)
+            let id = try Self.uuid("draft_id", in: arguments)
+            return try Self.jsonResponse(Self.unwrap(project.narrationDrafts.first { $0.id == id }, message: "Draft not found."))
+        case "storybird_cancel_narration_draft":
+            let projectID = try Self.uuid("project_id", in: arguments)
+            let id = try Self.uuid("draft_id", in: arguments)
+            try store.cancelNarrationDraft(projectID: projectID, draftID: id)
+            return try Self.jsonResponse(project(from: arguments).narrationDrafts)
+        case "storybird_place_narration_draft":
+            return try Self.jsonResponse(await store.placeNarrationDraft(
+                projectID: Self.uuid("project_id", in: arguments),
+                draftID: Self.uuid("draft_id", in: arguments),
+                expectedRevision: Self.requiredInt("expected_revision", in: arguments),
+                startTime: Self.double("start_time", in: arguments),
+                timingMode: Self.timingMode(arguments) ?? .project
+            ))
         case "storybird_list_voice_profiles":
             return try Self.jsonResponse(
                 store.voiceProfiles.map(ExternalVoiceProfile.init)
@@ -186,7 +232,8 @@ final class StorybirdExternalControlHost {
                 voiceProfileID: profileID,
                 text: text,
                 language: language,
-                startTime: startTime
+                startTime: startTime,
+                timingMode: try Self.timingMode(arguments) ?? .project
             )
             return try Self.jsonResponse(saved)
         case "storybird_update_narration":
@@ -203,7 +250,8 @@ final class StorybirdExternalControlHost {
                 text: arguments["text"] as? String,
                 language: arguments["language"] as? String,
                 startTime: (arguments["start_time"] as? NSNumber)?.doubleValue,
-                volume: (arguments["volume"] as? NSNumber)?.doubleValue
+                volume: (arguments["volume"] as? NSNumber)?.doubleValue,
+                timingMode: try Self.timingMode(arguments)
             )
             return try Self.jsonResponse(saved)
         case "storybird_delete_narration":
@@ -370,8 +418,48 @@ final class StorybirdExternalControlHost {
         arguments: [String: Any]
     ) async throws -> StorybirdControlResponse {
         switch name {
+        case "storybird_get_edit_context":
+            let project = try project(from: arguments)
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            let model = try JSONSerialization.jsonObject(with: encoder.encode(project))
+            var sceneNumber = 0
+            let scenes: [[String: Any]] = VideoTimelineSchedule(project: project).items.compactMap { item in
+                guard case let .clip(clip) = item else { return nil }
+                sceneNumber += 1
+                return ["scene_number": sceneNumber, "clip_id": clip.clip.id.uuidString,
+                        "start_time": clip.projectStart, "end_time": clip.projectEnd,
+                        "source_start": clip.clip.sourceStart, "source_end": clip.clip.sourceEnd,
+                        "kind": clip.clip.kind.rawValue, "playback_rate": clip.clip.playbackRate]
+            }
+            let data = try JSONSerialization.data(withJSONObject: [
+                "project": model, "scenes": scenes,
+                "guidance": "Scene numbers are one-based clip order, excluding title/CTA cards. Resolve the user's text against these IDs and current text; use expected_revision on edits."
+            ], options: [.sortedKeys])
+            return StorybirdControlResponse(text: String(decoding: data, as: UTF8.self))
+        case "storybird_create_project":
+            let id = store.createProject(name: try Self.string("name", in: arguments))
+            return try Self.jsonResponse(Self.unwrap(store.project(id: id), message: store.errorMessage ?? "Project creation failed."))
+        case "storybird_create_click", "storybird_delete_click", "storybird_delete_subtitle",
+             "storybird_create_spotlight", "storybird_create_pan_zoom", "storybird_insert_title",
+             "storybird_insert_cta", "storybird_update_effect", "storybird_delete_effect",
+             "storybird_update_suggestion", "storybird_apply_suggestion", "storybird_reject_suggestion":
+            let project = try project(from: arguments)
+            let revision = try Self.requiredInt("expected_revision", in: arguments)
+            guard project.revision == revision else { throw RecordingStoreError.revisionConflict(project.revision) }
+            let edited = try AgentProjectEditor.apply(name, arguments: arguments, to: project)
+            let saved = try store.saveProject(edited, expectedRevision: revision)
+            return try Self.jsonResponse(saved)
         case "storybird_list_projects":
             return try Self.jsonResponse(store.projects)
+        case "storybird_duplicate_project":
+            return try Self.jsonResponse(
+                try await store.duplicateProject(
+                    projectID: Self.uuid("project_id", in: arguments),
+                    expectedRevision: Self.requiredInt("expected_revision", in: arguments),
+                    name: arguments["name"] as? String
+                )
+            )
         case "storybird_get_project":
             return try Self.jsonResponse(
                 try project(from: arguments)
@@ -537,45 +625,14 @@ final class StorybirdExternalControlHost {
                 )
             )
         case "storybird_update_click":
-            var project = try project(from: arguments)
-            let expectedRevision = try Self.requiredInt(
-                "expected_revision",
-                in: arguments
-            )
-            let clickID = try Self.uuid("click_id", in: arguments)
-            let index = try Self.unwrap(
-                project.clicks.firstIndex { $0.id == clickID },
-                message: "The click layer does not exist."
-            )
-            if let caption = arguments["caption"] as? String {
-                project.clicks[index].caption = caption
-            }
-            if let x = (arguments["x"] as? NSNumber)?.doubleValue {
-                project.clicks[index].x = x
-            }
-            if let y = (arguments["y"] as? NSNumber)?.doubleValue {
-                project.clicks[index].y = y
-            }
-            if let hex = arguments["background_hex"] as? String {
-                project.clicks[index].captionStyle.backgroundHex = hex
-            }
-            if let opacity = (arguments["background_opacity"] as? NSNumber)?
-                .doubleValue {
-                project.clicks[index].captionStyle.backgroundOpacity =
-                    opacity
-            }
-            let saved = try store.saveProject(
-                project,
-                expectedRevision: expectedRevision
-            )
-            let savedClick = saved.clicks[index]
-            return try Self.jsonResponse(
-                ProjectMutationResponse(
-                    revision: saved.revision,
-                    targetID: savedClick.id,
-                    value: savedClick
-                )
-            )
+            let project = try project(from: arguments)
+            let revision = try Self.requiredInt("expected_revision", in: arguments)
+            guard project.revision == revision else { throw RecordingStoreError.revisionConflict(project.revision) }
+            let id = try Self.uuid("click_id", in: arguments)
+            let edited = try AgentProjectEditor.apply(name, arguments: arguments, to: project)
+            let saved = try store.saveProject(edited, expectedRevision: revision)
+            let click = try Self.unwrap(saved.clicks.first { $0.id == id }, message: "Click not found.")
+            return try Self.jsonResponse(ProjectMutationResponse(revision: saved.revision, targetID: id, value: click))
         case "storybird_upsert_subtitle":
             return try upsertSubtitle(arguments)
         case "storybird_preview_project":
@@ -823,31 +880,64 @@ final class StorybirdExternalControlHost {
         guard project.recording != nil else {
             throw VideoProjectValidationError.missingRecording
         }
-        let subtitleID = (arguments["subtitle_id"] as? String)
-            .flatMap(UUID.init(uuidString:))
-        let subtitle = TimedSubtitle(
-            id: subtitleID ?? UUID(),
-            startTime: try Self.double("start_time", in: arguments),
-            endTime: try Self.double("end_time", in: arguments),
-            text: try Self.string("text", in: arguments, default: ""),
-            position: SubtitlePosition(
-                rawValue: try Self.string(
-                    "position",
-                    in: arguments,
-                    default: "bottom"
-                )
-            ) ?? .bottom,
-            style: TextOverlayStyle(
-                backgroundHex: try Self.string(
-                    "background_hex",
-                    in: arguments,
-                    default: "#11131A"
-                ),
-                backgroundOpacity: (arguments["background_opacity"] as? NSNumber)?
-                    .doubleValue ?? 0.72
+        var subtitle: TimedSubtitle
+        if arguments["subtitle_id"] != nil {
+            let id = try Self.uuid("subtitle_id", in: arguments)
+            subtitle = try Self.unwrap(
+                project.subtitles.first { $0.id == id },
+                message: "The subtitle layer does not exist."
             )
-        )
-        guard subtitle.startTime < subtitle.endTime,
+        } else {
+            subtitle = TimedSubtitle(startTime: 0, endTime: 0)
+        }
+        // Assign after initialization so malformed IPC values are rejected,
+        // rather than normalized by the models' UI convenience initializers.
+        subtitle.startTime = try Self.double("start_time", in: arguments)
+        subtitle.endTime = try Self.double("end_time", in: arguments)
+        if let mode = try Self.timingMode(arguments) {
+            subtitle.sceneAnchor = mode == .scene ? try SceneTiming.anchor(at: subtitle.startTime, in: project) : nil
+        } else if subtitle.sceneAnchor != nil {
+            subtitle.sceneAnchor = try SceneTiming.anchor(at: subtitle.startTime, in: project)
+        }
+        if arguments["text"] != nil {
+            subtitle.text = try Self.string("text", in: arguments)
+        }
+        if arguments["position"] != nil {
+            subtitle.position = try Self.unwrap(
+                SubtitlePosition(
+                    rawValue: try Self.string("position", in: arguments)
+                ),
+                message: "Subtitle position must be top or bottom."
+            )
+        }
+        if arguments["background_hex"] != nil {
+            subtitle.style.backgroundHex = try Self.string(
+                "background_hex", in: arguments
+            )
+        }
+        if arguments["background_opacity"] != nil {
+            let opacity = try Self.double("background_opacity", in: arguments)
+            guard opacity.isFinite, (0...1).contains(opacity) else {
+                throw VideoProjectValidationError.invalidSubtitle(subtitle.id)
+            }
+            subtitle.style.backgroundOpacity = opacity
+        }
+        if arguments["foreground_hex"] != nil {
+            subtitle.style.foregroundHex = try Self.string(
+                "foreground_hex", in: arguments
+            )
+        }
+        if arguments["font_size"] != nil {
+            let size = try Self.double("font_size", in: arguments)
+            guard size.isFinite, size >= 1 else {
+                throw VideoProjectValidationError.invalidSubtitle(subtitle.id)
+            }
+            subtitle.style.fontSize = size
+        }
+        guard subtitle.startTime.isFinite,
+              subtitle.endTime.isFinite,
+              subtitle.startTime >= 0,
+              subtitle.startTime < subtitle.endTime,
               subtitle.endTime <= project.timelineDuration
         else {
             throw VideoProjectValidationError.invalidSubtitle(subtitle.id)
@@ -873,6 +963,15 @@ final class StorybirdExternalControlHost {
                 targetID: savedSubtitle.id,
                 value: savedSubtitle
             )
+        )
+    }
+
+    /// Reads an explicit timing choice without changing omitted legacy defaults.
+    private static func timingMode(_ arguments: [String: Any]) throws -> LayerTimingMode? {
+        guard arguments["timing_mode"] != nil else { return nil }
+        return try unwrap(
+            LayerTimingMode(rawValue: string("timing_mode", in: arguments)),
+            message: "timing_mode must be project or scene."
         )
     }
 

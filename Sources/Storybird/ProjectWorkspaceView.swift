@@ -11,19 +11,42 @@ struct ProjectWorkspaceView: View {
             let projectBinding = Binding(
                 get: { store.project(id: projectID) ?? project },
                 set: {
-                    let reanchored =
+                    do {
+                        let current = store.project(id: projectID) ?? project
+                        let cards = try DemoEffectEditor.reconcileCardEdit(from: current, to: $0)
+                        let timed = try SceneTiming.reanchorTimeEdits(
+                            from: current, to: cards
+                        )
+                        let reanchored =
                         VideoTimelineEditor.reanchorChangedContentEffectTimes(
                             from: store.project(id: projectID) ?? project,
-                            to: $0
+                            to: timed
                         )
-                    store.replaceProject(
-                        VideoTimelineEditor.remapContentLayers(reanchored)
-                    )
+                        store.replaceProject(VideoTimelineEditor.remapContentLayers(reanchored))
+                    } catch { store.errorMessage = error.localizedDescription }
                 }
             )
 
             VStack(spacing: 0) {
-                ProjectHeader(project: projectBinding)
+                HStack {
+                    ProjectHeader(project: projectBinding)
+                    if project.recording != nil {
+                        Button("Duplicate") {
+                            Task {
+                                do {
+                                    _ = try await store.duplicateProject(
+                                        projectID: project.id,
+                                        expectedRevision: project.revision
+                                    )
+                                } catch {
+                                    store.errorMessage = error.localizedDescription
+                                }
+                            }
+                        }
+                        .disabled(store.storageChangeDisabledReason != nil)
+                        .padding(.trailing, 18)
+                    }
+                }
                 Divider()
 
                 if let recording = project.recording {

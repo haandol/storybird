@@ -62,6 +62,7 @@ actor VoiceSynthesisService: VoiceSynthesisProviding {
         "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit"
 
     private let rootURL: URL
+    private var workerBusy = false
 
     init(rootURL: URL) {
         self.rootURL = rootURL
@@ -80,6 +81,8 @@ actor VoiceSynthesisService: VoiceSynthesisProviding {
     /// Installs the local MLX TTS runtime and downloads the approved model only
     /// after the UI has obtained native user approval.
     func prepare() async throws {
+        try await acquireWorker()
+        defer { workerBusy = false }
         guard let uv = Self.executable(named: "uv") else {
             throw VoiceSynthesisError.uvUnavailable
         }
@@ -144,6 +147,8 @@ actor VoiceSynthesisService: VoiceSynthesisProviding {
         language: String,
         outputURL: URL
     ) async throws -> VoiceSynthesisResult {
+        try await acquireWorker()
+        defer { workerBusy = false }
         guard isPrepared else {
             throw VoiceSynthesisError.processFailed(
                 "The voice model is not prepared."
@@ -236,8 +241,8 @@ actor VoiceSynthesisService: VoiceSynthesisProviding {
         }
     }
 
-    /// Runs one bounded local worker process and converts nonzero termination
-    /// or Task cancellation into an error without exposing reference audio.
+    /// Drains both pipes while the worker runs so verbose output cannot block
+    /// process exit. Cancellation waits for exit before releasing the worker slot.
     private func run(
         executable: String,
         arguments: [String],
@@ -255,12 +260,22 @@ actor VoiceSynthesisService: VoiceSynthesisProviding {
         return try await withTaskCancellationHandler {
             try Task.checkCancellation()
             try process.run()
-            while process.isRunning {
-                try await Task.sleep(for: .milliseconds(50))
+            let outputReader = Task.detached { stdout.fileHandleForReading.readDataToEndOfFile() }
+            let errorReader = Task.detached { stderr.fileHandleForReading.readDataToEndOfFile() }
+            do {
+                while process.isRunning {
+                    try await Task.sleep(for: .milliseconds(50))
+                }
+                try Task.checkCancellation()
+            } catch {
+                child.terminate()
+                await Task.detached { child.process.waitUntilExit() }.value
+                _ = await outputReader.value
+                _ = await errorReader.value
+                throw error
             }
-            try Task.checkCancellation()
-            let output = stdout.fileHandleForReading.readDataToEndOfFile()
-            let error = stderr.fileHandleForReading.readDataToEndOfFile()
+            let output = await outputReader.value
+            let error = await errorReader.value
             guard process.terminationStatus == 0 else {
                 throw VoiceSynthesisError.processFailed(
                     String(decoding: error, as: UTF8.self)
@@ -316,6 +331,16 @@ actor VoiceSynthesisService: VoiceSynthesisProviding {
             decoding: pipe.fileHandleForReading.readDataToEndOfFile(),
             as: UTF8.self
         ).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Serializes memory-heavy workers and model replacement while preserving
+    /// cancellation for queued requests instead of launching concurrent models.
+    private func acquireWorker() async throws {
+        while workerBusy {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        try Task.checkCancellation()
+        workerBusy = true
     }
 
     private var runtimeRootURL: URL {

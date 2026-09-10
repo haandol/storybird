@@ -466,6 +466,36 @@ final class StorybirdCoreTests: XCTestCase {
         XCTAssertNoThrow(try VideoProjectValidator.validate(edited))
     }
 
+    func test_demoEffectEditor_titleInsertionAndDeletionKeepNarrationAligned() throws {
+        var project = validVideoProject()
+        project.narrations = [
+            NarrationClip(
+                voiceProfileID: UUID(),
+                filename: "narration.wav",
+                text: "장면을 설명합니다.",
+                startTime: 1,
+                duration: 2
+            ),
+        ]
+        let original = project.narrations[0]
+        let edited = try DemoEffectEditor.insertTitle(
+            in: project,
+            after: nil,
+            duration: 2,
+            title: "Introduction"
+        )
+
+        XCTAssertEqual(edited.narrations[0].startTime, 3)
+        XCTAssertEqual(edited.narrations[0].duration, original.duration)
+        XCTAssertEqual(edited.narrations[0].filename, original.filename)
+        try VideoProjectValidator.validate(edited)
+        let restored = try DemoEffectEditor.delete(
+            XCTUnwrap(edited.effects.first?.id),
+            from: edited
+        )
+        XCTAssertEqual(restored.narrations, project.narrations)
+    }
+
     func test_demoEffectEditor_ctaStaysAtProjectEnd() throws {
         let project = validVideoProject()
 

@@ -3,6 +3,13 @@
 이 문서는 timeline-editing 카테고리의 주요 결정 변경 이력이다. 각 ADR 본문은 현재
 상태만 서술하고, 주요 전환의 시간축은 여기에 역순으로 쌓는다.
 
+## 2026-09-10 — 장면 연결 음성과 자막
+
+- **현재 ADR**: [0001-non-destructive-clip-timeline](./0001-non-destructive-clip-timeline.md)
+- **변경 유형**: 시간 연결 규칙
+- **무엇이**: 프로젝트 고정 시각에 선택적 장면 연결을 추가한다.
+- **왜**: 클립을 다시 편집해도 같은 장면에서 설명을 시작하면서 발화 길이와 기존 고정 시각을 보존한다.
+
 ## 2026-09-08 — 가져온 영상의 기본 음성을 클립 시간축에 포함
 
 - **현재 ADR**: [non-destructive-clip-timeline](./0001-non-destructive-clip-timeline.md)
