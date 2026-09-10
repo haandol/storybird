@@ -75,6 +75,9 @@ public struct ProjectRepository {
         )
     }
 
+    /// Selects Documents projects separately from shared Application Support assets.
+    /// Copies OpenLane only when the shared Storybird root is absent, and propagates
+    /// location or migration failures rather than silently choosing another library.
     public static func live(fileManager: FileManager = .default) throws -> ProjectRepository {
         let storybirdURL = try sharedRootURL(fileManager: fileManager)
         let legacyURL = storybirdURL.deletingLastPathComponent().appendingPathComponent(
@@ -94,6 +97,9 @@ public struct ProjectRepository {
         )
     }
 
+    /// Publishes a legacy copy only after all bytes reach a sibling staging folder.
+    /// Failed copies leave the original and existing destination untouched so a
+    /// later launch can retry without mistaking partial output for a complete root.
     public static func migrateLegacyLibraryIfNeeded(
         from legacyURL: URL,
         to storybirdURL: URL,
@@ -105,8 +111,15 @@ public struct ProjectRepository {
             return
         }
 
+        let stagingURL = storybirdURL.deletingLastPathComponent()
+            .appendingPathComponent(
+                ".\(storybirdURL.lastPathComponent)-migration-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? fileManager.removeItem(at: stagingURL) }
         do {
-            try fileManager.copyItem(at: legacyURL, to: storybirdURL)
+            try fileManager.copyItem(at: legacyURL, to: stagingURL)
+            try fileManager.moveItem(at: stagingURL, to: storybirdURL)
         } catch {
             throw RepositoryError.legacyMigrationFailed(
                 error.localizedDescription

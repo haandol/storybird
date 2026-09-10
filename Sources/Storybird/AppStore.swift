@@ -541,7 +541,8 @@ final class AppStore: ObservableObject {
         _ = try saveProject(project, expectedRevision: stored.revision)
     }
 
-    /// Rejects stale edits and advances revision exactly once for one atomic project change.
+    /// Rejects stale edits and incomplete new narration assets before atomic publication.
+    /// A successful change advances revision once; failure leaves index and undo intact.
     @discardableResult
     func saveProject(
         _ project: DemoProject,
@@ -600,6 +601,12 @@ final class AppStore: ObservableObject {
         if updated.recording != nil {
             try VideoProjectValidator.validate(updated)
         }
+        for narration in updated.narrations
+        where !current.narrations.contains(where: {
+            $0.filename == narration.filename && $0.duration == narration.duration
+        }) {
+            try validateNarrationForPublication(narration, projectID: updated.id)
+        }
         var updatedProjects = projects
         updatedProjects[index] = updated
         try repository.saveProjects(updatedProjects)
@@ -609,6 +616,39 @@ final class AppStore: ObservableObject {
         }
         projects = updatedProjects
         return updated
+    }
+
+    /// Reads newly referenced audio before the synchronous commit so full replacement
+    /// cannot bypass synthesis checks. Existing media and unchanged timing edits avoid
+    /// repeated decoding; undo can restore a retained, complete project-owned WAV.
+    private func validateNarrationForPublication(
+        _ narration: NarrationClip,
+        projectID: UUID
+    ) throws {
+        let url = repository.assetURL(projectID: projectID, filename: narration.filename)
+        let directory = repository.assetsDirectory(projectID: projectID)
+            .standardizedFileURL.resolvingSymlinksInPath()
+        guard url.standardizedFileURL.resolvingSymlinksInPath().deletingLastPathComponent() == directory,
+              try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true
+        else {
+            throw VoiceSynthesisError.invalidResponse
+        }
+        let audio = try AVAudioFile(forReading: url)
+        let measured = Double(audio.length) / audio.processingFormat.sampleRate
+        guard measured.isFinite, measured > 0,
+              abs(measured - narration.duration) <= max(0.1, measured * 0.02),
+              let buffer = AVAudioPCMBuffer(pcmFormat: audio.processingFormat, frameCapacity: 4_096)
+        else {
+            throw VoiceSynthesisError.invalidResponse
+        }
+        var decodedFrames: AVAudioFramePosition = 0
+        while decodedFrames < audio.length {
+            try audio.read(into: buffer)
+            guard buffer.frameLength > 0 else {
+                throw VoiceSynthesisError.invalidResponse
+            }
+            decodedFrames += AVAudioFramePosition(buffer.frameLength)
+        }
     }
 
     /// Saves draft metadata without an edit revision; placement uses saveProject

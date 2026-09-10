@@ -125,6 +125,10 @@ final class AgentProductionTests: XCTestCase {
         )
         let file = store.repository.assetURL(projectID: project.id, filename: "kept.wav")
         try TestVideoFactory.makeToneWAV(at: file, duration: 1)
+        try TestVideoFactory.makeToneWAV(
+            at: store.repository.assetURL(projectID: project.id, filename: "fixed.wav"),
+            duration: 0.5
+        )
         project.narrations = [
             NarrationClip(
                 voiceProfileID: UUID(), filename: "kept.wav", text: "scene",
