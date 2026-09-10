@@ -36,8 +36,8 @@ layers. This screenshot was taken from the running app with a separate synthetic
 demo library. No customer screen or personal voice sample is included.
 
 > [!NOTE]
-> Storybird is an early-stage, source-distributed project. There is no notarized
-> binary release, and the project format can change before a stable release.
+> Storybird is an early-stage project. Release binaries are not notarized,
+> and the project format can change before a stable release.
 > Keep backups of important recordings.
 
 ## Features
@@ -78,7 +78,25 @@ included in the finished video. Importing a movie does not require capture permi
 
 ## Installation
 
-Build from source:
+### From a release
+
+Download `Storybird-0.1.0.zip` from the
+[0.1.0 release](https://github.com/haandol/storybird/releases/tag/v0.1.0), verify
+its SHA-256 against the release notes, unzip it, and move `Storybird.app` to
+`/Applications`. The prebuilt app requires an **Apple Silicon Mac running
+macOS 14 or later**.
+
+These builds are signed but **not notarized**. If macOS blocks the first launch:
+
+1. Try opening the app once and choose **Done** in the warning.
+2. Open **System Settings › Privacy & Security**, scroll to **Security**, and
+   choose **Open Anyway** for Storybird.
+3. Authenticate and confirm **Open**.
+
+Only grant this exception after checking the download source and checksum.
+Do not disable Gatekeeper globally.
+
+### From source
 
 ```bash
 git clone https://github.com/haandol/storybird.git
