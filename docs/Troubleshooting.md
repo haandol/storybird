@@ -128,6 +128,12 @@ Changing the picker does not switch a recording already in progress.
 
 ## Voice cloning fails or sounds unlike the reference
 
+Open **Settings › Voice › Create Voice Profile…** to enter the profile name,
+language, and voice-use consent. Choose **Record** or **Import File** in that
+window. Recording completion or file selection prepares a sample; **Create
+Profile** saves it and closes the window. If saving fails, the window keeps your
+input and shows the error for retry. **Cancel** discards the temporary recording.
+
 For better clone quality, use a clean MP3/WAV containing several seconds of
 natural speech and enter the transcript exactly as spoken. Background noise and
 transcript mismatches are reproduced by the clone. Guided microphone profiles

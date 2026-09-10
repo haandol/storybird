@@ -109,16 +109,22 @@ ScreenCaptureKit and TCC behavior require a real signed bundle:
     retained. Disconnect it and confirm Settings keeps the selection while
     reporting that the system default will be used; reconnect it and confirm it
     becomes active without reselecting. Output-only devices must not appear.
-14. Import synthetic MP3 and WAV voice references with their exact transcripts.
+14. Open **Create Voice Profile…** below the profile list. Confirm name,
+    reference language, and consent appear only in the creation sheet. Select
+    **Import File** and import synthetic MP3 and WAV references with their exact transcripts.
     Confirm a short but valid external file is accepted, while missing
     voice-rights consent keeps both import and recording disabled and creates
-    no profile.
-15. Grant Microphone access and confirm the guided recording view shows the
+    no profile. File selection alone must not save a profile. **Create Profile**
+    must save once, close the sheet, and update the list. Saving disables close
+    and duplicate creation; a save failure preserves inputs and shows an inline error.
+15. Select **Record**, grant Microphone access, and confirm the recording sheet shows the
     full prosody prompt, recording state, live waveform, elapsed time, and the
     10-second boundary. Pause and resume once, then preview and save a recording
     of at least 10 seconds. Confirm a shorter sample cannot be finalized.
     Deny the permission once and confirm Storybird shows recovery guidance
-    without changing a project.
+    without changing a project. Cancel during recording or after preview and
+    confirm the sheet closes, microphone input stops, and no profile is added.
+    Reopen creation and confirm it starts with a fresh name field and unchecked consent.
 16. Open a project’s **Narration** sheet and generate two non-overlapping clips,
     preview them, adjust one
     start time and volume, then export. Confirm the final MP4 contains one AAC
@@ -164,7 +170,7 @@ other private captures in issues, commits, or pull request attachments.
 
 ## Documentation Screenshots
 
-README screenshots are rendered from the real SwiftUI views with an empty
+README screenshots are rendered from the real SwiftUI views with a synthetic
 temporary Storybird library. Regenerate them without opening customer projects:
 
 ```bash
@@ -172,9 +178,14 @@ STORYBIRD_UPDATE_DOC_SCREENSHOTS=1 \
   swift test --filter DocumentationScreenshotTests/test_generateSyntheticReadmeScreenshots
 ```
 
-The harness writes `docs/images/welcome.png` and
-`docs/images/voice-narration.png`. Review both images before committing them.
+The harness writes `docs/images/welcome.png`, `docs/images/voice-narration.png`,
+`docs/images/voice-profile-creation.png`, `docs/images/storage-settings.png`, and
+`docs/images/narration-drafts.png`. Review the generated images before committing them.
 Do not replace the synthetic state with an actual recording or project library.
+
+The running-app editor and profile-dialog screenshots use a separate synthetic
+demo. See [screenshot sources and reproduction](docs/images/README.md); its
+generated video and library stay in `.build/readme-demo/`.
 
 ## Coding Style
 

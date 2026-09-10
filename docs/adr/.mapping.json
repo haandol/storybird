@@ -154,7 +154,7 @@
         {
           "path": "docs/adr/voice-narration/0001-local-cloned-voice-narration.md",
           "status": "Accepted (2026-09-10)",
-          "summary": "한국어·영어 음성을 로컬 초안으로 보존하고 고정 시각 또는 장면에 문장별로 배치한다"
+          "summary": "별도 모달에서 음성 프로필을 생성하고 한국어·영어 로컬 음성 초안을 문장별로 배치한다"
         }
       ],
       "dependsOn": [

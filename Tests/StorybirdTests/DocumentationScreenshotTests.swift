@@ -11,7 +11,11 @@ final class DocumentationScreenshotTests: XCTestCase {
             contentsOf: repositoryRoot.appendingPathComponent("README.md"),
             encoding: .utf8
         )
-        for name in ["welcome.png", "voice-narration.png", "storage-settings.png", "narration-drafts.png"] {
+        for name in [
+            "welcome.png", "voice-narration.png", "voice-profile-creation.png",
+            "storage-settings.png", "narration-drafts.png", "editor-app.png",
+            "voice-settings-app.png", "voice-profile-dialog-app.png",
+        ] {
             let relativePath = "docs/images/\(name)"
             XCTAssertTrue(
                 readme.contains(relativePath),
@@ -48,12 +52,23 @@ final class DocumentationScreenshotTests: XCTestCase {
         defer {
             try? FileManager.default.removeItem(at: root)
         }
+        let repository = ProjectRepository(rootURL: root)
+        let profile = VoiceProfile(
+            name: "Demo narrator", referenceFilename: "reference.wav",
+            referenceText: "Synthetic reference.", language: "english", consentConfirmed: true
+        )
+        try repository.saveVoiceProfiles([profile])
         let store = AppStore(
-            repository: ProjectRepository(rootURL: root),
+            repository: repository,
             voiceService: DocumentationVoiceService()
         )
         await store.refreshVoiceRuntimeState()
 
+        try render(
+            VoiceProfileCreationView(store: store),
+            size: CGSize(width: 620, height: 650),
+            to: imageDirectory.appendingPathComponent("voice-profile-creation.png")
+        )
         try render(
             WelcomeView(
                 store: store,
@@ -84,11 +99,6 @@ final class DocumentationScreenshotTests: XCTestCase {
             size: CGSize(width: 680, height: 720),
             to: imageDirectory.appendingPathComponent("storage-settings.png")
         )
-        let profile = VoiceProfile(
-            name: "Demo narrator", referenceFilename: "reference.wav",
-            referenceText: "Synthetic reference.", language: "english", consentConfirmed: true
-        )
-        try store.repository.saveVoiceProfiles([profile])
         let project = DemoProject(
             name: "Service tutorial",
             recording: VideoRecordingAsset(filename: "synthetic.mp4", duration: 20, width: 1280, height: 720),

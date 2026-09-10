@@ -7,13 +7,9 @@ struct VoiceStudioView: View {
     static let recordingPrompt = VoiceLanguage.korean.referencePrompt
 
     @ObservedObject var store: AppStore
-    @StateObject private var recorder: VoiceSampleRecorder
     private let refreshRuntimeOnAppear: Bool
 
-    @State private var profileName = "My voice"
-    @State private var transcript = ""
-    @State private var referenceLanguage: VoiceLanguage = .korean
-    @State private var consentConfirmed = false
+    @State private var isCreationPresented = false
     @State private var isWorking = false
     @State private var showPrepareConfirmation = false
     @State private var profilePendingDeletion: UUID?
@@ -21,43 +17,26 @@ struct VoiceStudioView: View {
     @State private var preferredInputDeviceUID =
         VoiceInputPreferences.preferredDeviceUID()
 
+    /// Keeps shared model, microphone, and profile management in Settings;
+    /// individual creation state belongs to each newly presented sheet.
     init(
         store: AppStore,
         refreshRuntimeOnAppear: Bool = true
     ) {
         self.store = store
-        _recorder = StateObject(wrappedValue: VoiceSampleRecorder(store: store))
         self.refreshRuntimeOnAppear = refreshRuntimeOnAppear
     }
 
     var body: some View {
         Form {
-            runtimeSection
-            inputDeviceSection
-            profileCreationSection
-            if recorder.hasSession {
-                GuidedVoiceRecordingSection(
-                    recorder: recorder,
-                    prompt: referenceLanguage.referencePrompt,
-                    isWorking: isWorking,
-                    consentConfirmed: consentConfirmed,
-                    profileName: profileName,
-                    onRestart: restartGuidedRecording,
-                    onSave: { recordedURL in
-                        createProfile(
-                            from: recordedURL,
-                            transcriptOverride: referenceLanguage.referencePrompt,
-                            source: .microphone
-                        )
-                    },
-                    onError: { error in
-                        store.errorMessage = error.localizedDescription
-                    }
-                )
-            }
             profilesSection
+            inputDeviceSection
+            runtimeSection
         }
         .formStyle(.grouped)
+        .sheet(isPresented: $isCreationPresented) {
+            VoiceProfileCreationView(store: store)
+        }
         .confirmationDialog(
             "Prepare the local voice model?",
             isPresented: $showPrepareConfirmation
@@ -78,9 +57,6 @@ struct VoiceStudioView: View {
             if refreshRuntimeOnAppear {
                 await store.refreshVoiceRuntimeState()
             }
-        }
-        .onDisappear {
-            recorder.discard()
         }
         .confirmationDialog(
             "Delete this voice profile?",
@@ -147,119 +123,7 @@ struct VoiceStudioView: View {
                 }
                 .buttonStyle(.link)
             }
-
-            if recorder.hasSession {
-                Text(
-                    "This recording keeps the microphone it started with. A new selection applies to the next guided recording."
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-            if let activeDeviceName = recorder.activeDeviceName {
-                Label(
-                    recorder.isUsingFallbackDevice
-                        ? "Recording with \(activeDeviceName) as a temporary fallback."
-                        : "Recording with \(activeDeviceName).",
-                    systemImage: recorder.isUsingFallbackDevice
-                        ? "arrow.trianglehead.branch"
-                        : "mic.fill"
-                )
-                .font(.caption)
-                .foregroundStyle(
-                    recorder.isUsingFallbackDevice ? .orange : .secondary
-                )
-            }
         }
-    }
-
-    private var profileCreationSection: some View {
-        Section("Create Voice Profile") {
-            TextField("Profile name", text: $profileName)
-            Picker("Reference language", selection: $referenceLanguage) {
-                ForEach(VoiceLanguage.allCases, id: \.self) { language in
-                    Text(language.displayName).tag(language)
-                }
-            }
-            .disabled(recorder.hasSession || isWorking)
-            TextField(
-                "Exact transcript for imported MP3/WAV",
-                text: $transcript,
-                axis: .vertical
-            )
-                .lineLimit(3)
-                .disabled(recorder.hasSession || isWorking)
-            Toggle(
-                "I own this voice or have permission to use it",
-                isOn: $consentConfirmed
-            )
-            .disabled(
-                VoiceInputPermissionPolicy.consentIsLocked(
-                    hasSession: recorder.hasSession,
-                    isWorking: isWorking
-                )
-            )
-            HStack {
-                Button("Import MP3/WAV") { importReference() }
-                    .disabled(!canStartVoiceInput)
-                Button("Record Guided Sample") {
-                    beginGuidedRecording()
-                }
-                .disabled(!canStartVoiceInput)
-            }
-            if !consentConfirmed {
-                Label(
-                    "Confirm voice ownership or permission to enable file import and recording.",
-                    systemImage: "lock.fill"
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-            Text("The guided sample takes about 10–15 seconds and captures natural questions, emphasis, pauses, and calm narration.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            if let errorMessage = recorder.errorMessage {
-                Text(errorMessage)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-            }
-        }
-    }
-
-    private var canStartVoiceInput: Bool {
-        VoiceInputPermissionPolicy.canStart(
-            consentConfirmed: consentConfirmed,
-            hasSession: recorder.hasSession,
-            isWorking: isWorking
-        )
-    }
-
-    /// Starts a fresh guided session with the prosody-covering script and keeps
-    /// incomplete samples out of profile storage.
-    private func beginGuidedRecording() {
-        guard canStartVoiceInput else { return }
-        recorder.discard()
-        Task {
-            do {
-                try await recorder.start(
-                    preferredDeviceUID: preferredInputDeviceUID
-                )
-            } catch {
-                store.errorMessage = error.localizedDescription
-            }
-        }
-    }
-
-    /// Replaces the current temporary sample before applying the normal consent
-    /// and microphone start path, so paused and completed sessions can restart.
-    private func restartGuidedRecording() {
-        guard VoiceInputPermissionPolicy.canRestart(
-            consentConfirmed: consentConfirmed,
-            isWorking: isWorking
-        ) else {
-            return
-        }
-        recorder.discard()
-        beginGuidedRecording()
     }
 
     private var profilesSection: some View {
@@ -288,14 +152,22 @@ struct VoiceStudioView: View {
                         Image(systemName: "play.circle")
                     }
                     .buttonStyle(.borderless)
+                    .help("Preview \(profile.name)")
                     Button(role: .destructive) {
                         profilePendingDeletion = profile.id
                     } label: {
                         Image(systemName: "trash")
                     }
                     .buttonStyle(.borderless)
+                    .help("Delete \(profile.name)")
                 }
             }
+            Button {
+                isCreationPresented = true
+            } label: {
+                Label("Create Voice Profile…", systemImage: "plus")
+            }
+            .disabled(isWorking)
         }
     }
 
@@ -305,47 +177,6 @@ struct VoiceStudioView: View {
         case .preparing: "Preparing…"
         case .ready: "Ready"
         case let .failed(message): "Failed: \(message)"
-        }
-    }
-
-    /// Lets the user explicitly select one supported local reference file before
-    /// profile validation copies it into Storybird-owned storage.
-    private func importReference() {
-        guard canStartVoiceInput else { return }
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [
-            .audio,
-            .mp3,
-            .wav,
-        ]
-        panel.allowsMultipleSelection = false
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        createProfile(from: url)
-    }
-
-    /// Sends imported references with the user's exact transcript, while guided
-    /// recordings always keep the fixed prompt they were recorded against.
-    private func createProfile(
-        from url: URL,
-        transcriptOverride: String? = nil,
-        source: VoiceReferenceSource = .importedFile
-    ) {
-        isWorking = true
-        Task {
-            do {
-                _ = try await store.importVoiceProfile(
-                    name: profileName,
-                    sourceURL: url,
-                    transcript: transcriptOverride ?? transcript,
-                    language: referenceLanguage.rawValue,
-                    source: source,
-                    consentConfirmed: consentConfirmed
-                )
-                recorder.discard()
-            } catch {
-                store.errorMessage = error.localizedDescription
-            }
-            isWorking = false
         }
     }
 

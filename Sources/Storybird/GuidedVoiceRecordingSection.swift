@@ -1,14 +1,11 @@
 import AppKit
 import SwiftUI
 
-struct GuidedVoiceRecordingSection: View {
-    @ObservedObject var recorder: VoiceSampleRecorder
+struct GuidedVoiceRecordingSection<Recorder: VoiceSampleRecording>: View {
+    @ObservedObject var recorder: Recorder
     let prompt: String
     let isWorking: Bool
-    let consentConfirmed: Bool
-    let profileName: String
     let onRestart: () -> Void
-    let onSave: (URL) -> Void
     let onError: (Error) -> Void
 
     var body: some View {
@@ -26,6 +23,7 @@ struct GuidedVoiceRecordingSection: View {
                 )
                 durationStatus
                 recordingControls
+                    .disabled(isWorking)
             }
             .padding(.vertical, 4)
         }
@@ -97,9 +95,6 @@ struct GuidedVoiceRecordingSection: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(!recorder.canFinish)
-                Button("Cancel", role: .destructive) {
-                    recorder.discard()
-                }
             }
         } else if recorder.isPaused {
             HStack {
@@ -118,9 +113,6 @@ struct GuidedVoiceRecordingSection: View {
                 Button("Record Again", role: .destructive) {
                     onRestart()
                 }
-                Button("Cancel", role: .destructive) {
-                    recorder.discard()
-                }
             }
         } else if let recordedURL = recorder.recordedURL {
             HStack {
@@ -129,20 +121,6 @@ struct GuidedVoiceRecordingSection: View {
                 }
                 Button("Record Again") {
                     onRestart()
-                }
-                Button("Save Voice Profile") {
-                    onSave(recordedURL)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(
-                    isWorking
-                        || !consentConfirmed
-                        || profileName.trimmingCharacters(
-                            in: .whitespacesAndNewlines
-                        ).isEmpty
-                )
-                Button("Discard", role: .destructive) {
-                    recorder.discard()
                 }
             }
         }

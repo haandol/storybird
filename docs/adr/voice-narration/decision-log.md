@@ -4,6 +4,13 @@ This document is the **major decision-change history** of the voice-narration ca
 Each ADR body describes only the current state, while the timeline of "what changed and
 why" accumulates here, newest first. Git preserves the individual diffs.
 
+## 2026-09-10 — 프로필 목록과 생성 모달을 분리한다
+
+- **현재 ADR**: [local-cloned-voice-narration](./0001-local-cloned-voice-narration.md)
+- **변경 유형**: 생성·취소 수명과 입력 가시성
+- **무엇이**: 설정의 인라인 생성 양식을 목록 아래 진입점과 별도 생성 모달로 바꾼다. 이름·언어·동의와 입력 방식을 모달에서 설정하고 저장 성공 또는 취소 시 닫는다.
+- **왜**: 지속 설정과 일회성 녹음 작업의 혼란을 줄이고, 저장 실패와 취소의 결과를 명확하게 보여 준다.
+
 ## 2026-09-10 — 언어 선택과 재사용 가능한 음성 초안
 
 - **현재 ADR**: [local-cloned-voice-narration](./0001-local-cloned-voice-narration.md)

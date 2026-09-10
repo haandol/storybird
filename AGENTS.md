@@ -118,6 +118,12 @@ Read these before changing capture, persistence, or export behavior.
   Settings. Project UI uses existing profiles only for narration generation.
   Persist a selected microphone by stable UID; if it is absent, keep the choice
   and use the system default for that recording. Never switch an active sample.
+- **Voice profile creation owns a separate sheet.** Voice settings shows the
+  profile list and a creation button below it. Enter the name, language, consent,
+  and recording or import inputs in the sheet. Close after successful save or
+  cancellation; cancellation stops input and discards temporary samples. Keep
+  inputs and inline errors after failure, and block duplicate save and dismissal
+  while saving.
 - **Select the voice device before reading its format.** Applying a different
   microphone can change sample rate and channel count. Verify the AudioUnit
   readback, tap the selected device's input format, rebuild conversion if the
@@ -221,8 +227,8 @@ STORYBIRD_UPDATE_DOC_SCREENSHOTS=1 \
   swift test --filter DocumentationScreenshotTests/test_generateSyntheticReadmeScreenshots
 ```
 
-Review `docs/images/welcome.png`, `docs/images/voice-narration.png`, and
-`docs/images/storage-settings.png`; never
+Review `docs/images/welcome.png`, `docs/images/voice-narration.png`,
+`docs/images/voice-profile-creation.png`, and `docs/images/storage-settings.png`; never
 substitute a customer recording or real project library.
 
 ## Commit & Pull Request Guidelines

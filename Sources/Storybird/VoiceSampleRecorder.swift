@@ -81,8 +81,29 @@ enum VoiceInputPermissionPolicy {
     }
 }
 
+/// Lets recording controls observe live capture or an isolated synthetic
+/// recorder while keeping permission requests in the concrete recorder.
 @MainActor
-final class VoiceSampleRecorder: ObservableObject {
+protocol VoiceSampleRecording: ObservableObject {
+    var isRecording: Bool { get }
+    var isPaused: Bool { get }
+    var recordedURL: URL? { get }
+    var errorMessage: String? { get }
+    var elapsedTime: Double { get }
+    var levelSamples: [Double] { get }
+    var activeDeviceName: String? { get }
+    var isUsingFallbackDevice: Bool { get }
+    var hasSession: Bool { get }
+    var canFinish: Bool { get }
+    func start(preferredDeviceUID: String?) async throws
+    func pause()
+    func resume() throws
+    @discardableResult func finish() -> Bool
+    func discard()
+}
+
+@MainActor
+final class VoiceSampleRecorder: VoiceSampleRecording {
     @Published private(set) var isRecording = false
     @Published private(set) var isPaused = false
     @Published private(set) var recordedURL: URL?
