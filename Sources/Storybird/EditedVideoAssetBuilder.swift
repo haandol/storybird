@@ -19,9 +19,12 @@ enum EditedVideoAssetBuilder {
         ).first else {
             throw LayeredVideoExportError.missingVideoTrack
         }
-        let sourceAudioTrack = try await source.loadTracks(
-            withMediaType: .audio
-        ).first
+        let audioSourceAsset = try await AmplifiedAudioFiles.sourceAsset(
+            asset: source, url: sourceURL, gain: project.sourceAudioMuted ? 1 : project.sourceAudioVolume
+        )
+        // Keep the decoded asset alive while loading and inserting its track.
+        defer { withExtendedLifetime(audioSourceAsset) {} }
+        let sourceAudioTrack = try await audioSourceAsset.loadTracks(withMediaType: .audio).first
         let sourceAudioTimeRange: CMTimeRange?
         if let sourceAudioTrack {
             sourceAudioTimeRange = try await sourceAudioTrack.load(
@@ -36,6 +39,7 @@ enum EditedVideoAssetBuilder {
             sourceAudioTrack: sourceAudioTrack,
             sourceAudioTimeRange: sourceAudioTimeRange
         )
+        AmplifiedAudioFiles.retainLeases(from: audioSourceAsset, on: timeline.asset)
         timeline.track.preferredTransform = try await sourceTrack.load(
             .preferredTransform
         )
@@ -43,8 +47,7 @@ enum EditedVideoAssetBuilder {
             project: project,
             assetsDirectory: sourceURL.deletingLastPathComponent(),
             composition: timeline.asset,
-            sourceAudioTrack: timeline.audioTrack,
-            sourceFormatTrack: sourceAudioTrack
+            sourceAudioTrack: timeline.audioTrack
         )
         return (
             timeline.asset,

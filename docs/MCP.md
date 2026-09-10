@@ -66,6 +66,14 @@ ID to authenticate.
 | `storybird_upsert_subtitle` | Adds or updates a timed subtitle, including text color and font size |
 | `storybird_preview_project` | Opens the native video timeline editor |
 | `storybird_render_preview` | Returns a composited project-resolution PNG, visible layer IDs, and incomplete click IDs |
+| `storybird_list_audio_assets` | Lists reusable project sounds with measured duration, peak and waveform |
+| `storybird_place_audio_asset` | Places an asset source range as a new independent audio layer |
+| `storybird_update_audio_layer` | Atomically edits start, source trim, duration, gain, mute and linear fades |
+| `storybird_split_audio_layer` | Splits inside an audio layer at project seconds |
+| `storybird_duplicate_audio_layer` | Reuses its audio under a new layer ID without TTS generation |
+| `storybird_delete_audio_layer` | Removes the layer while keeping the asset for reuse and undo |
+| `storybird_set_source_audio` | Changes gain or mute of the original movie audio |
+| `storybird_render_audio_preview` | Renders a local mix WAV and returns path, duration, peak and waveform |
 | `storybird_list_voice_profiles` | Lists existing profile metadata without reference audio or transcripts |
 | `storybird_generate_narration` | Generates and places one local narration using an existing profile |
 | `storybird_update_narration` | Changes timing or volume, or regenerates the selected sentence when text is supplied |
@@ -146,7 +154,7 @@ after a lost response before retrying. Never blindly replay pointer actions.
 A scene-linked layer follows its start frame through clip movement, splitting,
 trimming and speed changes. Its speech/display duration remains unchanged. A
 trimmed-away start or deleted owner removes the layer; undo restores it and its
-retained audio. Overlap or overflow rejects the whole edit. Cards require fixed
+retained audio. Audio overlap is allowed; project overflow rejects the whole edit. Cards require fixed
 project time. Existing files and calls without a timing mode retain fixed time;
 updates preserve an existing layer's mode unless explicitly changed. Title edits
 shift later layers using the same timing rules as title insertion/removal.
@@ -234,7 +242,7 @@ sentences, then recalculate timing; translated speech is not duration-equivalent
 - Storybird accepts only a `StorybirdMCP` peer signed by the same Team ID.
 - No TCP or HTTP listener is opened.
 - Screen recording captures no keyboard events, microphone input, or system
-  audio. Guided voice-profile recording uses the microphone only through the
+  audio. Voice-profile and separate project recording use the microphone only through the
   user's explicit native action.
 - Live selected-source PNGs are returned only during an approved active session.
   Authenticated project preview can separately return a composited frame from a
@@ -244,3 +252,59 @@ sentences, then recalculate timing; translated speech is not duration-equivalent
   profiles without exposing reference audio or exact reference transcripts.
 - The completed raw MP4 stays in the Storybird project library unless the user
   explicitly exports it.
+
+## Prompt-to-video audio production
+
+With a prepared local model and an existing consented profile, the agent can finish
+speech production without asking the user to record each sentence:
+
+1. Read `storybird_get_edit_context` and `storybird_list_voice_profiles`.
+2. Start a TTS draft for each sentence with `text`, `language` and the chosen profile.
+3. Poll each job to a terminal state. Use its measured duration to edit picture length.
+4. Refresh revision and place each ready draft once. Duplicate a placed layer to reuse it.
+5. Use independent audio layers for additional voices, music or effects. Overlap is legal.
+6. Render a selected audio range, inspect its peak and listen where supported; render
+   video frames to inspect text and effects. Then start export and poll to completion.
+
+`storybird_update_audio_layer` accepts `project_id`, `expected_revision`, `layer_id`,
+and optional `name`, `start_time`, `source_start`, `duration`, `volume`, `muted`,
+`fade_in`, `fade_out`, `timing_mode`. Times are seconds. Volume is a nonnegative
+multiplier (1 = original), fades are linear, and their combined length cannot exceed
+the layer. Source ranges must fit the full asset; project ranges must fit the picture.
+`storybird_place_audio_asset` uses `asset_id`, `start_time`, optional source range
+and timing mode. Registered assets are separate from unplaced TTS drafts.
+
+`storybird_render_audio_preview` takes `project_id`, `start_time` and `duration`.
+It returns a new local float WAV path, actual duration, peak and waveform. Peaks
+above 1 indicate overload before final encoding; lower the appropriate layer gains.
+Audio bytes are not returned. Preview does not change revision. A waveform or a
+successfully created file does not verify pronunciation or naturalness.
+
+Native **Audio & TTS** also permits optional file import and separate user-started
+voice recording. MCP has no microphone-start or file-picker tool. Screen and microphone
+recording are mutually exclusive. Source movie sound continues to follow video edits.
+
+### Discovery and compatible narration calls
+
+The server announces itself as **Storybird Video Production**. Initialization
+instructions guide agents through TTS drafts, measured durations, revisioned
+placement, overlapping audio edits, mix previews and completed export jobs.
+`storybird_get_edit_context` exposes layer IDs under `project.narrations`;
+`storybird_list_audio_assets` exposes reusable asset IDs separately.
+
+The existing `storybird_update_narration` name remains available. Its gain uses
+the same nonnegative multiplier as the audio-layer editor, including values above
+2. Text regeneration is not advertised as idempotent. Layer deletion retains the
+underlying sound and undo history. Positive audio durations use an exclusive
+zero lower bound. Booleans and fractional revision numbers are rejected rather
+than coerced, and unadvertised tool names are rejected before app IPC.
+
+After updating the app bundle, restart Storybird and reconnect the MCP client so
+both processes use the new implementation and refresh the tool list. A companion
+already running from `/Applications/Storybird.app` does not pick up a build in the
+repository automatically. The app and companion should come from the same bundle.
+
+Protocol regression coverage uses the production server handlers and an actual
+MCP SDK client over in-memory transport, with isolated app IPC and deterministic
+TTS. Run `swift test --filter MCPAudioProtocolTests` without a live app, microphone
+or voice profile.

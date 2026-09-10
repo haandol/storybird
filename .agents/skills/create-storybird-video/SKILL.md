@@ -1,12 +1,14 @@
 ---
 name: create-storybird-video
-description: Produce Korean or English service introduction and tutorial videos through Storybird, using existing consented voice profiles, revision-checked editing, composited preview, and verified MP4 export. Use for making a video or editing an existing video from the user’s text request, not for developing or releasing the Storybird application.
+description: Produce Korean or English videos from a prompt through Storybird, using local TTS, independent overlapping audio layers, revision-checked editing, mix previews, and verified MP4 export. Use for making a video or editing an existing video from the user’s text request, not for developing or releasing the Storybird application.
 ---
 
 # Create a Storybird video
 
 Complete the requested video through Storybird, from the demonstrated service to
-the exported MP4. Read [the MCP workflow](../../../docs/MCP.md) and discover the
+the exported MP4. With a prepared local model and existing consented voice profile,
+produce the speech from text; do not make a human microphone recording a production
+prerequisite. User recording, file import, or intermediate review remains optional. Read [the MCP workflow](../../../docs/MCP.md) and discover the
 connected tool schemas before selecting commands. Use the tools actually exposed
 by that server; do not infer availability from an installed app or this skill.
 
@@ -26,7 +28,9 @@ Check available voice profiles. The user creates profiles and prepares the model
 in native Settings. Do not register a voice, activate the microphone, download the
 model, or modify profile files through an indirect route. A supported language is
 not evidence that a particular voice sounds good: generate a short representative
-sentence first and let the user assess pronunciation and resemblance when needed.
+sentence first. Inspect the available audio evidence; ask for listening feedback only
+when it resolves a material uncertainty or the user requested a review. Do not stop
+an otherwise authorized production at every sentence for routine approval.
 
 Prepare synthetic demonstration data and a predictable initial state. Preserve
 the user's existing authorization and external-action limits. A recording request
@@ -57,8 +61,8 @@ Use `timing_mode: "scene"` for narration and subtitles that should follow a
 scene's start frame. Their durations stay unchanged when the video speed changes.
 Use `"project"` for fixed placement and card narration. Existing layers remain
 fixed-time unless explicitly changed. Removed start frames/owners remove linked
-layers; undo restores them. If an edit causes overlap or overflow, recalculate the
-picture or start times rather than repeatedly sending the same rejected change.
+layers; undo restores them. Audio overlap is allowed and mixed. If a layer exceeds
+the project end, edit the picture or placement before retrying.
 
 ## Edit from a text request
 
@@ -112,6 +116,22 @@ must include the text to regenerate. Preserve the other sentences and use actual
 new duration when adjusting subtitles. Complete previous audio is retained for
 undo. Short test synthesis and native listening are appropriate for verifying
 service names, numbers and mixed-language phrases before a longer production.
+
+Use `storybird_list_audio_assets` to inspect reusable sounds and waveform summaries.
+Use `storybird_duplicate_audio_layer` to reuse a placed TTS sound without generating
+again, or `storybird_place_audio_asset` for a registered asset. Use
+`storybird_update_audio_layer` to move, trim, mute, set gain, or fade a layer;
+`storybird_split_audio_layer` splits at project seconds. Multiple voices, music and
+sound effects may overlap. Keep speech intelligible through intentional placement
+and gain rather than assuming every overlap is desirable. A crossfade is an overlap
+with an outgoing fade-out and incoming fade-in. Source-movie gain/mute uses
+`storybird_set_source_audio` and retains the picture's timing.
+
+Render meaningful ranges using `storybird_render_audio_preview`. It returns a local
+WAV path, actual duration, peak and waveform, without embedding audio bytes. Inspect
+or audition it through available authorized tools. A peak above 1 calls for lower
+gain before MP4 export; waveform/peak checks alone do not establish pronunciation,
+voice resemblance or naturalness. Preserve finished audio when placement needs repair.
 
 Fill both description and Cue subtitle for retained clicks or remove irrelevant
 Cues. Keep narration, instructional text and emphasis consistent, then inspect the

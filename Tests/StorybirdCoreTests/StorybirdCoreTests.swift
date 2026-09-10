@@ -203,7 +203,7 @@ final class StorybirdCoreTests: XCTestCase {
         XCTAssertNoThrow(try VideoProjectValidator.validate(project))
     }
 
-    func test_videoProjectValidation_rejectsOverlappingNarration() {
+    func test_videoProjectValidation_acceptsOverlappingNarration() {
         var project = validVideoProject()
         let profileID = UUID()
         project.narrations = [
@@ -223,7 +223,7 @@ final class StorybirdCoreTests: XCTestCase {
             ),
         ]
 
-        XCTAssertThrowsError(try VideoProjectValidator.validate(project))
+        XCTAssertNoThrow(try VideoProjectValidator.validate(project))
     }
 
     func test_clickCue_newRecording_hasEmptyDescriptionAndSubtitleSlots() {

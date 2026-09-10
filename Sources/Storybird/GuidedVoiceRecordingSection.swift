@@ -152,7 +152,7 @@ struct GuidedVoiceRecordingSection<Recorder: VoiceSampleRecording>: View {
     }
 }
 
-private struct VoiceInputWaveform: View {
+struct VoiceInputWaveform: View {
     let levels: [Double]
 
     var body: some View {

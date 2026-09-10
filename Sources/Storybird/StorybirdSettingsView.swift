@@ -97,7 +97,7 @@ struct StorybirdSettingsView: View {
                         .foregroundStyle(.orange)
                 }
                 Text(
-                    "This folder holds its own project library, original videos, and narration. Existing files are not moved. Choose a previous folder again to see its projects."
+                    "This folder holds its own project library, original videos, and audio assets. Existing files are not moved. Choose a previous folder again to see its projects."
                 )
                 .font(.callout)
                 .foregroundStyle(.secondary)
@@ -110,7 +110,7 @@ struct StorybirdSettingsView: View {
 
             Section("Privacy") {
                 Text(
-                    "Screen recording never captures microphone or keyboard input. The microphone is used only while you explicitly record a guided voice-profile sample."
+                    "Screen recording never captures microphone or keyboard input. The microphone is used only when you explicitly record a voice-profile sample or a separate project audio clip."
                 )
                 .font(.callout)
                 .foregroundStyle(.secondary)

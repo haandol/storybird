@@ -104,11 +104,11 @@ The controls explain which active work is preventing the change.
 
 Direct Storybird screen recordings are intentionally silent and do not request
 system-audio access. Microphone access is requested only when the user starts a
-guided voice-profile recording.
+guided voice-profile sample or separate project audio recording.
 
 For imported videos, confirm the source contains a readable primary audio track.
 Storybird preserves that track in preview and exports it as one AAC track.
-Freeze frames, title cards, and CTA cards are silent by design.
+Original movie audio stays silent during freeze frames, title cards, and CTA cards; independent audio layers can play across those sections.
 
 ## The local voice model is not ready
 
@@ -245,3 +245,18 @@ Interrupted draft jobs are marked failed and do not automatically run again.
 Create a new draft explicitly. Ready drafts are retained. Check the native Voice
 Settings if the model is not prepared; MCP cannot install the model or register
 a voice profile.
+
+## Audio layers and TTS production
+
+- **Speech is longer than the picture:** keep the ready TTS draft, extend the scene
+  or add a freeze, then place the same audio again. Generation is not required again.
+- **Several voices talk at once:** overlap is allowed. Move, mute, trim or reduce
+  a layer in its inspector. Use fade-out/fade-in on overlapping clips for a crossfade.
+- **The mix is too loud:** inspect a mix preview's peak. Values above 1 need reduced
+  gain; Storybird does not silently normalize your mix.
+- **Cannot start a microphone:** finish the current screen or microphone recording.
+  Only native Start Recording activates input. Project recording accepts positive
+  audio length; the guided voice-profile sample still requires 10 seconds.
+- **Imported audio cannot be used:** select a readable WAV, MP3 or M4A in Audio & TTS.
+  Storybird copies and validates it before registration. Failed placement retains
+  the asset, and deleting a layer preserves it for reuse and undo.

@@ -14,6 +14,9 @@ public struct DemoProject: Codable, Identifiable, Hashable, Sendable {
     public var effects: [DemoEffect]
     public var narrations: [NarrationClip]
     public var narrationDrafts: [NarrationDraft]
+    public var audioAssets: [ProjectAudioAsset]
+    public var sourceAudioVolume: Double
+    public var sourceAudioMuted: Bool
     public var suggestions: [ClickEditSuggestion]
     public var steps: [DemoStep]
     public var events: [AnalyticsEvent]
@@ -35,6 +38,9 @@ public struct DemoProject: Codable, Identifiable, Hashable, Sendable {
         effects: [DemoEffect] = [],
         narrations: [NarrationClip] = [],
         narrationDrafts: [NarrationDraft] = [],
+        audioAssets: [ProjectAudioAsset] = [],
+        sourceAudioVolume: Double = 1,
+        sourceAudioMuted: Bool = false,
         suggestions: [ClickEditSuggestion] = [],
         steps: [DemoStep] = [],
         events: [AnalyticsEvent] = [],
@@ -60,8 +66,11 @@ public struct DemoProject: Codable, Identifiable, Hashable, Sendable {
         self.clicks = clicks
         self.subtitles = subtitles
         self.effects = effects
-        self.narrations = narrations
+        self.narrations = audioAssets.isEmpty ? Self.legacyAudioIdentities(narrations) : narrations
         self.narrationDrafts = narrationDrafts
+        self.audioAssets = audioAssets
+        self.sourceAudioVolume = sourceAudioVolume
+        self.sourceAudioMuted = sourceAudioMuted
         self.suggestions = suggestions
         self.steps = steps
         self.events = events
@@ -81,7 +90,7 @@ public struct DemoProject: Codable, Identifiable, Hashable, Sendable {
         case subtitles
         case effects
         case narrations
-        case narrationDrafts
+        case narrationDrafts, audioAssets, sourceAudioVolume, sourceAudioMuted
         case suggestions
         case steps
         case events
@@ -124,6 +133,10 @@ public struct DemoProject: Codable, Identifiable, Hashable, Sendable {
         narrationDrafts = try container.decodeIfPresent(
             [NarrationDraft].self, forKey: .narrationDrafts
         ) ?? []
+        audioAssets = try container.decodeIfPresent([ProjectAudioAsset].self, forKey: .audioAssets) ?? []
+        if audioAssets.isEmpty { narrations = Self.legacyAudioIdentities(narrations) }
+        sourceAudioVolume = try container.decodeIfPresent(Double.self, forKey: .sourceAudioVolume) ?? 1
+        sourceAudioMuted = try container.decodeIfPresent(Bool.self, forKey: .sourceAudioMuted) ?? false
         suggestions = try container.decodeIfPresent(
             [ClickEditSuggestion].self,
             forKey: .suggestions
@@ -140,6 +153,18 @@ public struct DemoProject: Codable, Identifiable, Hashable, Sendable {
             DemoTheme.self,
             forKey: .theme
         ) ?? .openLane
+    }
+
+    /// Older projects have no asset registry. Repeated references to the same
+    /// complete file acquire one fallback identity without changing their sound.
+    private static func legacyAudioIdentities(_ layers: [NarrationClip]) -> [NarrationClip] {
+        var identities: [String: UUID] = [:]
+        return layers.map { layer in
+            var result = layer
+            if let id = identities[layer.filename] { result.assetID = id }
+            else { identities[layer.filename] = layer.assetID }
+            return result
+        }
     }
 
     public var timelineDuration: Double {
@@ -201,7 +226,7 @@ public struct VoiceProfile: Codable, Identifiable, Hashable, Sendable {
 
 public struct NarrationClip: Codable, Identifiable, Hashable, Sendable {
     public var id: UUID
-    public var voiceProfileID: UUID
+    public var voiceProfileID: UUID?
     public var filename: String
     public var text: String
     public var language: String
@@ -209,19 +234,30 @@ public struct NarrationClip: Codable, Identifiable, Hashable, Sendable {
     public var duration: Double
     public var volume: Double
     public var sceneAnchor: LayerSceneAnchor?
+    public var assetID: UUID
+    public var name: String
+    public var sourceStart: Double
+    public var sourceDuration: Double
+    public var isMuted: Bool
+    public var fadeIn: Double
+    public var fadeOut: Double
+    public var fadeEnvelope: AudioFadeEnvelope?
 
     /// Creates one project-time narration layer that references a complete
     /// project-owned WAV and retains the profile identity used to generate it.
     public init(
         id: UUID = UUID(),
-        voiceProfileID: UUID,
+        voiceProfileID: UUID? = nil,
         filename: String,
         text: String,
         language: String = "korean",
         startTime: Double,
         duration: Double,
         volume: Double = 1,
-        sceneAnchor: LayerSceneAnchor? = nil
+        sceneAnchor: LayerSceneAnchor? = nil,
+        assetID: UUID? = nil, name: String? = nil, sourceStart: Double = 0,
+        sourceDuration: Double? = nil, isMuted: Bool = false,
+        fadeIn: Double = 0, fadeOut: Double = 0
     ) {
         self.id = id
         self.voiceProfileID = voiceProfileID
@@ -232,17 +268,26 @@ public struct NarrationClip: Codable, Identifiable, Hashable, Sendable {
         self.duration = duration
         self.volume = volume
         self.sceneAnchor = sceneAnchor
+        self.assetID = assetID ?? id
+        self.name = name ?? (text.isEmpty ? "Audio" : text)
+        self.sourceStart = sourceStart
+        self.sourceDuration = sourceDuration ?? duration
+        self.isMuted = isMuted
+        self.fadeIn = fadeIn
+        self.fadeOut = fadeOut
+        self.fadeEnvelope = nil
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, voiceProfileID, filename, text, language, startTime, duration, volume, sceneAnchor
+        case assetID, name, sourceStart, sourceDuration, isMuted, fadeIn, fadeOut, fadeEnvelope
     }
 
     /// Missing fields retain Korean fixed-time behavior for existing narration.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
-        voiceProfileID = try c.decode(UUID.self, forKey: .voiceProfileID)
+        voiceProfileID = try c.decodeIfPresent(UUID.self, forKey: .voiceProfileID)
         filename = try c.decode(String.self, forKey: .filename)
         text = try c.decode(String.self, forKey: .text)
         language = try c.decodeIfPresent(String.self, forKey: .language) ?? "korean"
@@ -250,6 +295,14 @@ public struct NarrationClip: Codable, Identifiable, Hashable, Sendable {
         duration = try c.decode(Double.self, forKey: .duration)
         volume = try c.decodeIfPresent(Double.self, forKey: .volume) ?? 1
         sceneAnchor = try c.decodeIfPresent(LayerSceneAnchor.self, forKey: .sceneAnchor)
+        assetID = try c.decodeIfPresent(UUID.self, forKey: .assetID) ?? id
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? (text.isEmpty ? "Audio" : text)
+        sourceStart = try c.decodeIfPresent(Double.self, forKey: .sourceStart) ?? 0
+        sourceDuration = try c.decodeIfPresent(Double.self, forKey: .sourceDuration) ?? duration
+        isMuted = try c.decodeIfPresent(Bool.self, forKey: .isMuted) ?? false
+        fadeIn = try c.decodeIfPresent(Double.self, forKey: .fadeIn) ?? 0
+        fadeOut = try c.decodeIfPresent(Double.self, forKey: .fadeOut) ?? 0
+        fadeEnvelope = try c.decodeIfPresent(AudioFadeEnvelope.self, forKey: .fadeEnvelope)
     }
 
     public var endTime: Double {

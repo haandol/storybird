@@ -1,3 +1,5 @@
+import AppKit
+import UniformTypeIdentifiers
 import AVFAudio
 import StorybirdCore
 import SwiftUI
@@ -12,11 +14,13 @@ struct NarrationComposerView: View {
     @State private var timingMode: LayerTimingMode = .scene
     @State private var isWorking = false
     @State private var player: AVAudioPlayer?
+    @State private var showRecorder = false
+    @State private var audioError: String?
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Project Narration") {
+                Section("Generate Speech with TTS") {
                     Picker("Voice", selection: $selectedProfileID) {
                         Text("Choose a profile").tag(UUID?.none)
                         ForEach(store.voiceProfiles) { profile in
@@ -43,7 +47,52 @@ struct NarrationComposerView: View {
                     }
                 }
                 if let project = store.selectedProject {
-                    Section("Narration Drafts") {
+                    Section("Original Movie Audio") {
+                        TextField("Volume", value: Binding(
+                            get: { store.selectedProject?.sourceAudioVolume ?? 1 },
+                            set: { volume in
+                                guard var current = store.selectedProject else { return }
+                                current.sourceAudioVolume = volume
+                                store.replaceProject(current)
+                            }
+                        ), format: .number)
+                        Toggle("Mute original audio", isOn: Binding(
+                            get: { store.selectedProject?.sourceAudioMuted ?? false },
+                            set: { muted in
+                                guard var current = store.selectedProject else { return }
+                                current.sourceAudioMuted = muted
+                                store.replaceProject(current)
+                            }
+                        ))
+                    }
+                    Section("Audio Assets") {
+                        HStack {
+                            Button("Import Audio…") { importAudio(projectID: project.id) }
+                            Button("Record Voice…") { showRecorder = true }
+                        }.disabled(isWorking)
+                        Text("WAV, MP3 or M4A. Voice recording is optional; an agent can generate speech from text using an existing profile.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        ForEach(project.availableAudioAssets) { asset in
+                            VStack(alignment: .leading) {
+                                Text(asset.name).lineLimit(2)
+                                Text(String(format: "%.2f seconds · %@", asset.duration, asset.origin.rawValue))
+                                    .font(.caption).foregroundStyle(.secondary)
+                                AudioWaveformView(url: store.repository.assetURL(projectID: project.id, filename: asset.filename))
+                                    .frame(height: 26)
+                                HStack {
+                                    Button("Listen") { listenAsset(asset, projectID: project.id) }
+                                    Button("Add Layer") {
+                                        do {
+                                            _ = try store.placeAudioAsset(projectID: project.id, assetID: asset.id,
+                                                expectedRevision: project.revision, startTime: narrationStart, timingMode: timingMode)
+                                            audioError = nil
+                                        } catch { audioError = error.localizedDescription }
+                                    }.disabled(isWorking)
+                                }
+                            }.padding(.vertical, 4)
+                        }
+                    }
+                    Section("TTS Drafts") {
                         ForEach(project.narrationDrafts.filter { $0.state != .placed && $0.state != .cancelled }) { draft in
                             VStack(alignment: .leading, spacing: 8) {
                                 Text(draft.text).lineLimit(3)
@@ -70,6 +119,7 @@ struct NarrationComposerView: View {
                         }
                     }
                 }
+                if let audioError { Section { Text(audioError).foregroundStyle(.red) } }
                 Section("Voice Settings") {
                     Text("Create voice profiles and prepare the local model in Settings.")
                         .font(.callout).foregroundStyle(.secondary)
@@ -77,7 +127,7 @@ struct NarrationComposerView: View {
                 }
             }
             .formStyle(.grouped)
-            .navigationTitle("Narration")
+            .navigationTitle("Audio & TTS")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }.disabled(isWorking)
@@ -92,6 +142,33 @@ struct NarrationComposerView: View {
                (try? SceneTiming.anchor(at: narrationStart, in: project)) == nil { timingMode = .project }
         }
         .onDisappear { player?.stop() }
+        .sheet(isPresented: $showRecorder) {
+            if let id = store.selectedProjectID { ProjectAudioRecordingView(store: store, projectID: id) }
+        }
+    }
+
+    /// Native file selection is optional; agents reuse registered sounds without
+    /// receiving a file-picker or arbitrary microphone command.
+    private func importAudio(projectID: UUID) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.wav, .mp3, .mpeg4Audio]
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        isWorking = true
+        Task {
+            defer { isWorking = false }
+            do { _ = try await store.importProjectAudio(projectID: projectID, sourceURL: url); audioError = nil }
+            catch { audioError = error.localizedDescription }
+        }
+    }
+
+    /// Auditions only an existing project-owned asset selected by the user.
+    private func listenAsset(_ asset: ProjectAudioAsset, projectID: UUID) {
+        do {
+            player?.stop()
+            player = try AVAudioPlayer(contentsOf: store.repository.assetURL(projectID: projectID, filename: asset.filename))
+            player?.play()
+        } catch { audioError = error.localizedDescription }
     }
 
     private var canGenerate: Bool {

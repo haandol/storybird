@@ -30,5 +30,6 @@ enum StorageOperation: String {
     case recording = "recording"
     case importing = "video import"
     case voice = "voice work"
+    case microphone = "microphone recording"
     case externalCommand = "MCP work"
 }

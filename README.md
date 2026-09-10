@@ -49,6 +49,7 @@ demo library. No customer screen or personal voice sample is included.
 | **Edit the picture** | Split, trim, reorder, change speed, insert freezes, and undo or redo edits |
 | **Direct attention** | Add spotlights, pan and zoom, opening titles, and a closing call to action |
 | **Use your voice** | Create a local voice profile and generate Korean or English narration, one sentence at a time |
+| **Layer audio** | Import WAV/MP3/M4A, optionally record voice separately, and overlap, trim, split, duplicate, mute, and fade independent audio layers |
 | **Listen before placing** | Keep ready narration drafts, check their actual duration, and place them without generating again |
 | **Keep speech with its scene** | Scene-linked narration and subtitles follow their start frame through clip edits; fixed timing is also available |
 | **Make another language version** | Duplicate a project with its own media, then ask your agent to translate and regenerate the needed sentences |
@@ -70,7 +71,7 @@ model; after preparation, synthesis runs offline.
 | Screen Recording | Recording the display or window you select |
 | Input Monitoring | Timestamping human mouse clicks during recording |
 | Accessibility | Pointer movement, clicks, and scrolling in an approved MCP session |
-| Microphone | An explicitly started voice-profile sample only |
+| Microphone | An explicitly started voice-profile sample or separate project audio recording |
 
 **Screen recording is silent.** It captures neither microphone nor system audio,
 and never records keyboard input. Imported audio and generated narration can be
@@ -185,7 +186,7 @@ The prompt takes about 10–15 seconds. Its language and microphone stay fixed f
 that sample. A selected microphone is remembered across restarts; if it is
 unavailable, the next recording uses the system default while preserving your choice.
 
-### 4. Generate, listen, and place narration
+### 4. Generate speech and layer audio
 
 Open **Narration** in a project, choose an existing profile, select Korean or
 English output, and enter a sentence. **Generate Draft** creates the local audio
@@ -207,11 +208,28 @@ Other sentences keep their existing audio. A profile can use a Korean reference
 to generate English output. Listen to a short sample with your service name,
 numbers, and mixed-language phrases before producing a longer video.
 
+Choose **Audio & TTS** in the timeline to generate speech from a script, import
+WAV/MP3/M4A, or optionally record a separate voice clip. Saved audio assets can be
+reused as multiple layers; recordings do not need a voice profile or transcript.
+Each layer has its own timeline row and waveform. The inspector supports source
+trim, splitting at the playhead, duplication, volume, mute, and linear fades.
+Overlapping layers play together. Overlap two clips with opposing fades for a
+crossfade. Original movie audio has separate volume and mute controls.
+
+<p align="center">
+  <img src="docs/images/audio-layers.png" width="900" alt="Synthetic Storybird project with overlapping independent audio layers" />
+</p>
+
+With a prepared local model and existing voice profile, an agent can generate TTS,
+measure the finished speech, arrange scenes, layer the sounds and captions, inspect
+a mix preview, and export the video without a human recording step. Input setup and
+screen-control approval remain native user actions. Audio stays on your Mac.
+
 ### 5. Preview and export
 
 Check the picture, captions, and sound, then choose **Export**. Storybird renders
 H.264 MP4 and mixes imported audio plus narration into one synchronized AAC track
-when audio is present. A recording without narration exports without an audio
+when audio is present. A recording without any audio layers exports without an audio
 track. The destination is replaced only after export succeeds.
 
 ## Use it with an AI agent
@@ -332,7 +350,7 @@ schemas, retries, and export-job handling.
 ```text
 ~/Documents/Storybird/
 ├── library.json              # Projects, edits, and narration draft metadata
-└── Assets/<project-id>/      # Original video and project-owned narration
+└── Assets/<project-id>/      # Original video and reusable project-owned audio
 
 ~/Library/Application Support/Storybird/
 ├── Voices/                   # Shared voice profiles and reference audio
@@ -404,3 +422,5 @@ libraries.** Report security issues through [SECURITY.md](SECURITY.md).
 ## License
 
 [MIT](LICENSE)
+
+For the audio workflow and tool sequence, open [the audio editing guide](docs/AudioLayerEditing.html).

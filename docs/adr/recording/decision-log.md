@@ -3,6 +3,13 @@
 이 문서는 recording 카테고리의 주요 결정 변경 이력이다. ADR 본문은 현재 상태만
 서술하고, 주요 전환의 시간축은 여기에 최신 순으로 남긴다.
 
+## 2026-09-10 — 분리 제작과 오디오 레이어 편집
+
+- **Current ADR**: [0003-permission-and-signing](./0003-permission-and-signing.md)
+- **Change type**: requirement rule change
+- **What**: 프로필 샘플에 한정한 마이크 사용 → 사용자가 시작하는 독립 프로젝트 음성 녹음도 허용.
+- **Why**: 대본에서 TTS를 생성하는 에이전트가 음성 길이에 맞춰 영상과 여러 레이어를 완성해야 한다.
+
 ## 2026-09-05 — 프로젝트 접근과 화면 제어 권한을 분리
 
 - **현재 ADR**: [permission-and-signing](./0003-permission-and-signing.md)

@@ -6,6 +6,148 @@ import XCTest
 
 @MainActor
 final class AgentProductionTests: XCTestCase {
+    func test_ttsRegeneration_undoRestoresSplitFadeEnvelope() async throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (store, initial) = try await fixture(root, voice: ProductionVoice())
+        try TestVideoFactory.makeToneWAV(at: store.repository.assetURL(projectID: initial.id, filename: "split-source.wav"), duration: 2)
+        var project = initial
+        project.narrations = [NarrationClip(
+            voiceProfileID: store.voiceProfiles[0].id, filename: "split-source.wav",
+            text: "Before split", startTime: 1, duration: 2, fadeIn: 0.8, fadeOut: 0.2
+        )]
+        project = try store.saveProject(project, expectedRevision: 0)
+        let split = try store.saveProject(
+            AudioLayerEditor.split(layerID: project.narrations[0].id, in: project, at: 1.4),
+            expectedRevision: project.revision
+        )
+        let right = split.narrations[1]
+        XCTAssertEqual(right.effectiveFadeEnvelope.gain(at: 0), 0.5, accuracy: 0.0001)
+        let generated = try await store.updateNarration(projectID: project.id, narrationID: right.id,
+            expectedRevision: split.revision, text: "New sentence")
+        for _ in 0..<2 {
+            let restored = try store.undo(projectID: project.id)
+            XCTAssertEqual(restored.narrations, split.narrations)
+            XCTAssertEqual(restored.narrations[1].effectiveFadeEnvelope.gain(at: 0), 0.5, accuracy: 0.0001)
+            let redone = try store.redo(projectID: project.id)
+            XCTAssertEqual(redone.narrations, generated.narrations)
+        }
+    }
+
+    func test_ttsRegeneration_shorterNewAssetPreservesExplicitFadesAndUndo() async throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (store, initial) = try await fixture(root, voice: ProductionVoice())
+        let filename = "long.wav"
+        try TestVideoFactory.makeToneWAV(at: store.repository.assetURL(projectID: initial.id, filename: filename), duration: 2)
+        var project = initial
+        project.narrations = [NarrationClip(
+            voiceProfileID: store.voiceProfiles[0].id, filename: filename, text: "Original sentence",
+            language: "english", startTime: 1, duration: 2, name: "Custom label", fadeIn: 0.2, fadeOut: 0.3
+        )]
+        let original = try store.saveProject(project, expectedRevision: 0)
+        let changed = try await store.updateNarration(projectID: project.id, narrationID: project.narrations[0].id,
+            expectedRevision: original.revision, text: "Replacement sentence", language: "english")
+        XCTAssertEqual(changed.narrations[0].duration, 1)
+        XCTAssertEqual(changed.narrations[0].fadeIn, 0.2)
+        XCTAssertEqual(changed.narrations[0].fadeOut, 0.3)
+        XCTAssertEqual(changed.narrations[0].name, "Custom label")
+        let preview = try await AudioPreviewRenderer.render(project: changed,
+            sourceURL: store.repository.assetURL(projectID: project.id, filename: project.recording!.filename),
+            startTime: 1, duration: 1)
+        defer { try? FileManager.default.removeItem(atPath: preview.path) }
+        let audio = URL(fileURLWithPath: preview.path)
+        let steady = try await TestVideoFactory.averageAmplitude(in: audio, from: 0.3, to: 0.5)
+        let ending = try await TestVideoFactory.averageAmplitude(in: audio, from: 0.9, to: 0.99)
+        XCTAssertLessThan(ending, steady * 0.3)
+        let restored = try store.undo(projectID: project.id)
+        XCTAssertEqual(restored.narrations, original.narrations)
+    }
+
+    func test_promptToVideo_ttsLayersPreviewAndExportNeedNoHumanRecording() async throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let voice = ProductionVoice()
+        let (store, original) = try await fixture(root, voice: voice)
+        let host = StorybirdExternalControlHost(store: store)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        var drafts: [NarrationDraft] = []
+        for text in ["Introduce the service.", "Explain the audio layers."] {
+            let response = try await command(host, "storybird_start_narration_draft", [
+                "project_id": original.id.uuidString, "voice_profile_id": store.voiceProfiles[0].id.uuidString,
+                "text": text, "language": "english",
+            ])
+            XCTAssertFalse(response.isError, response.text)
+            let draft = try decoder.decode(NarrationDraft.self, from: Data(response.text.utf8))
+            drafts.append(try await waitForDraft(store, projectID: original.id, draftID: draft.id))
+        }
+        XCTAssertEqual(drafts.compactMap(\.duration), [1, 1])
+        XCTAssertEqual(store.project(id: original.id)?.revision, 0)
+        let trim = try await command(host, "storybird_trim_clip", [
+            "project_id": original.id.uuidString, "expected_revision": 0,
+            "clip_id": original.clips[0].id.uuidString, "source_start": 0.0, "source_end": 0.5,
+        ])
+        XCTAssertFalse(trim.isError, trim.text)
+        let extended = try await command(host, "storybird_insert_freeze", [
+            "project_id": original.id.uuidString, "expected_revision": 1,
+            "clip_id": original.clips[0].id.uuidString, "source_time": 0.25,
+            "duration": drafts.compactMap(\.duration).reduce(0, +),
+        ])
+        XCTAssertFalse(extended.isError, extended.text)
+        for (index, draft) in drafts.enumerated() {
+            let response = try await command(host, "storybird_place_narration_draft", [
+                "project_id": original.id.uuidString, "expected_revision": 2 + index,
+                "draft_id": draft.id.uuidString, "start_time": Double(index) * 0.8, "timing_mode": "project",
+            ])
+            XCTAssertFalse(response.isError, response.text)
+        }
+        let project = try XCTUnwrap(store.project(id: original.id))
+        XCTAssertEqual(project.narrations.count, 2)
+        XCTAssertLessThan(project.narrations[1].startTime, project.narrations[0].endTime)
+        let faded = try await command(host, "storybird_update_audio_layer", [
+            "project_id": project.id.uuidString, "expected_revision": 4,
+            "layer_id": project.narrations[0].id.uuidString, "fade_out": 0.2,
+        ])
+        XCTAssertFalse(faded.isError, faded.text)
+        let subtitle = try await command(host, "storybird_upsert_subtitle", [
+            "project_id": project.id.uuidString, "expected_revision": 5,
+            "text": "Introduce the service.", "start_time": 0.0, "end_time": 1.0, "position": "bottom",
+        ])
+        XCTAssertFalse(subtitle.isError, subtitle.text)
+        let mix = try await command(host, "storybird_render_audio_preview", [
+            "project_id": project.id.uuidString, "start_time": 0.0, "duration": project.timelineDuration,
+        ])
+        XCTAssertFalse(mix.isError, mix.text)
+        let preview = try decoder.decode(AudioPreviewResult.self, from: Data(mix.text.utf8))
+        defer { try? FileManager.default.removeItem(atPath: preview.path) }
+        XCTAssertGreaterThan(preview.peak, 0)
+        let started = try await command(host, "storybird_start_export", [
+            "project_id": project.id.uuidString, "parent_directory": root.path,
+        ])
+        XCTAssertFalse(started.isError, started.text)
+        let job = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(started.text.utf8)) as? [String: Any])
+        let id = try XCTUnwrap(job["id"] as? String)
+        var completed: [String: Any]?
+        for _ in 0..<1_000 {
+            let response = try await command(host, "storybird_get_export", ["job_id": id])
+            let state = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(response.text.utf8)) as? [String: Any])
+            if state["state"] as? String == "completed" { completed = state; break }
+            if ["failed", "cancelled"].contains(state["state"] as? String ?? "") {
+                XCTFail(response.text)
+                break
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let output = try XCTUnwrap(completed?["outputPath"] as? String)
+        let tracks = try await AVURLAsset(url: URL(fileURLWithPath: output)).loadTracks(withMediaType: .audio)
+        XCTAssertEqual(tracks.count, 1)
+        XCTAssertNil(store.externalControlPrompt)
+        XCTAssertTrue(store.canStartScreenRecording)
+        let languages = await voice.languages
+        XCTAssertEqual(languages, ["english", "english"])
+    }
+
     func test_duplicateProject_copiesAudioAndVideoIndependently() async throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -116,7 +258,7 @@ final class AgentProductionTests: XCTestCase {
         } catch {}
     }
 
-    func test_sceneEdit_overlapRejectsWholeProjectAndTrimUndoKeepsAudio() async throws {
+    func test_sceneEdit_overlapIsAllowedAndTrimUndoKeepsAudio() async throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let (store, original) = try await fixture(root)
@@ -138,8 +280,9 @@ final class AgentProductionTests: XCTestCase {
         ]
         project = try store.saveProject(project, expectedRevision: 0)
         let conflicting = try VideoTimelineEditor.move(project: project, clipID: project.clips[0].id, destination: 1)
-        XCTAssertThrowsError(try store.saveProject(conflicting, expectedRevision: project.revision))
-        XCTAssertEqual(store.project(id: project.id), project)
+        let overlapped = try store.saveProject(conflicting, expectedRevision: project.revision)
+        XCTAssertEqual(overlapped.narrations.count, 2)
+        project = try store.undo(projectID: project.id)
         let trimmed = try VideoTimelineEditor.trim(
             project: project, clipID: project.clips[0].id, sourceStart: 0.5, sourceEnd: 2.5
         )

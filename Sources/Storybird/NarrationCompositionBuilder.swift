@@ -5,122 +5,92 @@ import StorybirdCore
 
 struct ProjectAudioComposition {
     let tracks: [AVAssetTrack]
-    let formatTrack: AVAssetTrack?
     let audioMix: AVAudioMix?
 }
 
 enum NarrationCompositionBuilder {
-    /// Adds non-overlapping project-owned narration WAVs to the shared composition
-    /// and returns one mix used identically by preview and export.
+    /// Gives every independent audio layer its own composition track so insertion
+    /// never pushes overlapping speech. Preview and export consume this same mix.
     static func addNarrations(
         project: DemoProject,
         assetsDirectory: URL,
         composition: AVMutableComposition,
-        sourceAudioTrack: AVMutableCompositionTrack?,
-        sourceFormatTrack: AVAssetTrack?
+        sourceAudioTrack: AVMutableCompositionTrack?
     ) async throws -> ProjectAudioComposition {
         var tracks: [AVAssetTrack] = []
+        var parameters: [AVAudioMixInputParameters] = []
         if let sourceAudioTrack {
             tracks.append(sourceAudioTrack)
+            let sourceMix = AVMutableAudioMixInputParameters(track: sourceAudioTrack)
+            let volume = Float(project.sourceAudioMuted ? 0 : project.sourceAudioVolume)
+            guard volume.isFinite else { throw LayeredVideoExportError.recordingMetadataMismatch }
+            sourceMix.setVolume(min(1, volume), at: .zero)
+            parameters.append(sourceMix)
         }
-        guard !project.narrations.isEmpty else {
-            return ProjectAudioComposition(
-                tracks: tracks,
-                formatTrack: sourceFormatTrack,
-                audioMix: nil
-            )
-        }
-        guard let narrationTrack = composition.addMutableTrack(
-            withMediaType: .audio,
-            preferredTrackID: kCMPersistentTrackID_Invalid
-        ) else {
-            throw LayeredVideoExportError.cannotReadVideo
-        }
-        let mixParameters = AVMutableAudioMixInputParameters(
-            track: narrationTrack
-        )
-        let silenceURL = assetsDirectory.appendingPathComponent(
-            ".storybird-silence.wav"
-        )
-        try ensureSilenceFile(at: silenceURL)
-        let silenceAsset = AVURLAsset(url: silenceURL)
-        guard let silenceTrack = try await silenceAsset.loadTracks(
-            withMediaType: .audio
-        ).first else {
-            throw LayeredVideoExportError.cannotReadVideo
-        }
-        var firstFormatTrack: AVAssetTrack?
-        var narrationCursor = CMTime.zero
-        for narration in project.narrations.sorted(
-            by: { $0.startTime < $1.startTime }
-        ) {
-            let url = assetsDirectory.appendingPathComponent(
-                narration.filename
-            )
-            let asset = AVURLAsset(url: url)
-            guard let source = try await asset.loadTracks(
-                withMediaType: .audio
-            ).first else {
+        if !project.narrations.isEmpty {
+            let silenceURL = assetsDirectory.appendingPathComponent(".storybird-silence.wav")
+            try ensureSilenceFile(at: silenceURL)
+            let silence = AVURLAsset(url: silenceURL)
+            guard let silenceTrack = try await silence.loadTracks(withMediaType: .audio).first else {
                 throw LayeredVideoExportError.cannotReadVideo
             }
-            firstFormatTrack = firstFormatTrack ?? source
-            let available = CMTimeGetSeconds(
-                try await source.load(.timeRange).duration
-            )
-            guard available + 0.05 >= narration.duration else {
-                throw LayeredVideoExportError.recordingMetadataMismatch
-            }
-            let destination = CMTime(
-                seconds: narration.startTime,
-                preferredTimescale: 600
-            )
-            let duration = CMTime(
-                seconds: narration.duration,
-                preferredTimescale: 600
-            )
-            if destination > narrationCursor {
-                try insertSilence(
-                    from: narrationCursor,
-                    to: destination,
-                    source: silenceTrack,
-                    destination: narrationTrack
+            let projectEnd = CMTime(seconds: project.timelineDuration, preferredTimescale: 48_000)
+            for narration in project.narrations {
+                try Task.checkCancellation()
+                let url = assetsDirectory.appendingPathComponent(narration.filename)
+                guard url.resolvingSymlinksInPath().deletingLastPathComponent()
+                    == assetsDirectory.resolvingSymlinksInPath() else {
+                    throw LayeredVideoExportError.cannotReadVideo
+                }
+                let asset = try await AmplifiedAudioFiles.sourceAsset(
+                    asset: AVURLAsset(url: url), url: url, gain: narration.isMuted ? 1 : narration.volume
                 )
+                AmplifiedAudioFiles.retainLeases(from: asset, on: composition)
+                guard let source = try await asset.loadTracks(withMediaType: .audio).first,
+                      let track = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+                    throw LayeredVideoExportError.cannotReadVideo
+                }
+                let range = try await source.load(.timeRange)
+                guard CMTimeGetSeconds(range.duration) + 0.0001 >= narration.sourceStart + narration.duration else {
+                    throw LayeredVideoExportError.recordingMetadataMismatch
+                }
+                let start = CMTime(seconds: narration.startTime, preferredTimescale: 48_000)
+                let duration = CMTime(seconds: narration.duration, preferredTimescale: 48_000)
+                let end = start + duration
+                try insertSilence(from: .zero, to: start, source: silenceTrack, destination: track)
+                try track.insertTimeRange(CMTimeRange(
+                    start: range.start + CMTime(seconds: narration.sourceStart, preferredTimescale: 48_000),
+                    duration: duration
+                ), of: source, at: start)
+                try insertSilence(from: end, to: projectEnd, source: silenceTrack, destination: track)
+                let mix = AVMutableAudioMixInputParameters(track: track)
+                let requestedVolume = Float(narration.isMuted ? 0 : narration.volume)
+                guard requestedVolume.isFinite else { throw LayeredVideoExportError.recordingMetadataMismatch }
+                let volume = min(1, requestedVolume)
+                let envelope = narration.effectiveFadeEnvelope
+                let points = envelope.breakpoints(length: narration.duration)
+                mix.setVolume(0, at: .zero)
+                mix.setVolume(volume * Float(envelope.gain(at: 0)), at: start)
+                for (from, to) in zip(points, points.dropFirst()) {
+                    mix.setVolumeRamp(
+                        fromStartVolume: volume * Float(envelope.gain(at: from)),
+                        toEndVolume: volume * Float(envelope.gain(at: to)),
+                        timeRange: CMTimeRange(
+                            start: start + CMTime(seconds: from, preferredTimescale: 48_000),
+                            duration: CMTime(seconds: to - from, preferredTimescale: 48_000)
+                        )
+                    )
+                }
+                // Silence decoding can carry a resampler tail across a trim;
+                // explicitly close the layer's gain at its project end.
+                mix.setVolume(0, at: end)
+                tracks.append(track)
+                parameters.append(mix)
             }
-            try narrationTrack.insertTimeRange(
-                CMTimeRange(start: .zero, duration: duration),
-                of: source,
-                at: destination
-            )
-            mixParameters.setVolume(
-                Float(narration.volume),
-                at: destination
-            )
-            mixParameters.setVolume(
-                1,
-                at: destination + duration
-            )
-            narrationCursor = destination + duration
         }
-        let projectEnd = CMTime(
-            seconds: project.timelineDuration,
-            preferredTimescale: 600
-        )
-        if projectEnd > narrationCursor {
-            try insertSilence(
-                from: narrationCursor,
-                to: projectEnd,
-                source: silenceTrack,
-                destination: narrationTrack
-            )
-        }
-        tracks.append(narrationTrack)
         let mix = AVMutableAudioMix()
-        mix.inputParameters = [mixParameters]
-        return ProjectAudioComposition(
-            tracks: tracks,
-            formatTrack: sourceFormatTrack ?? firstFormatTrack,
-            audioMix: mix
-        )
+        mix.inputParameters = parameters
+        return ProjectAudioComposition(tracks: tracks, audioMix: parameters.isEmpty ? nil : mix)
     }
 
     /// Creates one reusable second of real PCM silence so AVFoundation preserves

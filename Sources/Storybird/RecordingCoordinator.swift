@@ -186,6 +186,10 @@ final class RecordingCoordinator: ObservableObject {
     /// Begins source selection for one independent continuous video project.
     func start() {
         guard state == .idle else { return }
+        guard store.canStartScreenRecording else {
+            store.errorMessage = AudioSessionError.busy.localizedDescription
+            return
+        }
 
         let token = UUID()
         sessionToken = token

@@ -17,8 +17,8 @@
         },
         {
           "path": "docs/adr/recording/0003-permission-and-signing.md",
-          "status": "Accepted (2026-09-08)",
-          "summary": "Storybird는 안정 서명과 분리된 권한 경계를 유지하고 음성 프로필 마이크 녹음과 최초 모델 다운로드만 네이티브 승인으로 허용한다"
+          "status": "Accepted (2026-09-10)",
+          "summary": "네이티브 사용자 동작으로 프로필 또는 독립 프로젝트 음성을 녹음하고 MCP 입력 권한을 분리한다"
         }
       ],
       "dependsOn": []
@@ -29,7 +29,7 @@
         {
           "path": "docs/adr/timeline-editing/0001-non-destructive-clip-timeline.md",
           "status": "Accepted (2026-09-10)",
-          "summary": "원본을 보존하며 장면 연결 음성과 자막의 시작점을 클립 편집에 동기화한다"
+          "summary": "원본을 보존하며 겹치는 오디오 레이어와 장면 연결을 비파괴 편집한다"
         }
       ],
       "dependsOn": [
@@ -73,7 +73,7 @@
         {
           "path": "docs/adr/agent-project-editing/0001-versioned-mcp-project-editing.md",
           "status": "Accepted (2026-09-10)",
-          "summary": "에이전트가 최신 revision으로 대상 레이어와 음성 초안·언어별 복제본을 편집한다"
+          "summary": "에이전트가 TTS 자산과 다중 오디오 레이어를 편집·미리듣기·합성한다"
         }
       ],
       "dependsOn": [
@@ -93,7 +93,7 @@
         {
           "path": "docs/adr/authoring/0001-timeline-overlay-editor.md",
           "status": "Accepted (2026-09-10)",
-          "summary": "Click Cue와 고정 시각 또는 장면 연결 자막을 같은 시간축에서 편집하고 합성한다"
+          "summary": "여러 오디오 행과 파형을 같은 영상 시간축에서 편집하고 미리듣는다"
         }
       ],
       "dependsOn": [
@@ -109,7 +109,7 @@
         {
           "path": "docs/adr/library/0001-local-project-library.md",
           "status": "Accepted (2026-09-10)",
-          "summary": "문서 폴더의 기본 프로젝트와 사용자 선택 라이브러리를 원자적으로 보존하고 공유 음성 자산은 Application Support에 유지한다"
+          "summary": "프로젝트 소유 오디오 자산을 재사용하고 복제·실행 취소 수명을 보존한다"
         }
       ],
       "dependsOn": []
@@ -120,8 +120,8 @@
       "adrs": [
         {
           "path": "docs/adr/sharing/0001-layered-video-export.md",
-          "status": "Accepted (2026-09-08)",
-          "summary": "Storybird가 편집 영상·원본 오디오·문장별 내레이션을 하나의 H.264/AAC MP4로 원자적으로 합성한다"
+          "status": "Accepted (2026-09-10)",
+          "summary": "영상과 겹치는 오디오 레이어를 같은 믹스로 미리듣고 H.264/AAC MP4로 합성한다"
         }
       ],
       "dependsOn": [
@@ -154,7 +154,7 @@
         {
           "path": "docs/adr/voice-narration/0001-local-cloned-voice-narration.md",
           "status": "Accepted (2026-09-10)",
-          "summary": "별도 모달에서 음성 프로필을 생성하고 한국어·영어 로컬 음성 초안을 문장별로 배치한다"
+          "summary": "대본으로 로컬 TTS 초안을 만들고 실제 길이를 확인해 여러 오디오 레이어로 배치한다"
         }
       ],
       "dependsOn": [

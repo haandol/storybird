@@ -47,7 +47,7 @@ public enum SceneTiming {
     }
 
     /// Moves starts without changing speech or subtitle duration. The project
-    /// writer rejects any resulting overlap or overflow as one failed edit.
+    /// writer rejects project overflow as one failed edit; audio overlap is allowed.
     public static func remap(_ project: DemoProject) -> DemoProject {
         var result = project
         result.narrations = project.narrations.compactMap { narration in

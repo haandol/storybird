@@ -80,6 +80,7 @@ let package = Package(
                 "Storybird",
                 "StorybirdCore",
                 "StorybirdMCPKit",
+                .product(name: "MCP", package: "swift-sdk"),
             ],
             path: "Tests/StorybirdTests",
             swiftSettings: [

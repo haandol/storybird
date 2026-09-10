@@ -142,6 +142,20 @@ final class AppStore: ObservableObject {
         storageOperations.removeValue(forKey: id)
     }
 
+    var canStartScreenRecording: Bool {
+        !storageOperations.values.contains(.microphone)
+    }
+
+    /// Reserves microphone input before permission awaits. Profile and project
+    /// recording share this lease, excluding screen capture and other microphones.
+    func beginMicrophoneOperation() throws -> UUID {
+        guard !storageOperations.values.contains(.recording),
+              !storageOperations.values.contains(.microphone) else {
+            throw AudioSessionError.busy
+        }
+        return beginStorageOperation(.microphone)
+    }
+
     /// Publishes a fully validated library and its preference in one main-actor
     /// turn. Failure leaves the old repository, selection, and undo history intact.
     @discardableResult
@@ -355,6 +369,59 @@ final class AppStore: ObservableObject {
         }
     }
 
+    /// Imports a user-selected sound into immutable project storage. Asset
+    /// registration survives placement failure and does not advance edit revision.
+    func importProjectAudio(
+        projectID: UUID, sourceURL: URL, name: String? = nil,
+        origin: ProjectAudioAsset.Origin = .imported
+    ) async throws -> ProjectAudioAsset {
+        guard project(id: projectID) != nil else { throw RecordingStoreError.projectNotFound }
+        let operation = beginStorageOperation(.voice)
+        defer { endStorageOperation(operation) }
+        let prepared = try repository.prepareNarrationURL(projectID: projectID)
+        let access = sourceURL.startAccessingSecurityScopedResource()
+        defer { if access { sourceURL.stopAccessingSecurityScopedResource() } }
+        do {
+            let summary = try await Task.detached {
+                try ProjectAudioFiles.importFile(from: sourceURL, to: prepared.url)
+            }.value
+            try Task.checkCancellation()
+            guard let index = projects.firstIndex(where: { $0.id == projectID }) else {
+                throw RecordingStoreError.projectNotFound
+            }
+            let asset = ProjectAudioAsset(
+                filename: prepared.filename,
+                name: name ?? sourceURL.deletingPathExtension().lastPathComponent,
+                duration: summary.duration, origin: origin
+            )
+            guard !asset.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw AgentEditError.invalidField("name")
+            }
+            var updated = projects
+            updated[index].audioAssets.append(asset)
+            try repository.saveProjects(updated)
+            projects = updated
+            return asset
+        } catch {
+            try? FileManager.default.removeItem(at: prepared.url)
+            throw error
+        }
+    }
+
+    /// Publishes a reusable audio placement through the same revision and undo
+    /// boundary as every other timeline edit.
+    func placeAudioAsset(
+        projectID: UUID, assetID: UUID, expectedRevision: Int, startTime: Double,
+        sourceStart: Double = 0, duration: Double? = nil, timingMode: LayerTimingMode = .project
+    ) throws -> DemoProject {
+        guard let project = project(id: projectID) else { throw RecordingStoreError.projectNotFound }
+        let edited = try AudioLayerEditor.place(
+            assetID: assetID, in: project, startTime: startTime, sourceStart: sourceStart,
+            duration: duration, timingMode: timingMode
+        )
+        return try saveProject(edited, expectedRevision: expectedRevision)
+    }
+
     /// Regenerates only the selected narration when its text changes and applies
     /// optional timing or volume edits in the same revision-checked publication.
     func updateNarration(
@@ -424,6 +491,13 @@ final class AppStore: ObservableObject {
                 )
                 try Task.checkCancellation()
                 project.narrations[index].filename = prepared.filename
+                project.narrations[index].assetID = UUID()
+                project.narrations[index].sourceStart = 0
+                project.narrations[index].sourceDuration = duration
+                project.narrations[index].fadeEnvelope = nil
+                if project.narrations[index].name == project.narrations[index].text {
+                    project.narrations[index].name = trimmed
+                }
                 project.narrations[index].text = trimmed
                 project.narrations[index].language = resolvedLanguage
                 project.narrations[index].duration = duration
@@ -562,6 +636,16 @@ final class AppStore: ObservableObject {
         }
         var comparable = project
         comparable.narrationDrafts = current.narrationDrafts
+        comparable.audioAssets = current.audioAssets
+        // History is an already validated snapshot. Reinterpreting restoration
+        // as a source replacement would erase the original split-fade envelope.
+        if recordUndo {
+            for index in comparable.narrations.indices {
+                if let old = current.narrations.first(where: { $0.id == comparable.narrations[index].id }) {
+                    comparable.narrations[index] = AudioLayerEditor.reconcileFade(from: old, to: comparable.narrations[index])
+                }
+            }
+        }
         for narration in comparable.narrations {
             if let draft = current.narrationDrafts.first(where: { $0.filename == narration.filename }),
                draft.state != .placed, draft.id != placingDraftID {
@@ -589,6 +673,11 @@ final class AppStore: ObservableObject {
             return current
         }
         var updated = comparable
+        // Retain complete sounds after layer deletion and across undo/redo.
+        for asset in (current.availableAudioAssets + comparable.availableAudioAssets)
+        where !updated.audioAssets.contains(where: { $0.filename == asset.filename }) {
+            updated.audioAssets.append(asset)
+        }
         var outputOnly = comparable
         outputOnly.suggestions = current.suggestions
         let suggestionMetadataOnly = outputOnly == current
@@ -603,7 +692,7 @@ final class AppStore: ObservableObject {
         }
         for narration in updated.narrations
         where !current.narrations.contains(where: {
-            $0.filename == narration.filename && $0.duration == narration.duration
+            $0.filename == narration.filename && $0.sourceDuration == narration.sourceDuration
         }) {
             try validateNarrationForPublication(narration, projectID: updated.id)
         }
@@ -636,7 +725,8 @@ final class AppStore: ObservableObject {
         let audio = try AVAudioFile(forReading: url)
         let measured = Double(audio.length) / audio.processingFormat.sampleRate
         guard measured.isFinite, measured > 0,
-              abs(measured - narration.duration) <= max(0.1, measured * 0.02),
+              abs(measured - narration.sourceDuration) <= max(0.1, measured * 0.02),
+              narration.sourceStart + narration.duration <= measured + 0.000001,
               let buffer = AVAudioPCMBuffer(pcmFormat: audio.processingFormat, frameCapacity: 4_096)
         else {
             throw VoiceSynthesisError.invalidResponse
@@ -1015,6 +1105,7 @@ final class AppStore: ObservableObject {
         copy.createdAt = Date()
         copy.updatedAt = copy.createdAt
         copy.narrationDrafts = []
+        copy.audioAssets = source.availableAudioAssets.filter { asset in source.narrations.contains { $0.filename == asset.filename } }
         guard !copy.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw VoiceProfileError.invalidInput
         }
@@ -1033,7 +1124,7 @@ final class AppStore: ObservableObject {
                 )
                 for narration in source.narrations where narration.filename == filename {
                     _ = try await Self.validatedNarrationDuration(
-                        at: destination, reportedDuration: narration.duration
+                        at: destination, reportedDuration: narration.sourceDuration
                     )
                 }
             }
@@ -1180,7 +1271,7 @@ enum VoiceProfileError: LocalizedError {
         case .profileNotFound:
             return "The selected voice profile no longer exists."
         case .microphonePermissionDenied:
-            return "Microphone access is required only for the guided voice-profile recording."
+            return "Microphone access is required for this voice recording."
         case .microphoneUnavailable:
             return "No usable microphone is available. Check the input device in Storybird Settings."
         }
@@ -1225,5 +1316,12 @@ struct RecordingPermissionPrompt: Identifiable {
         return URL(
             string: "x-apple.systempreferences:com.apple.preference.security?\(pane)"
         )
+    }
+}
+
+enum AudioSessionError: LocalizedError {
+    case busy
+    var errorDescription: String? {
+        "Finish the current screen or microphone recording before starting another."
     }
 }

@@ -124,9 +124,13 @@ final class VoiceSampleRecorder: VoiceSampleRecording {
     private weak var store: AppStore?
     private var storageOperationID: UUID?
     private var startRequestID: UUID?
+    private let minimumDuration: Double
 
-    init(store: AppStore? = nil) {
+    /// Reuses the device-safe recorder for either guided profiles or independent
+    /// project speech; the latter requires positive audio rather than ten seconds.
+    init(store: AppStore? = nil, minimumDuration: Double = VoiceRecordingRequirements.minimumDuration) {
         self.store = store
+        self.minimumDuration = minimumDuration
     }
 
     var hasSession: Bool {
@@ -134,7 +138,7 @@ final class VoiceSampleRecorder: VoiceSampleRecording {
     }
 
     var canFinish: Bool {
-        elapsedTime >= VoiceRecordingRequirements.minimumDuration
+        elapsedTime > 0 && elapsedTime >= minimumDuration
     }
 
     /// Requests microphone access only for this explicit action, then records
@@ -148,8 +152,8 @@ final class VoiceSampleRecorder: VoiceSampleRecording {
             throw VoiceProfileError.invalidInput
         }
         let requestID = UUID()
+        let operation = try store?.beginMicrophoneOperation()
         startRequestID = requestID
-        let operation = store?.beginStorageOperation(.voice)
         var started = false
         defer {
             if startRequestID == requestID {
@@ -228,7 +232,7 @@ final class VoiceSampleRecorder: VoiceSampleRecording {
     }
 
     /// Pauses capture without finalizing the WAV so the same selected-device
-    /// session can continue toward the ten-second minimum.
+    /// session can continue toward its configured minimum.
     func pause() {
         guard let engine, isRecording else { return }
         captureMeterSample()
@@ -250,8 +254,8 @@ final class VoiceSampleRecorder: VoiceSampleRecording {
         startMetering()
     }
 
-    /// Finalizes only a sample that has reached ten seconds and exposes its WAV
-    /// for preview, rerecording, or profile validation.
+    /// Finalizes positive audio that meets this recorder’s minimum, exposing its
+    /// WAV for preview and explicit profile or project publication.
     @discardableResult
     func finish() -> Bool {
         guard let captureURL, canFinish else { return false }
@@ -362,7 +366,7 @@ final class VoiceSampleRecorder: VoiceSampleRecording {
             try? FileManager.default.removeItem(at: url)
         }
         recordedURL = nil
-        errorMessage = "\(message) Please record the guided sample again."
+        errorMessage = "\(message) Please record the sample again."
     }
 
     /// Opens one device-fixed AVAudioEngine session, taps its native input

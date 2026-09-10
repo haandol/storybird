@@ -64,12 +64,12 @@ final class DocumentationScreenshotTests: XCTestCase {
         )
         await store.refreshVoiceRuntimeState()
 
-        try render(
+        try await render(
             VoiceProfileCreationView(store: store),
             size: CGSize(width: 620, height: 650),
             to: imageDirectory.appendingPathComponent("voice-profile-creation.png")
         )
-        try render(
+        try await render(
             WelcomeView(
                 store: store,
                 onRecord: {},
@@ -78,7 +78,7 @@ final class DocumentationScreenshotTests: XCTestCase {
             size: CGSize(width: 900, height: 600),
             to: imageDirectory.appendingPathComponent("welcome.png")
         )
-        try render(
+        try await render(
             VoiceStudioView(
                 store: store,
                 refreshRuntimeOnAppear: false
@@ -91,7 +91,7 @@ final class DocumentationScreenshotTests: XCTestCase {
         let domain = "storybird.docs.storage.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: domain))
         defer { defaults.removePersistentDomain(forName: domain) }
-        try render(
+        try await render(
             StorybirdSettingsView(
                 store: store,
                 shortcutSettings: StorybirdShortcutSettings(defaults: defaults)
@@ -110,11 +110,37 @@ final class DocumentationScreenshotTests: XCTestCase {
         try store.repository.saveProjects([project])
         let narrationStore = AppStore(repository: store.repository, voiceService: DocumentationVoiceService())
         await narrationStore.refreshVoiceRuntimeState()
-        try render(
+        try await render(
             NarrationComposerView(store: narrationStore),
             size: CGSize(width: 680, height: 680),
             to: imageDirectory.appendingPathComponent("narration-drafts.png")
         )
+        let audioID = UUID()
+        let video = try repository.prepareVideoRecordingURL(projectID: audioID)
+        let media = try await TestVideoFactory.makeMovie(at: video.url, includeAudio: false, duration: 5)
+        var layers: [NarrationClip] = []
+        for (index, title) in ["Introduction · TTS", "Feature explanation · TTS", "Supporting audio"].enumerated() {
+            let filename = "synthetic-audio-\(index).wav"
+            try TestVideoFactory.makeToneWAV(at: repository.assetURL(projectID: audioID, filename: filename),
+                duration: 2, frequency: Double(330 + index * 220))
+            layers.append(NarrationClip(
+                voiceProfileID: profile.id, filename: filename, text: title, language: "english",
+                startTime: 0.2 + Double(index), duration: 2, volume: 0.5,
+                name: title, fadeIn: 0.2, fadeOut: 0.2
+            ))
+        }
+        let audioProject = DemoProject(id: audioID, name: "Prompt → TTS → Layered video",
+            recording: VideoRecordingAsset(filename: video.filename, duration: media.duration, width: media.width, height: media.height),
+            subtitles: [TimedSubtitle(startTime: 0.2, endTime: 2.2, text: "Create a video from your script.")],
+            narrations: layers)
+        try repository.saveProjects([audioProject])
+        let audioStore = AppStore(repository: repository, voiceService: DocumentationVoiceService())
+        try await render(ProjectWorkspaceView(store: audioStore, projectID: audioID),
+            size: CGSize(width: 1100, height: 760),
+            to: imageDirectory.appendingPathComponent("audio-layers.png"), hostedInWindow: true)
+        try await render(ProjectAudioRecordingView(store: audioStore, projectID: audioID),
+            size: CGSize(width: 620, height: 520),
+            to: imageDirectory.appendingPathComponent("project-voice-recording.png"), hostedInWindow: true)
     }
 
     /// Renders real SwiftUI views with synthetic local state so documentation
@@ -122,8 +148,9 @@ final class DocumentationScreenshotTests: XCTestCase {
     private func render<Content: View>(
         _ content: Content,
         size: CGSize,
-        to destination: URL
-    ) throws {
+        to destination: URL,
+        hostedInWindow: Bool = false
+    ) async throws {
         let rootView = content
             .frame(width: size.width, height: size.height)
             .background(Color(nsColor: .windowBackgroundColor))
@@ -132,8 +159,16 @@ final class DocumentationScreenshotTests: XCTestCase {
 
         let hostingView = NSHostingView(rootView: rootView)
         hostingView.frame = NSRect(origin: .zero, size: size)
+        let window: NSWindow? = hostedInWindow ? NSWindow(
+            contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable],
+            backing: .buffered, defer: false
+        ) : nil
+        window?.contentView = hostingView
+        window?.orderFront(nil)
+        defer { window?.orderOut(nil); window?.contentView = nil }
         hostingView.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        try await Task.sleep(for: .milliseconds(300))
+        hostingView.layoutSubtreeIfNeeded()
 
         let bitmap = try XCTUnwrap(
             hostingView.bitmapImageRepForCachingDisplay(

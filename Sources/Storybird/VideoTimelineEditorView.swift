@@ -100,6 +100,7 @@ final class VideoPlaybackModel: ObservableObject {
                 try Task.checkCancellation()
                 guard rebuildID == requestID else { return }
                 let item = AVPlayerItem(asset: result.asset)
+                AmplifiedAudioFiles.retainLeases(from: result.asset, on: item)
                 item.audioMix = result.audioMix
                 player.replaceCurrentItem(with: item)
                 duration = max(result.duration, 0)
@@ -262,6 +263,8 @@ private struct PlaybackCompositionState: Equatable {
     }
     let clips: [VideoClip]
     let narrations: [NarrationClip]
+    let sourceAudioVolume: Double
+    let sourceAudioMuted: Bool
     let cards: [Card]
 
     /// Reloads media only for changes affecting the picture clock or sound;
@@ -269,6 +272,8 @@ private struct PlaybackCompositionState: Equatable {
     init(project: DemoProject) {
         clips = project.clips
         narrations = project.narrations
+        sourceAudioVolume = project.sourceAudioVolume
+        sourceAudioMuted = project.sourceAudioMuted
         cards = project.effects.filter(\.isFullScreenCard).map {
             Card(id: $0.id, start: $0.startTime, end: $0.endTime)
         }
@@ -284,6 +289,7 @@ struct VideoTimelineEditorView: View {
     @State private var selection: TimelineLayerSelection?
     @State private var isInspectorPresented = false
     @State private var isPlacingClick = false
+    @State private var showAudioComposer = false
 
     private static let timelineLabelWidth: CGFloat = 104
     private static let timelineRulerHeight: CGFloat = 26
@@ -345,12 +351,14 @@ struct VideoTimelineEditorView: View {
 
     var body: some View {
         GeometryReader { proxy in
+            let timelineHeight = min(360, max(160, proxy.size.height * 0.45))
             if proxy.size.width < 820 {
-                compactLayout
+                compactLayout(timelineHeight: timelineHeight)
             } else {
-                regularLayout
+                regularLayout(timelineHeight: timelineHeight)
             }
         }
+        .sheet(isPresented: $showAudioComposer) { NarrationComposerView(store: store) }
         .onDisappear {
             playback.player.pause()
         }
@@ -359,12 +367,12 @@ struct VideoTimelineEditorView: View {
         }
     }
 
-    private var regularLayout: some View {
+    private func regularLayout(timelineHeight: CGFloat) -> some View {
         HSplitView {
             VStack(spacing: 0) {
                 playerStage
                 Divider()
-                timeline
+                timeline(height: timelineHeight)
             }
             .frame(minWidth: 460)
 
@@ -373,7 +381,7 @@ struct VideoTimelineEditorView: View {
         }
     }
 
-    private var compactLayout: some View {
+    private func compactLayout(timelineHeight: CGFloat) -> some View {
         VStack(spacing: 0) {
             HStack {
                 Spacer()
@@ -390,7 +398,7 @@ struct VideoTimelineEditorView: View {
 
             playerStage
             Divider()
-            timeline
+            timeline(height: timelineHeight)
         }
         .sheet(isPresented: $isInspectorPresented) {
             inspector
@@ -534,10 +542,11 @@ struct VideoTimelineEditorView: View {
         )
     }
 
-    private var timeline: some View {
+    private func timeline(height: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             timelineToolbar
-            timelineTrackEditor
+            ScrollView(.vertical) { timelineTrackEditor }
+                .frame(height: min(timelineCanvasHeight, height))
 
             if project.clips.isEmpty
                 && project.clicks.isEmpty
@@ -560,6 +569,13 @@ struct VideoTimelineEditorView: View {
             HStack(spacing: 8) {
                 Text("Timeline layers")
                     .font(.headline)
+                Button("Audio & TTS") { showAudioComposer = true }
+                Menu("Source Audio") {
+                    Toggle("Mute original audio", isOn: $project.sourceAudioMuted)
+                    Button("Original volume") { project.sourceAudioVolume = 1 }
+                    Button("Half volume") { project.sourceAudioVolume = 0.5 }
+                    TextField("Volume", value: $project.sourceAudioVolume, format: .number)
+                }
 
                 if selectedClip != nil {
                     Divider()
@@ -684,11 +700,13 @@ struct VideoTimelineEditorView: View {
                     systemImage: "captions.bubble.fill",
                     count: project.subtitles.count
                 )
-                timelineTrackLabel(
-                    "Narration",
-                    systemImage: "waveform",
-                    count: project.narrations.count
-                )
+                if project.narrations.isEmpty {
+                    timelineTrackLabel("Audio", systemImage: "waveform", count: 0)
+                } else {
+                    ForEach(Array(project.narrations.enumerated()), id: \.element.id) { index, _ in
+                        timelineTrackLabel("Audio \(index + 1)", systemImage: "waveform", count: 1)
+                    }
+                }
                 timelineTrackLabel(
                     "Effects",
                     systemImage: "wand.and.stars",
@@ -814,23 +832,25 @@ struct VideoTimelineEditorView: View {
                         }
                     }
                 }
-                timelineTrackRow {
-                    ForEach(narrationSpans) { span in
-                        if let narration = project.narrations.first(where: {
-                            $0.id == span.id
-                        }) {
+                if narrationSpans.isEmpty { timelineTrackRow { EmptyView() } }
+                ForEach(narrationSpans) { span in
+                    if let narration = project.narrations.first(where: { $0.id == span.id }) {
+                        timelineTrackRow {
                             timelineBlock(
-                                title: narration.text,
-                                systemImage: "waveform",
-                                span: span,
-                                canvasWidth: width,
-                                color: .cyan,
-                                isSelected:
-                                    selectedNarrationID == narration.id
+                                title: narration.name, systemImage: narration.isMuted ? "speaker.slash" : "waveform",
+                                span: span, canvasWidth: width, color: .cyan,
+                                isSelected: selectedNarrationID == narration.id
                             ) {
                                 selection = .narration(narration.id)
                                 playback.seek(to: narration.startTime)
                             }
+                            AudioWaveformView(
+                                url: store.repository.assetURL(projectID: project.id, filename: narration.filename),
+                                sourceStart: narration.sourceStart, duration: narration.duration, sourceDuration: narration.sourceDuration
+                            )
+                            .frame(width: max(1, CGFloat(narration.duration / max(project.timelineDuration, 0.001)) * width), height: 12)
+                            .offset(x: CGFloat(narration.startTime / max(project.timelineDuration, 0.001)) * width, y: 24)
+                            .allowsHitTesting(false)
                         }
                     }
                 }
@@ -983,8 +1003,8 @@ struct VideoTimelineEditorView: View {
 
     private var timelineCanvasHeight: CGFloat {
         Self.timelineRulerHeight
-            + Self.timelineTrackHeight * 6
-            + Self.timelineTrackSpacing * 6
+            + Self.timelineTrackHeight * CGFloat(5 + max(1, project.narrations.count))
+            + Self.timelineTrackSpacing * CGFloat(5 + max(1, project.narrations.count))
     }
 
     private var timelineTickValues: [Int] {
@@ -1078,6 +1098,14 @@ struct VideoTimelineEditorView: View {
                 )
                 NarrationLayerInspector(
                     narration: $project.narrations[index],
+                    onSplit: {
+                        do { project = try AudioLayerEditor.split(layerID: project.narrations[index].id, in: project, at: playback.currentTime) }
+                        catch { store.errorMessage = error.localizedDescription }
+                    },
+                    onDuplicate: {
+                        do { project = try AudioLayerEditor.duplicate(layerID: project.narrations[index].id, in: project) }
+                        catch { store.errorMessage = error.localizedDescription }
+                    },
                     onRegenerate: { replacementText, replacementLanguage in
                         let narrationID = project.narrations[index].id
                         let expectedRevision = project.revision
@@ -2165,18 +2193,27 @@ private struct SubtitleLayerInspector: View {
 
 private struct NarrationLayerInspector: View {
     @Binding var narration: NarrationClip
+    let onSplit: () -> Void
+    let onDuplicate: () -> Void
     let onRegenerate: (String, String) async -> Void
     let onDelete: () -> Void
     @State private var replacementText: String
     @State private var replacementLanguage: String
     @State private var isRegenerating = false
+    @State private var trimStart: Double
+    @State private var trimDuration: Double
 
     init(
         narration: Binding<NarrationClip>,
+        onSplit: @escaping () -> Void, onDuplicate: @escaping () -> Void,
         onRegenerate: @escaping (String, String) async -> Void,
         onDelete: @escaping () -> Void
     ) {
         _narration = narration
+        self.onSplit = onSplit
+        self.onDuplicate = onDuplicate
+        _trimStart = State(initialValue: narration.wrappedValue.sourceStart)
+        _trimDuration = State(initialValue: narration.wrappedValue.duration)
         self.onRegenerate = onRegenerate
         self.onDelete = onDelete
         _replacementLanguage = State(initialValue: narration.wrappedValue.language)
@@ -2187,7 +2224,9 @@ private struct NarrationLayerInspector: View {
 
     var body: some View {
         Form {
-            Section("Narration") {
+            Section("Audio Layer") {
+                TextField("Name", text: $narration.name)
+                if narration.voiceProfileID != nil {
                 TextField(
                     "Text",
                     text: $replacementText,
@@ -2217,6 +2256,7 @@ private struct NarrationLayerInspector: View {
                         ).isEmpty
                         || (replacementText == narration.text && replacementLanguage == narration.language)
                 )
+                }
                 TextField(
                     "Start",
                     value: $narration.startTime,
@@ -2228,19 +2268,36 @@ private struct NarrationLayerInspector: View {
                         format: .number.precision(.fractionLength(2))
                     )
                 }
-                Slider(value: $narration.volume, in: 0...2) {
-                    Text("Volume")
+                TextField("Volume", value: $narration.volume, format: .number)
+                Toggle("Mute", isOn: $narration.isMuted)
+                TextField("Fade in (s)", value: $narration.fadeIn, format: .number)
+                TextField("Fade out (s)", value: $narration.fadeOut, format: .number)
+                TextField("Source start (s)", value: $trimStart, format: .number)
+                TextField("Use duration (s)", value: $trimDuration, format: .number)
+                Button("Apply Trim") {
+                    var edited = narration
+                    edited.sourceStart = trimStart
+                    edited.duration = trimDuration
+                    narration = edited
                 }
+                Button("Split at Playhead", action: onSplit)
+                Button("Duplicate Layer", action: onDuplicate)
             }
             Section {
                 Button(
-                    "Delete Narration",
+                    "Delete Audio Layer",
                     role: .destructive,
                     action: onDelete
                 )
             }
         }
         .formStyle(.grouped)
+        .onChange(of: narration.id) { _, _ in
+            trimStart = narration.sourceStart; trimDuration = narration.duration
+            replacementText = narration.text; replacementLanguage = narration.language
+        }
+        .onChange(of: narration.sourceStart) { _, value in trimStart = value }
+        .onChange(of: narration.duration) { _, value in trimDuration = value }
         .onChange(of: narration.language) { _, value in replacementLanguage = value }
         .onChange(of: narration.text) { _, value in
             replacementText = value

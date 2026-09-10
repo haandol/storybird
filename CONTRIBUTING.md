@@ -243,3 +243,12 @@ that undo never points at a deleted generated WAV, and that a text-only edit
 preserves the target's unrequested properties. Keep the public tool table in
 `docs/MCP.md` and the repository's `create-storybird-video` skill aligned with the
 actual advertised tools. Use synthetic documentation screenshots for UI changes.
+
+### Independent audio layers
+
+Use synthetic tones to check overlap, trim, fade, mute, amplification, waveform
+inspection and AAC output (`swift test --filter ProjectAudioTests`). Keep real
+microphone samples and user voice profiles out of fixtures. The prompt-to-video
+production regression uses a deterministic local TTS provider through actual MCP
+host commands. Native microphone smoke checks must use the signed app and a user's
+explicit Start Recording action; verify mutual exclusion with screen/profile recording.

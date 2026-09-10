@@ -4,6 +4,13 @@ This document is the **major decision-change history** of the voice-narration ca
 Each ADR body describes only the current state, while the timeline of "what changed and
 why" accumulates here, newest first. Git preserves the individual diffs.
 
+## 2026-09-10 — 분리 제작과 오디오 레이어 편집
+
+- **Current ADR**: [0001-local-cloned-voice-narration](./0001-local-cloned-voice-narration.md)
+- **Change type**: requirement rule change
+- **What**: 순차 내레이션 중심 제작 → 독립 오디오 자산과 중첩 레이어를 사용하는 제작.
+- **Why**: 대본에서 TTS를 생성하는 에이전트가 음성 길이에 맞춰 영상과 여러 레이어를 완성해야 한다.
+
 ## 2026-09-10 — 프로필 목록과 생성 모달을 분리한다
 
 - **현재 ADR**: [local-cloned-voice-narration](./0001-local-cloned-voice-narration.md)

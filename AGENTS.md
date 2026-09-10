@@ -69,7 +69,7 @@ Read these before changing capture, persistence, or export behavior.
   exists only to timestamp mouse clicks. MCP control may move, click, and scroll
   the pointer but must not observe or synthesize keyboard events. A user-selected
   imported movie may contain one primary audio track. The microphone is used only
-  during an explicit native voice-profile recording and never during capture.
+  during explicit native voice-profile or independent project-audio recording and never during capture.
 - **MCP control requires explicit disclosure.** One active session exposes one
   selected display or window to the connected local client and accepts
   normalized pointer movement, left/right click, and scroll only after native
@@ -104,8 +104,16 @@ Read these before changing capture, persistence, or export behavior.
 - **Narration timing is explicit.** Existing layers remain at fixed project
   times; new scene-linked narration and subtitles follow their start frame through
   clip edits without changing speech or display duration. Removing the start or
-  owner excludes the layer but retains audio for undo. Reject overlapping or
-  out-of-project results atomically.
+  owner excludes the layer but retains audio for undo. Allow overlapping audio layers; reject out-of-project results atomically.
+- **Audio assets and layers are separate.** Generated speech, user-imported WAV/MP3/M4A,
+  and native project voice recordings become complete project-owned audio assets.
+  Registration does not advance edit revision. Layers reuse source ranges and allow
+  overlap, trim, split, duplicate, gain, mute, and linear fades. UI and MCP share the
+  same validation, preview mix, and export mix. Never delete audio required for undo.
+- **Microphone sessions are exclusive.** Native profile and project recordings share
+  one microphone lease acquired before requesting permission. Screen recording and
+  another microphone session cannot start until it is released. MCP cannot start a
+  microphone or choose an external audio file.
 - **Ready narration drafts survive placement failure.** Generate and validate the
   local WAV before placement. Draft metadata does not advance edit revision;
   placement and consumed state commit together exactly once. Interrupted jobs

@@ -3,6 +3,13 @@
 이 문서는 library 카테고리의 주요 결정 변경 이력이다. ADR 본문은 현재 상태만 서술하고,
 주요 전환은 최신 순으로 남긴다.
 
+## 2026-09-10 — 분리 제작과 오디오 레이어 편집
+
+- **Current ADR**: [0001-local-project-library](./0001-local-project-library.md)
+- **Change type**: requirement rule change
+- **What**: 순차 내레이션 중심 제작 → 독립 오디오 자산과 중첩 레이어를 사용하는 제작.
+- **Why**: 대본에서 TTS를 생성하는 에이전트가 음성 길이에 맞춰 영상과 여러 레이어를 완성해야 한다.
+
 ## 2026-09-10 — 기본 프로젝트 위치를 문서 폴더로 지정
 
 - **현재 ADR**: [local-project-library](./0001-local-project-library.md)

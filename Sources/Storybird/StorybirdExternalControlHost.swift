@@ -102,6 +102,15 @@ final class StorybirdExternalControlHost {
                     request.name,
                     arguments: arguments
                 )
+            case "storybird_list_audio_assets",
+                 "storybird_place_audio_asset",
+                 "storybird_update_audio_layer",
+                 "storybird_split_audio_layer",
+                 "storybird_duplicate_audio_layer",
+                 "storybird_delete_audio_layer",
+                 "storybird_set_source_audio",
+                 "storybird_render_audio_preview":
+                return try await handleAudioCommand(request.name, arguments: arguments)
             case "storybird_get_edit_context",
                  "storybird_create_project",
                  "storybird_create_click",
@@ -173,19 +182,58 @@ final class StorybirdExternalControlHost {
         }
     }
 
+    /// Handles reusable audio without exposing microphone or file-picker actions.
+    /// The store remains the single writer and validates revision before edits.
+    private func handleAudioCommand(_ name: String, arguments: [String: Any]) async throws -> StorybirdControlResponse {
+        let project = try project(from: arguments)
+        let a = AgentEditArguments(values: arguments)
+        if name == "storybird_list_audio_assets" {
+            struct AssetResponse: Encodable {
+                let asset: ProjectAudioAsset
+                let summary: AudioFileSummary
+            }
+            var assets: [AssetResponse] = []
+            try VideoProjectValidator.validate(project)
+            for asset in project.availableAudioAssets {
+                let url = store.repository.assetURL(projectID: project.id, filename: asset.filename)
+                guard url.resolvingSymlinksInPath().deletingLastPathComponent()
+                    == store.repository.assetsDirectory(projectID: project.id).resolvingSymlinksInPath() else {
+                    throw VideoProjectValidationError.invalidAssetFilename
+                }
+                let summary = try await Task.detached { try ProjectAudioFiles.inspect(url) }.value
+                assets.append(AssetResponse(asset: asset, summary: summary))
+            }
+            return try Self.jsonResponse(assets)
+        }
+        if name == "storybird_render_audio_preview" {
+            guard let recording = project.recording else { throw RecordingStoreError.videoNotFound }
+            let result = try await AudioPreviewRenderer.render(
+                project: project,
+                sourceURL: store.repository.assetURL(projectID: project.id, filename: recording.filename),
+                startTime: a.number("start_time"), duration: a.number("duration")
+            )
+            return try Self.jsonResponse(result)
+        }
+        let revision = try Self.requiredInt("expected_revision", in: arguments)
+        guard revision == project.revision else { throw RecordingStoreError.revisionConflict(project.revision) }
+        let edited = try AgentAudioEditor.apply(name, arguments: arguments, to: project)
+        return try Self.jsonResponse(store.saveProject(edited, expectedRevision: revision))
+    }
+
     /// Uses only existing user-created profiles while keeping registration,
     /// microphone capture, model preparation, and profile deletion out of MCP.
     private func handleVoiceCommand(
         _ name: String,
         arguments: [String: Any]
     ) async throws -> StorybirdControlResponse {
+        let values = AgentEditArguments(values: arguments)
         switch name {
         case "storybird_start_narration_draft":
             return try Self.jsonResponse(store.startNarrationDraft(
                 projectID: Self.uuid("project_id", in: arguments),
                 voiceProfileID: Self.uuid("voice_profile_id", in: arguments),
                 text: Self.string("text", in: arguments),
-                language: Self.string("language", in: arguments, default: "korean")
+                language: values.text("language", default: "korean")
             ))
         case "storybird_list_narration_drafts":
             return try Self.jsonResponse(project(from: arguments).narrationDrafts)
@@ -203,7 +251,7 @@ final class StorybirdExternalControlHost {
                 projectID: Self.uuid("project_id", in: arguments),
                 draftID: Self.uuid("draft_id", in: arguments),
                 expectedRevision: Self.requiredInt("expected_revision", in: arguments),
-                startTime: Self.double("start_time", in: arguments),
+                startTime: values.number("start_time"),
                 timingMode: Self.timingMode(arguments) ?? .project
             ))
         case "storybird_list_voice_profiles":
@@ -221,11 +269,8 @@ final class StorybirdExternalControlHost {
                 in: arguments
             )
             let text = try Self.string("text", in: arguments)
-            let startTime = try Self.double(
-                "start_time",
-                in: arguments
-            )
-            let language = (arguments["language"] as? String) ?? "korean"
+            let startTime = try values.number("start_time")
+            let language = try values.text("language", default: "korean")
             let saved = try await store.generateNarration(
                 projectID: projectID,
                 expectedRevision: revision,
@@ -247,10 +292,10 @@ final class StorybirdExternalControlHost {
                 projectID: project.id,
                 narrationID: id,
                 expectedRevision: expectedRevision,
-                text: arguments["text"] as? String,
-                language: arguments["language"] as? String,
-                startTime: (arguments["start_time"] as? NSNumber)?.doubleValue,
-                volume: (arguments["volume"] as? NSNumber)?.doubleValue,
+                text: values.has("text") ? values.text("text") : nil,
+                language: values.has("language") ? values.text("language") : nil,
+                startTime: values.has("start_time") ? values.number("start_time") : nil,
+                volume: values.has("volume") ? values.number("volume") : nil,
                 timingMode: try Self.timingMode(arguments)
             )
             return try Self.jsonResponse(saved)
@@ -283,6 +328,7 @@ final class StorybirdExternalControlHost {
                 await recordingSession.listSources()
             )
         case "storybird_start_session":
+            guard store.canStartScreenRecording else { throw AudioSessionError.busy }
             guard recordingStorageOperationID == nil else {
                 throw StorybirdMCPError.sessionAlreadyActive
             }
@@ -302,6 +348,7 @@ final class StorybirdExternalControlHost {
             guard recordingStorageOperationID == nil else {
                 throw StorybirdMCPError.sessionAlreadyActive
             }
+            guard store.canStartScreenRecording else { throw AudioSessionError.busy }
             let projectID = UUID()
             let target = try store.repository.prepareVideoRecordingURL(
                 projectID: projectID
@@ -1044,15 +1091,17 @@ final class StorybirdExternalControlHost {
         (values[key] as? NSNumber)?.intValue
     }
 
-    /// Reads one required integer used for optimistic project revision checks.
+    /// Rejects booleans and fractional revisions before optimistic concurrency
+    /// checks, rather than coercing them into another valid revision.
     private static func requiredInt(
         _ key: String,
         in values: [String: Any]
     ) throws -> Int {
-        guard let value = int(key, in: values) else {
+        let value = try AgentEditArguments(values: values).number(key)
+        guard value >= 0, value.rounded() == value, value < Double(Int.max) else {
             throw StorybirdControlWireError.invalidMessage
         }
-        return value
+        return Int(value)
     }
 
     /// Rejects malformed project and layer identifiers before app-owned mutation.

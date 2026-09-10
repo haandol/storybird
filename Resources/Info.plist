@@ -31,7 +31,7 @@
     <key>NSInputMonitoringUsageDescription</key>
     <string>Storybird observes mouse clicks during recording to add timed click highlights. Keyboard input is never recorded.</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Storybird records only the voice sample you explicitly start for a local voice profile. Screen recordings never capture microphone audio.</string>
+    <string>Storybird uses the microphone only when you start recording a voice profile sample or a separate project audio clip. Screen recordings never capture microphone audio.</string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
 </dict>

@@ -42,6 +42,19 @@ public enum VideoProjectValidator {
     /// Rejects invalid time and coordinate metadata before it can replace a persisted project.
     public static func validate(_ project: DemoProject) throws {
         try NarrationDraft.validate(project.narrationDrafts)
+        guard project.sourceAudioVolume.isFinite, project.sourceAudioVolume >= 0 else {
+            throw VideoProjectValidationError.invalidRecording
+        }
+        var assetIDs = Set<UUID>()
+        var assetFiles = Set<String>()
+        for asset in project.audioAssets {
+            guard assetIDs.insert(asset.id).inserted, assetFiles.insert(asset.filename).inserted,
+                  isSimpleFilename(asset.filename), asset.filename.pathExtension.lowercased() == "wav",
+                  asset.duration.isFinite, asset.duration > 0,
+                  !asset.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw VideoProjectValidationError.invalidAssetFilename
+            }
+        }
         guard let recording = project.recording else {
             throw VideoProjectValidationError.missingRecording
         }
@@ -168,14 +181,23 @@ public enum VideoProjectValidator {
         let sortedNarrations = project.narrations.sorted {
             $0.startTime < $1.startTime
         }
-        var previousNarrationEnd = 0.0
+        let audioAssets = project.availableAudioAssets
         for narration in sortedNarrations {
+            guard let asset = audioAssets.first(where: { $0.id == narration.assetID }),
+                  asset.filename == narration.filename, asset.duration == narration.sourceDuration else {
+                throw VideoProjectValidationError.invalidNarration(narration.id, "Audio asset identity or source duration does not match.")
+            }
             guard layerIDs.insert(narration.id).inserted,
                   isSimpleFilename(narration.filename),
                   narration.filename.pathExtension.lowercased() == "wav",
-                  !narration.text.trimmingCharacters(
-                      in: .whitespacesAndNewlines
-                  ).isEmpty,
+                  (narration.voiceProfileID == nil || !narration.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty),
+                  !narration.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  narration.sourceStart.isFinite, narration.sourceStart >= 0,
+                  narration.sourceDuration.isFinite, narration.sourceDuration > 0,
+                  narration.sourceStart + narration.duration <= narration.sourceDuration + 0.000001,
+                  narration.fadeIn.isFinite, narration.fadeIn >= 0,
+                  narration.fadeOut.isFinite, narration.fadeOut >= 0,
+                  narration.fadeIn + narration.fadeOut <= narration.duration,
                   narration.startTime.isFinite,
                   narration.duration.isFinite,
                   narration.volume.isFinite,
@@ -185,19 +207,23 @@ public enum VideoProjectValidator {
             else {
                 throw VideoProjectValidationError.invalidNarration(narration.id, "Invalid audio, text, timing, or volume.")
             }
+            if let envelope = narration.fadeEnvelope {
+                guard envelope.duration.isFinite, envelope.duration > 0,
+                      envelope.offset.isFinite, envelope.offset >= 0,
+                      envelope.offset + narration.duration <= envelope.duration + 0.000001,
+                      envelope.fadeIn.isFinite, envelope.fadeIn >= 0,
+                      envelope.fadeOut.isFinite, envelope.fadeOut >= 0,
+                      envelope.fadeIn + envelope.fadeOut <= envelope.duration else {
+                    throw VideoProjectValidationError.invalidNarration(narration.id, "Invalid retained fade range.")
+                }
+            }
             guard narration.endTime <= timelineDuration else {
                 throw VideoProjectValidationError.invalidNarration(
                     narration.id,
                     "Ends at \(narration.endTime)s, beyond the \(timelineDuration)s project. Extend the picture or move the start."
                 )
             }
-            guard narration.startTime >= previousNarrationEnd else {
-                throw VideoProjectValidationError.invalidNarration(
-                    narration.id,
-                    "Starts at \(narration.startTime)s before the previous sentence ends at \(previousNarrationEnd)s. Adjust placement."
-                )
-            }
-            previousNarrationEnd = narration.endTime
+
         }
 
         let duration = timelineDuration

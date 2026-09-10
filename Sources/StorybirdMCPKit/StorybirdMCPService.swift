@@ -10,17 +10,45 @@ public struct StorybirdMCPService: Sendable {
 
     /// Runs one local stdio MCP connection and aborts capture when it closes.
     public func run() async throws {
+        let server = await makeServer()
+        let transport = StdioTransport()
+        do {
+            try await server.start(transport: transport)
+            await server.waitUntilCompleted()
+        } catch {
+            await abortActiveSession()
+            throw error
+        }
+        await abortActiveSession()
+    }
+
+    /// Builds the production MCP handlers independently of transport, allowing
+    /// protocol tests to exercise discovery and calls without the user's socket.
+    func makeServer() async -> Server {
         let server = Server(
             name: "storybird",
             version: "0.1.0",
-            title: "Storybird Computer Use",
+            title: "Storybird Video Production",
             instructions: """
             Use one selected display or window per session. Starting a session \
             shares that source with the MCP client and allows real pointer \
             movement, clicks, and scrolling while Storybird records a local \
             silent video. These tools do not authorize \
             purchases, messages, uploads, account changes, or other external \
-            side effects. Keyboard input and audio recording are not provided.
+            side effects. Keyboard input and microphone recording are not provided by MCP. \
+            For prompt-to-video production, prefer storybird_start_narration_draft with text \
+            and an existing voice_profile_id. Poll storybird_get_narration_draft until ready, \
+            use the measured duration to edit picture length, then place the draft once \
+            with storybird_place_narration_draft. Read current project revision before mutations. \
+            Use storybird_get_edit_context to find project.narrations layer IDs, and \
+            storybird_list_audio_assets for reusable asset IDs. Edit or duplicate audio layers, \
+            audition storybird_render_audio_preview, and poll the export job to completion. \
+            Audio layers can overlap; no live microphone or repeated editing approvals are needed \
+            once the user has prepared the local model and voice profile. \
+            Screen capture still requires native approval of the selected source. \
+            Project editing does not require an active screen-control session. \
+            A ready draft survives placement failure: edit the picture or placement and reuse it. \
+            Do not infer speech quality from a generated file or waveform alone.
             """,
             capabilities: .init(tools: .init(listChanged: false)),
             configuration: .strict
@@ -33,15 +61,7 @@ public struct StorybirdMCPService: Sendable {
             await callTool(parameters)
         }
 
-        let transport = StdioTransport()
-        do {
-            try await server.start(transport: transport)
-            await server.waitUntilCompleted()
-        } catch {
-            await abortActiveSession()
-            throw error
-        }
-        await abortActiveSession()
+        return server
     }
 
     /// Ends any app-owned capture when the stdio client disappears without Stop.
@@ -54,7 +74,63 @@ public struct StorybirdMCPService: Sendable {
 
     /// Defines the public computer-use surface and its side-effect hints.
     static var toolDefinitions: [Tool] {
-        sourceTools + projectTools + layerTools + voiceTools + draftTools + exportTools
+        sourceTools + projectTools + layerTools + voiceTools + draftTools + audioTools + exportTools
+    }
+
+    private static let exposedToolNames = Set(toolDefinitions.map(\.name))
+
+    /// Lists complete audio assets and exposes the same independent layer edits
+    /// as the native editor. Sensitive microphone/file selection stays native.
+    private static var audioTools: [Tool] {
+        let project: [String: Value] = ["project_id": .object(["type": "string"])]
+        let revision: [String: Value] = project.merging([
+            "expected_revision": .object(["type": "integer", "minimum": 0]),
+        ]) { _, new in new }
+        let layer = revision.merging(["layer_id": .object(["type": "string"])]) { _, new in new }
+        let number: Value = .object(["type": "number", "minimum": 0])
+        let duration: Value = .object(["type": "number", "exclusiveMinimum": 0, "description": "Positive duration in seconds."])
+        let timing: Value = .object(["type": "string", "enum": ["project", "scene"]])
+        return [
+            Tool(name: "storybird_list_audio_assets", title: "List reusable project audio",
+                 description: "List complete project-owned audio assets with IDs, measured durations, peaks and waveform summaries. Generate TTS drafts with an existing voice profile, then place the ready draft once; use layer duplication for repeated speech.",
+                 inputSchema: objectSchema(properties: project, required: ["project_id"]),
+                 annotations: .init(readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false)),
+            Tool(name: "storybird_place_audio_asset", title: "Place a reusable audio asset",
+                 description: "Place an existing project sound at project seconds, optionally trimming its source range. Overlapping audio is mixed. Out-of-project placement fails without losing the asset.",
+                 inputSchema: objectSchema(properties: revision.merging([
+                    "asset_id": .object(["type": "string"]), "start_time": number,
+                    "source_start": number, "duration": duration, "timing_mode": timing,
+                 ]) { _, new in new }, required: ["project_id", "expected_revision", "asset_id", "start_time"]),
+                 annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false)),
+            Tool(name: "storybird_update_audio_layer", title: "Edit one audio layer",
+                 description: "Atomically edit name, project start, source trim, duration, gain (1 = original), mute and linear fade lengths in seconds. Audio layers may overlap. Omitted properties retain their values.",
+                 inputSchema: objectSchema(properties: layer.merging([
+                    "name": .object(["type": "string"]), "start_time": number, "source_start": number,
+                    "duration": duration, "volume": number, "muted": .object(["type": "boolean"]),
+                    "fade_in": number, "fade_out": number, "timing_mode": timing,
+                 ]) { _, new in new }, required: ["project_id", "expected_revision", "layer_id"]),
+                 annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false)),
+            Tool(name: "storybird_split_audio_layer", title: "Split an audio layer",
+                 description: "Split strictly inside a layer at project seconds, preserving its full source file for undo.",
+                 inputSchema: objectSchema(properties: layer.merging(["time": number]) { _, new in new }, required: ["project_id", "expected_revision", "layer_id", "time"]),
+                 annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false)),
+            Tool(name: "storybird_duplicate_audio_layer", title: "Duplicate an audio layer",
+                 description: "Reuse the same complete audio under a new layer ID, optionally at another project start time. Does not resynthesize TTS.",
+                 inputSchema: objectSchema(properties: layer.merging(["start_time": number]) { _, new in new }, required: ["project_id", "expected_revision", "layer_id"]),
+                 annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false)),
+            Tool(name: "storybird_delete_audio_layer", title: "Delete an audio layer",
+                 description: "Remove a layer while keeping its reusable audio and undo history.",
+                 inputSchema: objectSchema(properties: layer, required: ["project_id", "expected_revision", "layer_id"]),
+                 annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false)),
+            Tool(name: "storybird_set_source_audio", title: "Set source movie audio gain",
+                 description: "Set original movie audio volume or mute. Its timing continues to follow the edited video clips.",
+                 inputSchema: objectSchema(properties: revision.merging(["volume": number, "muted": .object(["type": "boolean"])]) { _, new in new }, required: ["project_id", "expected_revision"]),
+                 annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false)),
+            Tool(name: "storybird_render_audio_preview", title: "Render an audio mix preview",
+                 description: "Render a project range to a new local WAV using the export mix. Returns path, measured duration, peak and waveform; no audio bytes. Peaks above 1 indicate gain should be reduced. File creation alone does not verify pronunciation or naturalness.",
+                 inputSchema: objectSchema(properties: project.merging(["start_time": number, "duration": duration]) { _, new in new }, required: ["project_id", "start_time", "duration"]),
+                 annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false)),
+        ]
     }
 
     private static var voiceTools: [Tool] {
@@ -68,8 +144,8 @@ public struct StorybirdMCPService: Sendable {
             ),
             Tool(
                 name: "storybird_generate_narration",
-                title: "Generate cloned-voice narration",
-                description: "Use an existing local voice profile to generate one project-owned narration WAV and revisioned timeline layer.",
+                title: "Generate and place speech",
+                description: "Generate and place in one call using an existing profile. Prefer storybird_start_narration_draft for production: its ready audio survives a placement conflict.",
                 inputSchema: Self.objectSchema(
                     properties: [
                         "project_id": .object(["type": "string"]),
@@ -103,7 +179,7 @@ public struct StorybirdMCPService: Sendable {
                         "language": .object(["type": "string"]),
                         "timing_mode": .object(["type": "string", "enum": ["project", "scene"]]),
                         "start_time": .object(["type": "number", "minimum": 0]),
-                        "volume": .object(["type": "number", "minimum": 0, "maximum": 2]),
+                        "volume": .object(["type": "number", "minimum": 0, "description": "Gain multiplier; 1 is the original volume. No automatic normalization."]),
                     ],
                     required: [
                         "project_id",
@@ -111,12 +187,12 @@ public struct StorybirdMCPService: Sendable {
                         "narration_id",
                     ]
                 ),
-                annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false)
+                annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false)
             ),
             Tool(
                 name: "storybird_delete_narration",
                 title: "Delete one narration layer",
-                description: "Delete one project-owned narration layer and its generated WAV.",
+                description: "Delete one narration layer while retaining its reusable WAV for undo.",
                 inputSchema: Self.objectSchema(
                     properties: [
                         "project_id": .object(["type": "string"]),
@@ -129,7 +205,7 @@ public struct StorybirdMCPService: Sendable {
                         "narration_id",
                     ]
                 ),
-                annotations: .init(readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false)
+                annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false)
             ),
         ]
     }
@@ -661,6 +737,9 @@ public struct StorybirdMCPService: Sendable {
     private func callTool(
         _ parameters: CallTool.Parameters
     ) async -> CallTool.Result {
+        guard Self.exposedToolNames.contains(parameters.name) else {
+            return .init(content: [.text(text: "Unknown Storybird tool: \(parameters.name)", annotations: nil, _meta: nil)], isError: true)
+        }
         do {
             let argumentsData = try JSONEncoder().encode(
                 parameters.arguments ?? [:]

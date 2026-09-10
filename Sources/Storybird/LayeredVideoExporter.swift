@@ -83,9 +83,12 @@ actor LayeredVideoExporter {
         ).first else {
             throw LayeredVideoExportError.missingVideoTrack
         }
-        let sourceAudioTrack = try await sourceAsset.loadTracks(
-            withMediaType: .audio
-        ).first
+        let audioSourceAsset = try await AmplifiedAudioFiles.sourceAsset(
+            asset: sourceAsset, url: sourceURL, gain: project.sourceAudioMuted ? 1 : project.sourceAudioVolume
+        )
+        // Keep the decoded asset alive while loading and inserting its track.
+        defer { withExtendedLifetime(audioSourceAsset) {} }
+        let sourceAudioTrack = try await audioSourceAsset.loadTracks(withMediaType: .audio).first
         let sourceAudioTimeRange: CMTimeRange?
         if let sourceAudioTrack {
             sourceAudioTimeRange = try await sourceAudioTrack.load(
@@ -133,17 +136,16 @@ actor LayeredVideoExporter {
                 ) <= 0.001
                 && !project.effects.contains(where: \.isFullScreenCard)
                 && project.narrations.isEmpty
+                && project.sourceAudioVolume == 1 && !project.sourceAudioMuted
         let asset: AVAsset
         let videoTrack: AVAssetTrack
         let audioTracks: [AVAssetTrack]
-        let audioFormatTrack: AVAssetTrack?
         let audioMix: AVAudioMix?
         let duration: CMTime
         if usesOriginalTrack {
             asset = sourceAsset
             videoTrack = sourceTrack
             audioTracks = sourceAudioTrack.map { [$0] } ?? []
-            audioFormatTrack = sourceAudioTrack
             audioMix = nil
             duration = sourceDuration
         } else {
@@ -153,17 +155,16 @@ actor LayeredVideoExporter {
                 sourceAudioTrack: sourceAudioTrack,
                 sourceAudioTimeRange: sourceAudioTimeRange
             )
+            AmplifiedAudioFiles.retainLeases(from: audioSourceAsset, on: timeline.asset)
             asset = timeline.asset
             videoTrack = timeline.track
             let audio = try await NarrationCompositionBuilder.addNarrations(
                 project: project,
                 assetsDirectory: sourceURL.deletingLastPathComponent(),
                 composition: timeline.asset,
-                sourceAudioTrack: timeline.audioTrack,
-                sourceFormatTrack: sourceAudioTrack
+                sourceAudioTrack: timeline.audioTrack
             )
             audioTracks = audio.tracks
-            audioFormatTrack = audio.formatTrack
             audioMix = audio.audioMix
             duration = timeline.duration
         }
@@ -175,6 +176,7 @@ actor LayeredVideoExporter {
         )
 
         let reader = try AVAssetReader(asset: asset)
+        AmplifiedAudioFiles.retainLeases(from: asset, on: reader)
         let output = AVAssetReaderVideoCompositionOutput(
             videoTracks: [videoTrack],
             videoSettings: [
@@ -210,10 +212,8 @@ actor LayeredVideoExporter {
         let audioOutput: AVAssetReaderAudioMixOutput?
         let audioInput: AVAssetWriterInput?
         let audioConfig: AudioEncodingConfiguration?
-        if !audioTracks.isEmpty, let audioFormatTrack {
-            let configuration = try await makeAudioConfiguration(
-                for: audioFormatTrack
-            )
+        if !audioTracks.isEmpty {
+            let configuration = try makeAudioConfiguration()
             let output = AVAssetReaderAudioMixOutput(
                 audioTracks: audioTracks,
                 audioSettings: configuration.readerSettings
@@ -556,18 +556,11 @@ actor LayeredVideoExporter {
 
     /// Chooses one fixed PCM reader format and matching AAC writer settings so
     /// generated silence and decoded narration share one sample representation.
-    private func makeAudioConfiguration(
-        for track: AVAssetTrack
-    ) async throws -> AudioEncodingConfiguration {
-        let descriptions = try await track.load(.formatDescriptions)
-        let stream = descriptions.first.flatMap {
-            CMAudioFormatDescriptionGetStreamBasicDescription($0)
-        }?.pointee
-        let sampleRate: Int32 = 44_100
-        let channelCount = min(
-            max(Int(stream?.mChannelsPerFrame ?? 1), 1),
-            2
-        )
+    private func makeAudioConfiguration() throws -> AudioEncodingConfiguration {
+        // A stable stereo mix preserves stereo content regardless of which
+        // mono TTS layer or primary audio track appears first.
+        let sampleRate: Int32 = 48_000
+        let channelCount = 2
         let bytesPerFrame = channelCount * MemoryLayout<Int16>.size
         var description = AudioStreamBasicDescription(
             mSampleRate: Double(sampleRate),
