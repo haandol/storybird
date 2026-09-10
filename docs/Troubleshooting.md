@@ -83,10 +83,11 @@ exists, is readable, and there is enough disk space for a project-owned copy.
 ## Projects disappear after changing the storage folder
 
 Each folder has a separate library. Open **Settings › General › Storage** and
-select the previous folder, or choose **Use Default** for the original
-Application Support library. Storybird does not move, delete, or merge projects
+select the previous folder. **Use Default** selects `~/Documents/Storybird`.
+For projects saved at the previous default, select
+`~/Library/Application Support/Storybird`. Storybird does not move, delete, or merge projects
 when changing the folder. Shared voice profiles and the prepared model stay in
-the default location.
+Application Support.
 
 ## The selected project folder is unavailable
 

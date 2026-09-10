@@ -136,7 +136,9 @@ ScreenCaptureKit and TCC behavior require a real signed bundle:
     confirm it displays its own library. Import a synthetic video, generate
     narration from an existing synthetic profile, export it, and restart.
     Confirm the selected folder and project persist, shared voice assets stay
-    at the default location, and the MCP client lists the selected library.
+    in Application Support, and the MCP client lists the selected library.
+    Confirm **Use Default** selects `~/Documents/Storybird` and existing
+    Application Support projects remain accessible by selecting that folder.
     Restore the default and reselect the custom folder; neither library may
     move or merge. Cancel the picker and try read-only, missing, and malformed
     libraries; selection must remain unchanged. During UI/MCP recording,

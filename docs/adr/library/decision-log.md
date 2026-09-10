@@ -3,6 +3,15 @@
 이 문서는 library 카테고리의 주요 결정 변경 이력이다. ADR 본문은 현재 상태만 서술하고,
 주요 전환은 최신 순으로 남긴다.
 
+## 2026-09-10 — 기본 프로젝트 위치를 문서 폴더로 지정
+
+- **현재 ADR**: [local-project-library](./0001-local-project-library.md)
+- **변경 유형**: 저장 위치 계약
+- **무엇이**: 기본 프로젝트 위치와 기본 위치 복원을 Application Support에서
+  `~/Documents/Storybird`로 변경한다. 사용자 지정 폴더와 기존 파일을 보존하며 공유 음성
+  자산과 MCP 연결은 Application Support에 유지한다.
+- **왜**: Scribird처럼 Finder에서 프로젝트를 쉽게 찾고 백업할 수 있어야 한다.
+
 ## 2026-09-10 — 독립 복제와 음성 초안 소유권
 
 - **현재 ADR**: [local-project-library](./0001-local-project-library.md)

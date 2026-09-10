@@ -102,7 +102,7 @@ struct StorybirdSettingsView: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 Text(
-                    "Shared voice profiles and the voice model stay in Storybird’s default location. If you choose a folder managed by a sync service, that service controls synchronization."
+                    "Shared voice profiles and the voice model stay in Application Support/Storybird. If a sync service manages your project folder, that service controls synchronization."
                 )
                 .font(.callout)
                 .foregroundStyle(.secondary)

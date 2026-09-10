@@ -109,7 +109,7 @@
         {
           "path": "docs/adr/library/0001-local-project-library.md",
           "status": "Accepted (2026-09-10)",
-          "summary": "로컬 라이브러리가 독립 프로젝트 복제와 프로젝트 소유 음성 초안을 원자적으로 보존한다"
+          "summary": "문서 폴더의 기본 프로젝트와 사용자 선택 라이브러리를 원자적으로 보존하고 공유 음성 자산은 Application Support에 유지한다"
         }
       ],
       "dependsOn": []

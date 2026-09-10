@@ -270,16 +270,21 @@ than silently falling back to another location.
 The default layout is:
 
 ```text
-~/Library/Application Support/Storybird/
+~/Documents/Storybird/
 ├── library.json              # Projects, editing state, and narration draft metadata
-├── Assets/<project-id>/      # Source video and project-owned narration WAVs
+└── Assets/<project-id>/      # Source video and project-owned narration WAVs
+
+~/Library/Application Support/Storybird/
 ├── Voices/                   # Shared voice references and exact transcripts
 └── VoiceRuntime/             # Prepared runtime and model cache
 ```
 
 Custom project folders hold their own library and assets. Shared voice profiles,
-the model, and the authenticated local MCP socket remain at the default root.
-If a sync service manages your chosen folder, that service controls any upload.
+the model, and the authenticated local MCP socket remain in Application Support.
+**Use Default** selects `~/Documents/Storybird`. Previously selected custom folders
+are preserved. Existing Application Support projects are not moved or merged;
+select `~/Library/Application Support/Storybird` in Settings to access them.
+If a sync service manages your project folder, that service controls any upload.
 
 - Ordinary recording, editing, and export have no Storybird-owned upload path.
 - Initial voice-model preparation requires the approved download; later synthesis

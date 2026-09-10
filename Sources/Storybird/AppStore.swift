@@ -62,14 +62,18 @@ final class AppStore: ObservableObject {
         } catch {
             let defaultRoot = (try? ProjectRepository.defaultRootURL())
                 ?? FileManager.default.homeDirectoryForCurrentUser
+                    .appendingPathComponent("Documents/Storybird", isDirectory: true)
+            let sharedRoot = (try? ProjectRepository.sharedRootURL())
+                ?? FileManager.default.homeDirectoryForCurrentUser
                     .appendingPathComponent("Library/Application Support/Storybird", isDirectory: true)
             defaultRepository = ProjectRepository(
                 rootURL: defaultRoot,
+                sharedRootURL: sharedRoot,
                 unavailableReason: error.localizedDescription
             )
             self.repository = ProjectRepository(
                 rootURL: selectedRoot ?? defaultRoot,
-                sharedRootURL: defaultRoot,
+                sharedRootURL: sharedRoot,
                 unavailableReason: error.localizedDescription
             )
             projects = []

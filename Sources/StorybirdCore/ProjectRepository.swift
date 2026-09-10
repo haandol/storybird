@@ -50,9 +50,18 @@ public struct ProjectRepository {
         self.decoder = decoder
     }
 
-    /// Resolves the fixed home for shared voice assets and local IPC without
-    /// creating files or performing legacy migration.
+    /// Resolves the user-visible project home without creating files.
     public static func defaultRootURL(fileManager: FileManager = .default) throws -> URL {
+        try fileManager.url(
+            for: .documentDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: false
+        ).appendingPathComponent("Storybird", isDirectory: true)
+    }
+
+    /// Shared voice assets and local IPC retain their Application Support home.
+    public static func sharedRootURL(fileManager: FileManager = .default) throws -> URL {
         guard let applicationSupport = fileManager.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
@@ -67,7 +76,7 @@ public struct ProjectRepository {
     }
 
     public static func live(fileManager: FileManager = .default) throws -> ProjectRepository {
-        let storybirdURL = try defaultRootURL(fileManager: fileManager)
+        let storybirdURL = try sharedRootURL(fileManager: fileManager)
         let legacyURL = storybirdURL.deletingLastPathComponent().appendingPathComponent(
             "OpenLane",
             isDirectory: true
@@ -78,7 +87,11 @@ public struct ProjectRepository {
             fileManager: fileManager
         )
 
-        return ProjectRepository(rootURL: storybirdURL, fileManager: fileManager)
+        return ProjectRepository(
+            rootURL: try defaultRootURL(fileManager: fileManager),
+            sharedRootURL: storybirdURL,
+            fileManager: fileManager
+        )
     }
 
     public static func migrateLegacyLibraryIfNeeded(

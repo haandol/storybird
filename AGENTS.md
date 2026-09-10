@@ -86,7 +86,9 @@ Read these before changing capture, persistence, or export behavior.
   never move or merge existing projects. Block changes throughout UI/MCP
   recording, import, export, and voice work. Unavailable or damaged folders keep
   the selection and report an error; never silently write to a fallback folder.
-  Shared voice profiles, models, and the MCP socket stay at the default root.
+  The default project root is `~/Documents/Storybird`. Existing projects are not
+  moved; select their previous folder to access them. Shared voice profiles,
+  models, and the MCP socket stay in `~/Library/Application Support/Storybird`.
 - **Preserve legacy data.** On first Storybird launch, copy an existing
   `Application Support/OpenLane` library only when the Storybird library does
   not exist. Never delete or move the legacy copy.
@@ -241,6 +243,7 @@ attach captured customer screens or exported customer demos.
 ## Security & Privacy
 
 Never commit recordings, capture thumbnails, generated project libraries,
-credentials, or files from `~/Library/Application Support/Storybird`. Treat any
+credentials, or files from `~/Documents/Storybird` or
+`~/Library/Application Support/Storybird`. Treat any
 change that expands permissions, storage scope, export content, or network
 access as a security-sensitive behavior change requiring an ADR.

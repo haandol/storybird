@@ -11,7 +11,10 @@ final class StorybirdStorageTests: XCTestCase {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("storybird-storage-\(UUID().uuidString)")
             .resolvingSymlinksInPath()
-        let repository = ProjectRepository(rootURL: root.appendingPathComponent("default", isDirectory: true))
+        let repository = ProjectRepository(
+            rootURL: root.appendingPathComponent("Documents/Storybird", isDirectory: true),
+            sharedRootURL: root.appendingPathComponent("Application Support/Storybird", isDirectory: true)
+        )
         try repository.prepare()
         let domain = "storybird.storage.tests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: domain))
@@ -143,7 +146,7 @@ final class StorybirdStorageTests: XCTestCase {
         let bytes = Data("synthetic reference".utf8)
         try bytes.write(to: reference.url)
         try repository.saveVoiceProfiles([profile])
-        let runtime = try folder("VoiceRuntime", in: repository.rootURL)
+        let runtime = try folder("VoiceRuntime", in: repository.sharedRootURL)
         let marker = runtime.appendingPathComponent("ready")
         try bytes.write(to: marker)
         let store = AppStore(repository: repository, storagePreferences: preferences)
@@ -151,7 +154,7 @@ final class StorybirdStorageTests: XCTestCase {
 
         XCTAssertTrue(store.chooseStorageFolder(custom))
         XCTAssertEqual(store.voiceProfiles, [profile])
-        XCTAssertEqual(store.repository.sharedRootURL, repository.rootURL)
+        XCTAssertEqual(store.repository.sharedRootURL, repository.sharedRootURL)
         XCTAssertEqual(store.repository.voiceReferenceURL(profileID: profile.id, filename: reference.filename), reference.url)
         let projectID = UUID()
         let narration = try store.repository.prepareNarrationURL(projectID: projectID)
