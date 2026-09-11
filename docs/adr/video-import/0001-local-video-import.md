@@ -4,7 +4,7 @@ Date: 2026-09-08
 
 ## Status
 
-Accepted (2026-09-08)
+Accepted (2026-09-11)
 
 ## Context
 
@@ -26,7 +26,7 @@ Accepted (2026-09-08)
 
 ## Decision
 
-Storybird는 사용자가 네이티브 파일 선택기로 고른 로컬 MP4 또는 QuickTime MOV 하나를 새
+Storybird는 네이티브 파일 선택 또는 인증된 로컬 MCP가 전달한 절대 경로의 MP4 또는 QuickTime MOV 하나를 새
 프로젝트의 원본 미디어로 가져온다. Storybird는 선택한 파일을 프로젝트 소유 자산으로 복사한
 뒤 영상 트랙, 재생 시간과 화면 크기를 검증한다. 읽을 수 있는 기본 오디오 트랙이 있으면 원본
 영상과 함께 프로젝트 시간축에 포함한다.
@@ -42,10 +42,12 @@ Storybird는 복사와 검증이 끝난 뒤에만 새 프로젝트를 라이브�
 
 #### Required guarantees
 
+- MCP 영상 가져오기는 작업 식별자를 먼저 반환하고 조회·취소를 제공한다. 복사·검증·저장 완료 뒤 새 프로젝트 식별자, revision 0과 실제 영상 길이를 반환한다 — 비동기 제작 연결 계약이다.
+- 요청 중복과 재시작 복구는 라이브러리의 미디어 가져오기 계약을 따른다. 기존 프로젝트의 원본을 교체하거나 여러 원본을 병합하지 않는다 — 독립 원본 계약이다.
+
 - 가져오기 입력의 허용 형식은 로컬 MP4와 QuickTime MOV다 — macOS 제품 소개 영상의 MVP
   호환성 계약이다.
-- 사용자는 네이티브 파일 선택기로 가져올 파일 하나를 명시적으로 선택한다 — 로컬 파일
-  가시성 계약이다.
+- 사람은 네이티브 파일 선택기로, 인증된 로컬 MCP는 절대 경로와 요청 식별자로 가져올 파일 하나를 지정한다. MCP는 파일·폴더별 추가 승인을 요구하지 않는다 — 로컬 자동화 입력 계약이다.
 - 가져올 미디어는 읽을 수 있는 영상 트랙을 최소 `1개` 가져야 한다 — 편집 가능한 영상
   프로젝트 계약이다.
 - 가져올 미디어의 재생 시간은 `0초`보다 크고 화면 가로·세로 크기는 각각 `0픽셀`보다 커야
@@ -76,7 +78,7 @@ Storybird는 복사와 검증이 끝난 뒤에만 새 프로젝트를 라이브�
   화면 크기의 파일을 프로젝트로 공개하지 않는다.
 - 파일 선택 승인은 Screen Recording, Input Monitoring 또는 다른 디렉터리의 파일 접근
   권한으로 확대되지 않는다.
-- companion과 외부 MCP 클라이언트는 임의 로컬 경로를 가져오기 입력으로 지정하지 않는다.
+- 가져오기는 네트워크 URL, 디렉터리와 일반 파일이 아닌 입력을 허용하지 않는다. 읽을 수 없는 파일은 오류로 반환하며 운영체제 권한을 우회하지 않는다.
 
 #### Failure guarantees
 
@@ -87,6 +89,8 @@ Storybird는 복사와 검증이 끝난 뒤에만 새 프로젝트를 라이브�
 - 읽을 수 없는 기본 오디오 트랙은 음성이 보존된 프로젝트로 성공 처리하지 않는다.
 
 #### Observable evidence
+
+- MCP에 MP4/MOV 경로를 전달하면 선택 창 없이 새 프로젝트를 만들고 원본 음성·전체 길이 클립을 유지한다. 같은 요청 재전송은 같은 결과를 반환한다.
 
 - MP4 또는 MOV를 선택하면 파일 이름을 기반으로 한 새 프로젝트가 열리고 전체 영상 길이의
   클립 하나가 재생된다.
@@ -108,17 +112,25 @@ Storybird는 복사와 검증이 끝난 뒤에만 새 프로젝트를 라이브�
 ```mermaid
 sequenceDiagram
     actor User as 사용자
+    actor Agent as 인증된 로컬 MCP 클라이언트
     participant Picker as 네이티브 파일 선택기
     participant Storybird
     participant Assets as 프로젝트 소유 자산
     participant Library as 로컬 프로젝트 라이브러리
 
-    User->>Picker: MP4 또는 MOV 하나 선택
-    Picker-->>Storybird: 사용자 승인 파일
+    alt 네이티브 가져오기
+        User->>Picker: MP4 또는 MOV 하나 선택
+        Picker-->>Storybird: 선택한 파일
+    else MCP 가져오기
+        Agent->>Storybird: 로컬 절대 경로와 요청 식별자
+        Storybird-->>Agent: 기존 작업 또는 새 작업 식별자
+    end
     Storybird->>Assets: 프로젝트 자산으로 복사
     Storybird->>Storybird: 영상·시간·화면·기본 음성 검증
     Storybird->>Library: 전체 길이 클립의 새 프로젝트 저장
     Library-->>User: 편집 가능한 프로젝트 표시
+    Agent->>Storybird: 작업 결과 조회
+    Storybird-->>Agent: 완료된 새 프로젝트 식별자와 실제 길이
     User->>Storybird: 재생 시각과 영상 좌표에 Click Cue 추가
 ```
 

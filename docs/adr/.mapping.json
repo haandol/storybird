@@ -17,8 +17,8 @@
         },
         {
           "path": "docs/adr/recording/0003-permission-and-signing.md",
-          "status": "Accepted (2026-09-10)",
-          "summary": "네이티브 사용자 동작으로 프로필 또는 독립 프로젝트 음성을 녹음하고 MCP 입력 권한을 분리한다"
+          "status": "Accepted (2026-09-11)",
+          "summary": "인증된 로컬 MCP의 미디어 경로 가져오기를 허용하고 화면·마이크·프로필 권한을 분리한다"
         }
       ],
       "dependsOn": []
@@ -72,8 +72,8 @@
       "adrs": [
         {
           "path": "docs/adr/agent-project-editing/0001-versioned-mcp-project-editing.md",
-          "status": "Accepted (2026-09-10)",
-          "summary": "에이전트가 TTS 자산과 다중 오디오 레이어를 편집·미리듣기·합성한다"
+          "status": "Accepted (2026-09-11)",
+          "summary": "인증된 MCP로 영상·오디오를 직접 가져오고 revision 검증으로 프로젝트를 편집한다"
         }
       ],
       "dependsOn": [
@@ -108,8 +108,8 @@
       "adrs": [
         {
           "path": "docs/adr/library/0001-local-project-library.md",
-          "status": "Accepted (2026-09-10)",
-          "summary": "프로젝트 소유 오디오 자산을 재사용하고 복제·실행 취소 수명을 보존한다"
+          "status": "Accepted (2026-09-11)",
+          "summary": "프로젝트 미디어와 가져오기 요청 결과를 로컬에 보존하고 재시도 중복과 부분 저장을 막는다"
         }
       ],
       "dependsOn": []
@@ -136,8 +136,8 @@
       "adrs": [
         {
           "path": "docs/adr/video-import/0001-local-video-import.md",
-          "status": "Accepted (2026-09-08)",
-          "summary": "사용자가 고른 로컬 MP4 또는 MOV를 음성과 함께 프로젝트 소유 원본으로 복사해 새 편집 프로젝트를 만든다"
+          "status": "Accepted (2026-09-11)",
+          "summary": "로컬 MP4·MOV를 네이티브 선택 또는 인증된 MCP 경로로 복사·검증해 새 프로젝트를 만든다"
         }
       ],
       "dependsOn": [
@@ -153,8 +153,8 @@
       "adrs": [
         {
           "path": "docs/adr/voice-narration/0001-local-cloned-voice-narration.md",
-          "status": "Accepted (2026-09-10)",
-          "summary": "공유 음성 프로필 이름을 관리하고 로컬 TTS 초안을 여러 오디오 레이어로 배치한다"
+          "status": "Accepted (2026-09-11)",
+          "summary": "인증된 MCP로 프로젝트 오디오를 직접 가져오고 기존 프로필의 생성 음성과 함께 편집한다"
         }
       ],
       "dependsOn": [

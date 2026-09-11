@@ -4,6 +4,13 @@ This document is the **major decision-change history** of the voice-narration ca
 Each ADR body describes only the current state, while the timeline of "what changed and
 why" accumulates here, newest first. Git preserves the individual diffs.
 
+## 2026-09-11 — 로컬 미디어 경로 직접 가져오기
+
+- **Current ADR**: [0001-local-cloned-voice-narration](./0001-local-cloned-voice-narration.md)
+- **Change type**: requirement rule change
+- **What**: 파일별 네이티브 선택 → 인증된 MCP 연결의 로컬 미디어 경로 직접 가져오기와 중복 없는 작업 결과 보존.
+- **Why**: 에이전트 제작에서 파일마다 사용자 클릭을 요구하지 않는다.
+
 ## 2026-09-11 — 음성 참조 대본을 인사로 시작하는 약 20초 발표로 구성한다
 
 - **Current ADR**: [local-cloned-voice-narration](./0001-local-cloned-voice-narration.md)

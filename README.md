@@ -17,14 +17,17 @@ and lets you add captions, zooms, titles, and narration in your own voice. You c
 also start with an existing MP4 or MOV. The result is an editable project and a
 finished MP4 you can share.
 
-Use the native editor yourself, or **ask an AI agent to record, edit, narrate, and
+Use the native editor yourself, or **ask an AI agent to record, import, edit, narrate, and
 export through MCP (Model Context Protocol)**. For example:
 
 > Create a roughly 30-second Korean tutorial showing how to create a project in this service.
 > Use my existing voice profile, add subtitles, and export it as an MP4.
 
-The agent writes the script and chooses edits. Storybird records, validates,
-synthesizes speech locally, and renders the video. See [Use it with an AI
+Already have footage or narration? Give the agent its local file path. It can
+import MP4/MOV video and WAV/MP3/M4A audio without a file picker or folder approval.
+
+The agent writes the script and chooses edits. Storybird imports or records media,
+validates edits, synthesizes speech locally, and renders the video. See [Use it with an AI
 agent](#use-it-with-an-ai-agent) for connection steps and copyable examples.
 
 <div align="center">
@@ -52,16 +55,17 @@ opens the selected Cue for editing. Export stays disabled until every Cue is com
 
 | | |
 |---|---|
-| **Record or import** | Compare display/window thumbnails, record one source, or import an MP4/MOV with its primary audio track |
+| **Record or import** | Record one display/window, or import an MP4/MOV with its primary audio track through the native picker or an MCP file path |
 | **Explain each click** | Recorded left/right clicks become timed Cues with an indicator, description, and subtitle |
 | **Edit the picture** | Split, trim, reorder, change speed, insert freezes, and undo or redo edits |
 | **Direct attention** | Add spotlights, pan and zoom, opening titles, and a closing call to action |
 | **Use your voice** | Create a local voice profile and generate Korean or English narration, one sentence at a time |
-| **Layer audio** | Import WAV/MP3/M4A, optionally record voice separately, and overlap, trim, split, duplicate, mute, and fade independent audio layers |
+| **Layer audio** | Import WAV/MP3/M4A through the UI or MCP, optionally record voice separately, and overlap, trim, split, duplicate, mute, and fade independent audio layers |
+| **Recover import jobs** | Query or cancel import jobs and recover recorded outcomes after a lost response or restart without creating duplicates |
 | **Listen before placing** | Keep ready narration drafts, check their actual duration, and place them without generating again |
 | **Keep speech with its scene** | Scene-linked narration and subtitles follow their start frame through clip edits; fixed timing is also available |
 | **Make another language version** | Duplicate a project with its own media, then ask your agent to translate and regenerate the needed sentences |
-| **Work through an agent** | Local MCP tools cover recording, targeted edits, narration, composited previews, and export jobs |
+| **Work through an agent** | Local MCP tools cover recording, file imports, targeted edits, narration, composited previews, and export jobs |
 
 ## System requirements
 
@@ -83,7 +87,9 @@ model; after preparation, synthesis runs offline.
 
 **Screen recording is silent.** It captures neither microphone nor system audio,
 and never records keyboard input. Imported audio and generated narration can be
-included in the finished video. Importing a movie does not require capture permissions.
+included in the finished video. Importing existing video or audio does not require
+capture permissions, a voice profile, or the voice-synthesis model. Storybird must
+be able to read the source file under its existing macOS permissions.
 
 ## Installation
 
@@ -142,7 +148,8 @@ SIGN_IDENTITY="Apple Development: you@example.com (TEAMID)" ./build.sh release
 Choose **Record Video**, select one display or window, and approve the required
 macOS permissions. Demonstrate the workflow, then stop. Each recording creates a
 new project. To use existing footage, choose **Import Video** and select an MP4
-or MOV.
+or MOV. An MCP agent can pass the video's absolute path directly; no file-picker
+or folder approval is needed.
 
 <div align="center">
   <img src="docs/images/welcome.png" width="760" alt="Storybird's start screen with Record Video and Import Video actions" />
@@ -177,7 +184,10 @@ cards stay at the end, and matching spotlight or pan/zoom effects cannot overlap
 The source video stays intact. **Undo** and **Redo** operate on the edits. Use
 **Duplicate** in the project header before making an independent variant.
 
-### 3. Create a voice profile once
+### 3. Create a voice profile once (optional)
+
+Use a profile when generating narration in a cloned voice. If you are using
+existing audio files, continue to the audio step below.
 
 Open **Settings › Voice** (`⌘,`). Prepare the local model and choose your default
 microphone here. The profile list contains preview, rename, and delete controls and a
@@ -247,8 +257,10 @@ to generate English output. Listen to a short sample with your service name,
 numbers, and mixed-language phrases before producing a longer video.
 
 Choose **Add Audio** in the timeline to generate speech from a script, import
-WAV/MP3/M4A, or optionally record a separate voice clip. Saved audio assets can be
-reused as multiple layers; recordings do not need a voice profile or transcript.
+WAV/MP3/M4A, or optionally record a separate voice clip. An MCP agent can import
+an audio file directly by path and place it at the requested time. Saved audio
+assets can be reused as multiple layers; recordings do not need a voice profile
+or transcript.
 Each layer has its own block and waveform. Non-overlapping audio shares a row;
 the arrow beside **Audio** expands individual rows. Select a block to reveal its
 trim edges and fade handles. Drag either edge to change the source range; move
@@ -265,7 +277,7 @@ crossfade. Original movie audio has separate volume and mute controls.
 
 With a prepared local model and existing voice profile, an agent can generate TTS,
 measure the finished speech, arrange scenes, layer the sounds and captions, inspect
-a mix preview, and export the video without a human recording step. Input setup and
+a mix preview, and export the video without a human recording step. Voice-profile setup and
 screen-control approval remain native user actions. Audio stays on your Mac.
 
 ### 5. Preview and export
@@ -273,20 +285,24 @@ screen-control approval remain native user actions. Audio stays on your Mac.
 Check the picture, captions, and sound, then choose **Export**. Storybird renders
 H.264 MP4 and mixes imported audio plus narration into one synchronized AAC track
 when audio is present. A recording without any audio layers exports without an audio
-track. The destination is replaced only after export succeeds.
+track. A native export replaces the chosen destination only after success.
+MCP exports create a uniquely named MP4 in the requested output folder and
+return its actual path without overwriting an existing file.
 
 ## Use it with an AI agent
 
 Storybird includes a **local stdio MCP server**: a companion process that lets an
-agent call the app's recording and editing tools. Keep the certificate-signed app
-open, then connect your agent to:
+agent call the app's recording, importing, editing, and export tools. Keep the
+certificate-signed app open, then connect your agent to:
 
 ```text
 /Applications/Storybird.app/Contents/MacOS/StorybirdMCP
 ```
 
 For a development build, use the absolute path inside `build/Storybird.app`.
-Restart the app and reconnect the agent after rebuilding.
+Run the app and companion from the same bundle. Restart the app and reconnect
+the agent after rebuilding; a companion configured under `/Applications` does
+not automatically use a build from your checkout.
 
 ### Connect Codex
 
@@ -317,13 +333,46 @@ From another workspace, give the agent the path to that skill and ask it to read
 it first. Connecting the MCP server and giving the agent the workflow are separate
 steps; the app is not a built-in chat assistant.
 
-The skill loads recording and audio references only for tasks that need them.
+The skill loads the shared [import workflow](.agents/skills/create-storybird-video/references/importing.md),
+recording, and audio references only for tasks that need them.
 Keep the repository skill as the maintained source; personal installations should
 refer to it rather than keep independent copies of the workflow and MCP manual.
 
+### Import local media through MCP
+
+The connected companion must advertise `storybird_import_video` and
+`storybird_import_audio`. If either is missing, update the app and companion
+together and reconnect before using this workflow.
+
+| Input | Tool | Result |
+|---|---|---|
+| MP4/MOV | `storybird_import_video` | A new project containing the whole source video and its primary audio track when present |
+| WAV/MP3/M4A | `storybird_import_audio` | A reusable audio asset in the specified project, ready for placement |
+
+Pass an absolute local `path` and a stable `idempotency_key`, an identifier for
+that import request. Audio also requires `project_id`. No file selection, folder
+grant, or recording-session approval is needed. Storybird copies and validates
+the file before making the result available; the external original stays intact.
+
+Both tools return a job ID. Poll `storybird_get_import` until `completed`,
+`failed`, or `cancelled`. Use `storybird_cancel_import` to request cancellation
+and keep polling until it finishes. A completed video import provides the new
+project ID. A completed audio import provides an asset ID and measured duration;
+read the current project revision and use `storybird_place_audio_asset` to place
+it. Registering audio alone does not change playback, revision, or undo history.
+
+If a response is lost, repeat the same key and arguments to recover the existing
+job. A different input with the same key is rejected. Failed or cancelled jobs
+need a new key for an intentional retry. Jobs remain with their library across
+restarts; interrupted work is recovered as completed if its result was already
+saved, or failed otherwise. Imports never restart automatically.
+
+See [the MCP import guide](docs/MCP.md#import-local-video-and-audio-without-a-file-picker)
+for response fields and failure handling.
+
 ### Try these requests
 
-Replace the service, project, profile, and output names with your own.
+Replace the service, project, profile, and file paths with your own.
 
 **Record a Korean tutorial**
 
@@ -332,7 +381,7 @@ Use $create-storybird-video to make a 30–45 second Korean tutorial of the
 project-creation workflow in the browser window I have open.
 Use my existing voice profile "My voice". Show the starting screen, the action,
 and the resulting project. Add Korean subtitles and a short closing title.
-Preview the result and export it to ~/Movies/project-tutorial-ko.mp4.
+Preview the result, export it into ~/Movies, and return the completed MP4 path.
 ```
 
 The agent should prepare the scenes, ask Storybird to start the selected source,
@@ -340,16 +389,26 @@ wait for native approval, record the actions, and stop to create the project.
 It then edits the picture, generates speech drafts, places them using measured
 durations, checks composited previews, and waits for export to finish.
 
-**Edit existing footage**
+**Import and edit existing footage**
 
-First use **Import Video** in Storybird to create a project from your MP4/MOV.
-Then ask:
+Give the agent the file location directly:
 
 ```text
-Use Storybird to edit the existing project "Product walkthrough".
+Use $create-storybird-video to import
+/Users/you/Movies/product-walkthrough.mov as a new Storybird project.
+Name it "Product walkthrough".
 Remove the idle opening, add the title "Create your first project", and add
 English subtitles for the important actions. Keep the imported audio.
-Preview the result and export ~/Movies/product-walkthrough-edited.mp4.
+Preview the result, export it into ~/Movies, and return the completed MP4 path.
+```
+
+**Add an existing narration file**
+
+```text
+In the project "Product walkthrough", import
+/Users/you/Movies/narration.wav and place it at 0 seconds.
+Keep the picture, captions, and existing audio unchanged.
+Preview the mix, export it into ~/Movies, and return the completed MP4 path.
 ```
 
 **Revise one sentence**
@@ -379,14 +438,16 @@ from native-only setup and local window controls.
 
 ### What still needs you
 
-- Prepare the model and create/delete voice profiles in native Settings.
-  Agents can use existing profiles, but cannot register your voice or start a microphone sample.
+- For cloned speech, prepare the model and manage voice profiles in native
+  Settings. Reference-file selection and microphone recording remain native
+  actions. Importing finished project video/audio needs none of these steps.
 - Approve the selected recording source and pointer control in Storybird.
   Keep pointer-changing tools out of automatic approval: they operate the real desktop.
 - If a demonstrated workflow needs typing, use a separately authorized browser
   tool. Storybird itself only moves, clicks, and scrolls the pointer.
 - Check pronunciation and voice resemblance. A composited still preview verifies
   picture/layout; it does not verify speech or motion.
+- Confirm permanent project deletion in Storybird when requested.
 
 > [!NOTE]
 > An approved MCP recording can send the selected source's PNG to the connected
@@ -399,6 +460,7 @@ from native-only setup and local window controls.
 ```text
 ~/Documents/Storybird/
 ├── library.json              # Projects, edits, and narration draft metadata
+├── media-imports.json        # Import requests, job states, and result identities
 └── Assets/<project-id>/      # Original video and reusable project-owned audio
 
 ~/Library/Application Support/Storybird/
@@ -419,7 +481,7 @@ Support folder does not exist, and its original is preserved.
 
 ### Network and retention
 
-Ordinary recording, editing, and export have no Storybird-owned upload path.
+Ordinary recording, media import, editing, and export have no Storybird-owned upload path.
 Model preparation downloads the approved runtime/model; subsequent synthesis
 uses the local cache offline. A sync service managing your chosen folder controls
 its own synchronization. MCP disclosure is described above.
@@ -428,11 +490,16 @@ Deleting a voice profile removes its reference audio and transcript, while
 project-owned narration remains playable. Removed narration audio is retained for
 undo until its project is deleted. A duplicate owns its source video and placed
 narration, but does not copy unplaced drafts or undo history.
+Import request records remain in their original library with no automatic expiry.
+Replaying a completed import does not recreate a project that was later deleted.
 
 ## Current boundaries
 
 - One selected source per recording and one source video per project; separate
-  recordings cannot be combined into one project.
+  recordings cannot be combined into one project. Importing a video creates a
+  new project rather than inserting another source into an existing timeline.
+- MCP media imports accept local filesystem paths, not download URLs. Import
+  jobs report their state; progress percentages and time estimates are not provided.
 - Minimized/off-screen windows are not listed as capture sources.
 - Screen recording captures neither audio nor keyboard input.
 - Voice cloning uses the 24GB+ Apple Silicon baseline above.

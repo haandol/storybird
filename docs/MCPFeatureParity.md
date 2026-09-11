@@ -18,6 +18,8 @@ Every name below is an advertised tool. Read IDs and the current `revision`
 
 | Native action or result | MCP path | Implementation and regression evidence |
 |---|---|---|
+| Import local MP4/MOV as a new project; import WAV/MP3/M4A as a reusable project asset | `storybird_import_video`, `storybird_import_audio` (`path`, `idempotency_key`; audio also `project_id`) | Production service → app host → app-owned import controller → shared video/audio validation and atomic library writer; `MCPMediaImportTests` verifies direct path import, replay, failures, cancellation, restart, placement and undo |
+| Inspect or cancel a media import | `storybird_get_import`, `storybird_cancel_import` (`job_id`) | Durable per-library jobs, cooperative cancellation and reserved result identities; `MCPMediaImportTests`; no revision change until audio placement |
 | Choose a display/window; start approved recording | `storybird_list_sources`, `storybird_start_session` | Capture catalog and control session; `StorybirdControlSessionTests`, `RecordingCoordinatorTests`; signed smoke required |
 | Observe captured source; move, click, scroll | `storybird_observe`, `storybird_move_pointer`, `storybird_click`, `storybird_scroll` | Control session and pointer geometry; `StorybirdControlSessionTests`; real permissions require signed smoke |
 | Stop/save or discard recording | `storybird_stop_session`, `storybird_abort_session` | Control host/coordinator; `RecordingCoordinatorTests`, `StorybirdControlSessionTests` |
@@ -39,6 +41,27 @@ Every name below is an advertised tool. Read IDs and the current `revision`
 | Change original movie gain/mute | `storybird_set_source_audio` | Shared project validation and mix; `ProjectAudioTests`, `MCPAudioProtocolTests` |
 | Inspect a composited frame or mixed audio range | `storybird_render_preview`, `storybird_render_audio_preview` | Shared composition/mix and local renderers; `AgentProductionTests`, `ProjectAudioTests`, `MCPAudioProtocolTests` |
 | Start, inspect, cancel or await MP4 export | `storybird_start_export`, `storybird_get_export`, `storybird_cancel_export`, `storybird_export_project` | Shared exporter and export lease; `VideoPipelineTests`, `AppStoreTests`, `AgentProductionTests`, `MCPAudioProtocolTests` |
+
+### Shared performance paths
+
+Shared performance changes preserve these tool arguments and results:
+
+- UI edits and MCP edits still pass through the app's revision validation and
+  atomic library writer. Unchanged project JSON is reused by value;
+  `ProjectLibraryEncoderTests` covers edits without a revision change, order,
+  deletion, encoding failure and failed-write retry. A cache hit never skips
+  the filesystem write or reports an unsaved edit as successful.
+- Scene-linked subtitle/audio editing shares one schedule lookup per remap or
+  validation. `SceneTimingTests` also checks distinct owners displaying the same
+  source frames after reordering. Timeline row caching is view-only;
+  `TimelineTrackLayoutTests` verifies timing, text and disclosure invalidation.
+- `storybird_render_audio_preview` and MP4 export use the same original-rate PCM
+  silence and audio mix. `ProjectAudioTests` covers long gaps, overlapping
+  sounds, split fades and exact preview duration.
+- `storybird_render_preview` and MP4 export share bounded text/spotlight raster
+  reuse. `OverlayRasterCacheTests` checks changed content, styles, geometry and
+  memory bounds; the existing frame and protocol tests retain pixel/timing,
+  invalid-input and terminal-state coverage.
 
 ### Gesture equivalents and property checks
 
@@ -71,8 +94,7 @@ project-editing tools. Changing their scope requires checking the owning ADR.
 
 | Action unavailable through MCP | Current boundary / equivalent | Owner |
 |---|---|---|
-| Import an external MP4/MOV | User chooses one file in the native picker; MCP edits the resulting project | [Video import](adr/video-import/0001-local-video-import.md) |
-| Import an external WAV/MP3/M4A or record project audio | Native file choice or explicit microphone recording; MCP reuses registered audio assets | [Voice/audio](adr/voice-narration/0001-local-cloned-voice-narration.md), [permissions](adr/recording/0003-permission-and-signing.md) |
+| Record project audio with a microphone | Explicit native microphone action; MCP may import existing local audio by path | [Voice/audio](adr/voice-narration/0001-local-cloned-voice-narration.md), [permissions](adr/recording/0003-permission-and-signing.md) |
 | Download/prepare the voice model; create, rename or delete a voice profile | Native Settings and consent; MCP lists existing metadata and synthesizes from existing profiles | [Voice](adr/voice-narration/0001-local-cloned-voice-narration.md) |
 | Read the guided reference script and its target duration | Native profile creation: Korean and English use approximately 20-second presentation scripts beginning with a greeting, with questions, emphasis, and pauses. Korean includes English feature names. Both retain a 10-second recording minimum. MCP uses existing profiles without exposing reference transcripts | [Voice](adr/voice-narration/0001-local-cloned-voice-narration.md) |
 | Listen to a voice profile's reference sample | Native preview; MCP metadata omits reference audio and exact reference transcript | [Voice](adr/voice-narration/0001-local-cloned-voice-narration.md) |

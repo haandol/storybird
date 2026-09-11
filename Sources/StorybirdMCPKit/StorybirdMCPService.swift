@@ -45,6 +45,10 @@ public struct StorybirdMCPService: Sendable {
             audition storybird_render_audio_preview, and poll the export job to completion. \
             Audio layers can overlap; no live microphone or repeated editing approvals are needed \
             once the user has prepared the local model and voice profile. \
+            Import local video or project audio by absolute path using storybird_import_video \
+            or storybird_import_audio with a stable idempotency_key; no file picker or folder \
+            approval is needed. Poll storybird_get_import until terminal. Replay the same \
+            key and arguments after a lost response; use a new key for a new attempt. \
             Screen capture still requires native approval of the selected source. \
             Project editing does not require an active screen-control session. \
             Resolve scene and layer IDs with storybird_get_edit_context, make targeted edits, \
@@ -79,13 +83,13 @@ public struct StorybirdMCPService: Sendable {
 
     /// Defines the public computer-use surface and its side-effect hints.
     static var toolDefinitions: [Tool] {
-        sourceTools + projectTools + layerTools + voiceTools + draftTools + audioTools + exportTools
+        sourceTools + projectTools + layerTools + voiceTools + draftTools + audioTools + exportTools + importTools
     }
 
     private static let exposedTools = Dictionary(uniqueKeysWithValues: toolDefinitions.map { ($0.name, $0) })
 
     /// Lists complete audio assets and exposes the same independent layer edits
-    /// as the native editor. Sensitive microphone/file selection stays native.
+    /// as the native editor. Microphone and voice-profile reference selection stay native.
     private static var audioTools: [Tool] {
         let project: [String: Value] = ["project_id": .object(["type": "string"])]
         let revision: [String: Value] = project.merging([
@@ -788,7 +792,7 @@ public struct StorybirdMCPService: Sendable {
     }
 
     /// Builds a closed JSON Schema object for MCP arguments.
-    private static func objectSchema(
+    static func objectSchema(
         properties: [String: Value] = [:],
         required: [String] = []
     ) -> Value {

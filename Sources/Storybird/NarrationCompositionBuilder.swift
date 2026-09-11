@@ -9,6 +9,9 @@ struct ProjectAudioComposition {
 }
 
 enum NarrationCompositionBuilder {
+    private static let silenceSeconds = 64
+    private static let silenceFileLock = NSLock()
+
     /// Gives every independent audio layer its own composition track so insertion
     /// never pushes overlapping speech. Preview and export consume this same mix.
     static func addNarrations(
@@ -28,7 +31,7 @@ enum NarrationCompositionBuilder {
             parameters.append(sourceMix)
         }
         if !project.narrations.isEmpty {
-            let silenceURL = assetsDirectory.appendingPathComponent(".storybird-silence.wav")
+            let silenceURL = assetsDirectory.appendingPathComponent(".storybird-silence-\(silenceSeconds)s.wav")
             try ensureSilenceFile(at: silenceURL)
             let silence = AVURLAsset(url: silenceURL)
             guard let silenceTrack = try await silence.loadTracks(withMediaType: .audio).first else {
@@ -93,10 +96,21 @@ enum NarrationCompositionBuilder {
         return ProjectAudioComposition(tracks: tracks, audioMix: parameters.isEmpty ? nil : mix)
     }
 
-    /// Creates one reusable second of real PCM silence so AVFoundation preserves
-    /// narration gaps instead of collapsing empty edit ranges.
+    /// A bounded reusable PCM source keeps long gaps to a few segments. Do not
+    /// stretch audio: its resampling can alter the neighboring split-fade mix.
+    /// Publish the complete file before another preview/export opens it.
     private static func ensureSilenceFile(at url: URL) throws {
-        if FileManager.default.fileExists(atPath: url.path) { return }
+        try silenceFileLock.withLock {
+            if FileManager.default.fileExists(atPath: url.path) { return }
+            let temporary = url.deletingLastPathComponent()
+                .appendingPathComponent(".silence-\(UUID().uuidString).wav")
+            defer { try? FileManager.default.removeItem(at: temporary) }
+            try writeSilenceFile(at: temporary)
+            try FileManager.default.moveItem(at: temporary, to: url)
+        }
+    }
+
+    private static func writeSilenceFile(at url: URL) throws {
         guard let format = AVAudioFormat(
             standardFormatWithSampleRate: 24_000,
             channels: 1
@@ -114,11 +128,14 @@ enum NarrationCompositionBuilder {
             forWriting: url,
             settings: format.settings
         )
-        try file.write(from: buffer)
+        for _ in 0..<silenceSeconds {
+            try Task.checkCancellation()
+            try file.write(from: buffer)
+        }
     }
 
-    /// Fills an arbitrary project-time gap by repeating bounded ranges from the
-    /// one-second silence source.
+    /// Inserts original-rate silence, preserving the exact decode and fade
+    /// boundaries shared by preview and export without one segment per second.
     private static func insertSilence(
         from start: CMTime,
         to end: CMTime,
@@ -127,15 +144,10 @@ enum NarrationCompositionBuilder {
     ) throws {
         var cursor = start
         while cursor < end {
-            let remaining = end - cursor
-            let chunk = min(
-                CMTime(seconds: 1, preferredTimescale: 24_000),
-                remaining
-            )
+            try Task.checkCancellation()
+            let chunk = min(CMTime(seconds: Double(silenceSeconds), preferredTimescale: 24_000), end - cursor)
             try destination.insertTimeRange(
-                CMTimeRange(start: .zero, duration: chunk),
-                of: source,
-                at: cursor
+                CMTimeRange(start: .zero, duration: chunk), of: source, at: cursor
             )
             cursor = cursor + chunk
         }

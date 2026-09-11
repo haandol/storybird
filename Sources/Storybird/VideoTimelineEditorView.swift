@@ -12,178 +12,6 @@ private enum TimelineLayerSelection: Equatable {
     case suggestion(UUID)
 }
 
-struct TimelineTrackSpan: Identifiable, Equatable {
-    let id: UUID
-    let start: Double
-    let end: Double
-}
-
-struct TimelineTrack: Identifiable {
-    enum Kind: String, Hashable {
-        case video, click, subtitle, narration, effect, suggestion
-
-        var supportsExpansion: Bool {
-            self != .video && self != .suggestion
-        }
-    }
-    let kind: Kind
-    let title: String
-    let symbol: String
-    let spans: [TimelineTrackSpan]
-    var rowIndex = 0
-    var groupCount = 0
-    var isGroupHeader = false
-    var id: String { "\(kind.rawValue)-\(rowIndex)" }
-}
-
-enum TimelineTrackLayout {
-    /// Reuses rows for non-overlapping layers by default. Expansion affects only
-    /// the requested kinds, leaving every layer's identity and timing intact.
-    static func rows(
-        in project: DemoProject, expandedKinds: Set<TimelineTrack.Kind> = []
-    ) -> [TimelineTrack] {
-        var rows = [TimelineTrack(kind: .video, title: "Video", symbol: "film", spans: clipSpans(in: project))]
-        let groups: [(TimelineTrack.Kind, String, String, [TimelineTrackSpan])] = [
-            (.click, "Clicks", "cursorarrow.click", clickSpans(in: project)),
-            (.subtitle, "Subtitles", "captions.bubble.fill", subtitleSpans(in: project)),
-            (.narration, "Audio", "waveform", narrationSpans(in: project)),
-            (.effect, "Effects", "wand.and.stars", effectSpans(in: project))
-        ]
-        for (kind, title, symbol, spans) in groups {
-            let lanes = spans.isEmpty ? [[]]
-                : expandedKinds.contains(kind) ? spans.map { [$0] } : packedRows(spans)
-            for (index, lane) in lanes.enumerated() {
-                rows.append(TimelineTrack(
-                    kind: kind, title: index == 0 ? title : "\(title) \(index + 1)",
-                    symbol: symbol, spans: lane, rowIndex: index,
-                    groupCount: spans.count, isGroupHeader: index == 0
-                ))
-            }
-        }
-        rows.append(TimelineTrack(
-            kind: .suggestion, title: "Suggestions", symbol: "sparkles", spans: suggestionSpans(in: project)
-        ))
-        return rows
-    }
-
-    /// Processes starts in deterministic order and reuses the first available
-    /// lane. Touching endpoints share a lane; a new lane means all others overlap.
-    static func packedRows(_ spans: [TimelineTrackSpan]) -> [[TimelineTrackSpan]] {
-        let sorted = spans.enumerated().sorted {
-            if $0.element.start != $1.element.start { return $0.element.start < $1.element.start }
-            return $0.offset < $1.offset
-        }.map(\.element)
-        var rows: [[TimelineTrackSpan]] = []
-        for span in sorted {
-            if let index = rows.firstIndex(where: { $0.last!.end <= span.start }) {
-                rows[index].append(span)
-            } else {
-                rows.append([span])
-            }
-        }
-        return rows
-    }
-
-    /// Uses the canonical edited schedule so cards and speed changes leave every track aligned.
-    static func clipSpans(in project: DemoProject) -> [TimelineTrackSpan] {
-        VideoTimelineSchedule(project: project).items.compactMap { item in
-            guard case let .clip(value) = item else { return nil }
-            return TimelineTrackSpan(
-                id: value.clip.id,
-                start: value.projectStart,
-                end: value.projectEnd
-            )
-        }
-    }
-
-    /// Shows the complete Click Cue lifetime as one selectable timeline block.
-    static func clickSpans(in project: DemoProject) -> [TimelineTrackSpan] {
-        project.clicks.map { click in
-            boundedSpan(
-                id: click.id,
-                start: min(
-                    click.indicator.startTime,
-                    click.description.startTime,
-                    click.cueSubtitle.startTime
-                ),
-                end: max(
-                    click.indicator.endTime,
-                    click.description.endTime,
-                    click.cueSubtitle.endTime
-                ),
-                duration: project.timelineDuration
-            )
-        }
-    }
-
-    static func subtitleSpans(in project: DemoProject) -> [TimelineTrackSpan] {
-        project.subtitles.map {
-            boundedSpan(
-                id: $0.id,
-                start: $0.startTime,
-                end: $0.endTime,
-                duration: project.timelineDuration
-            )
-        }
-    }
-
-    static func narrationSpans(in project: DemoProject) -> [TimelineTrackSpan] {
-        project.narrations.map {
-            boundedSpan(
-                id: $0.id,
-                start: $0.startTime,
-                end: $0.endTime,
-                duration: project.timelineDuration
-            )
-        }
-    }
-
-    static func effectSpans(in project: DemoProject) -> [TimelineTrackSpan] {
-        project.effects.map {
-            boundedSpan(
-                id: $0.id,
-                start: $0.startTime,
-                end: $0.endTime,
-                duration: project.timelineDuration
-            )
-        }
-    }
-
-    static func suggestionSpans(
-        in project: DemoProject
-    ) -> [TimelineTrackSpan] {
-        project.suggestions.map {
-            boundedSpan(
-                id: $0.id,
-                start: $0.splitTime,
-                end: $0.splitTime + 0.12,
-                duration: project.timelineDuration
-            )
-        }
-    }
-
-    /// Clamps only to project bounds. Inventing a minimum duration here would
-    /// make valid, touching short layers appear to overlap during row packing.
-    private static func boundedSpan(
-        id: UUID,
-        start: Double,
-        end: Double,
-        duration: Double
-    ) -> TimelineTrackSpan {
-        let upperBound = max(duration, 0.001)
-        let boundedStart = min(max(start, 0), upperBound)
-        let boundedEnd = min(
-            max(end, boundedStart),
-            upperBound
-        )
-        return TimelineTrackSpan(
-            id: id,
-            start: boundedStart,
-            end: max(boundedEnd, boundedStart)
-        )
-    }
-}
-
 private struct PlaybackCompositionState: Equatable {
     struct Card: Equatable {
         let id: UUID
@@ -213,7 +41,10 @@ struct VideoTimelineEditorView: View {
     @ObservedObject var store: AppStore
     @Binding var project: DemoProject
 
-    @StateObject private var playback: VideoPlaybackModel
+    @StateObject private var playbackOwner: VideoPlaybackOwner
+    private var playback: VideoPlaybackModel { playbackOwner.playback }
+    @State private var playbackError: String?
+    @State private var trackCache = TimelineTrackCache()
     private let videoURL: URL
     @State private var selection: TimelineLayerSelection?
     @State private var isInspectorPresented = false
@@ -277,8 +108,8 @@ struct VideoTimelineEditorView: View {
         self.store = store
         self.videoURL = videoURL
         _project = project
-        _playback = StateObject(
-            wrappedValue: VideoPlaybackModel(
+        _playbackOwner = StateObject(
+            wrappedValue: VideoPlaybackOwner(
                 url: videoURL,
                 project: project.wrappedValue
             )
@@ -287,7 +118,7 @@ struct VideoTimelineEditorView: View {
 
     var body: some View {
         Group {
-            if let message = playback.errorMessage {
+            if let message = playbackError {
                 ContentUnavailableView(
                     "Preview unavailable", systemImage: "video.slash",
                     description: Text(message)
@@ -306,8 +137,10 @@ struct VideoTimelineEditorView: View {
             TimelineNarrationEditor(store: store, projectID: project.id, layer: layer)
         }
         .sheet(isPresented: $isInspectorPresented) {
-            inspector.frame(width: 360, height: 520)
+            PlaybackDrivenView(playback: playback) { _ in inspector }
+                .frame(width: 360, height: 520)
         }
+        .onReceive(playback.$errorMessage.removeDuplicates()) { playbackError = $0 }
         .onDisappear {
             playback.player.pause()
             layerDrag.cancel()
@@ -351,7 +184,7 @@ struct VideoTimelineEditorView: View {
 
             Group {
                 if showAudioComposer { audioPanel }
-                else { inspector }
+                else { PlaybackDrivenView(playback: playback) { _ in inspector } }
             }
             .frame(minWidth: 250, idealWidth: 280, maxWidth: 340)
             .frame(height: height)
@@ -378,7 +211,9 @@ struct VideoTimelineEditorView: View {
     }
 
     private var audioPanel: some View {
-        TimelineAudioPanel(store: store, model: audioModel, projectID: project.id, playhead: playback.currentTime)
+        PlaybackDrivenView(playback: playback) { playback in
+            TimelineAudioPanel(store: store, model: audioModel, projectID: project.id, playhead: playback.currentTime)
+        }
     }
 
     /// Budgets the compact audio panel before the split, preserving playback and layer access.
@@ -391,10 +226,10 @@ struct VideoTimelineEditorView: View {
                 layout: $previewLayout,
                 minimumTimelineHeight: toolsHeight + 48 + audioHeight
             ) {
-                playerStage
+                PlaybackDrivenView(playback: playback) { _ in playerStage }
             } timeline: {
                 VStack(spacing: 0) {
-                    playbackControls.frame(height: 48)
+                    PlaybackDrivenView(playback: playback) { _ in playbackControls }.frame(height: 48)
                     if compact && showAudioComposer {
                         audioPanel.frame(height: audioHeight)
                         Divider()
@@ -407,6 +242,7 @@ struct VideoTimelineEditorView: View {
 
     private var playerStage: some View {
         GeometryReader { proxy in
+            let camera = activeCamera
             let frame = AspectFit.frame(
                 contentSize: CGSize(
                     width: project.recording?.width ?? 1,
@@ -454,15 +290,15 @@ struct VideoTimelineEditorView: View {
                     }
                 }
                 .scaleEffect(
-                    CGFloat(activeCamera.scale),
+                    CGFloat(camera.scale),
                     anchor: UnitPoint(
-                        x: (frame.minX + CGFloat(activeCamera.x) * frame.width) / max(proxy.size.width, 1),
-                        y: (frame.minY + CGFloat(activeCamera.y) * frame.height) / max(proxy.size.height, 1)
+                        x: (frame.minX + CGFloat(camera.x) * frame.width) / max(proxy.size.width, 1),
+                        y: (frame.minY + CGFloat(camera.y) * frame.height) / max(proxy.size.height, 1)
                     )
                 )
                 VideoOverlayCanvas(
                     project: project, time: playback.currentTime,
-                    imageFrame: frame, camera: activeCamera
+                    imageFrame: frame, camera: camera
                 )
                 VideoScreenOverlayCanvas(
                     project: project,
@@ -543,14 +379,16 @@ struct VideoTimelineEditorView: View {
     /// row stays reachable even below the compact layout's inspector control.
     private var timeline: some View {
         VStack(alignment: .leading, spacing: 10) {
-            timelineToolbar
+            PlaybackDrivenView(playback: playback) { _ in timelineToolbar }
                 .fixedSize(horizontal: false, vertical: true)
             if let layer = project.narrations.first(where: { $0.id == selectedNarrationID }) {
-                TimelineAudioToolbar(
-                    model: audioModel, store: store, project: project, layer: layer, playhead: playback.currentTime,
-                    onEditText: { editingNarration = layer },
-                    onInspector: { isInspectorPresented = true }
-                )
+                PlaybackDrivenView(playback: playback) { playback in
+                    TimelineAudioToolbar(
+                        model: audioModel, store: store, project: project, layer: layer, playhead: playback.currentTime,
+                        onEditText: { editingNarration = layer },
+                        onInspector: { isInspectorPresented = true }
+                    )
+                }
                 .fixedSize(horizontal: false, vertical: true)
             }
             ScrollView(.vertical) { timelineTrackEditor }
@@ -782,13 +620,13 @@ struct VideoTimelineEditorView: View {
                         if row.kind == .narration, row.isGroupHeader,
                            let reference = audioModel.dragging, let time = audioModel.dropTime,
                            let duration = audioModel.duration(of: reference, in: project) {
-                            let valid = time + duration <= project.timelineDuration
+                            let valid = time + duration <= timelineSnapshot.duration
                             RoundedRectangle(cornerRadius: 6)
                                 .fill(valid ? Color.cyan.opacity(0.3) : Color.red.opacity(0.3))
                                 .overlay(Text("\(time, format: .number.precision(.fractionLength(2)))s")
                                     .font(.caption).lineLimit(1))
-                                .frame(width: max(18, duration / max(project.timelineDuration, 0.001) * width), height: 38)
-                                .offset(x: time / max(project.timelineDuration, 0.001) * width)
+                                .frame(width: max(18, duration / max(timelineSnapshot.duration, 0.001) * width), height: 38)
+                                .offset(x: time / max(timelineSnapshot.duration, 0.001) * width)
                                 .allowsHitTesting(false)
                         }
                     }
@@ -796,17 +634,19 @@ struct VideoTimelineEditorView: View {
                         delegate: TimelineAudioDropDelegate(model: audioModel, store: store, project: project, width: width))
                 }
             }
-            let playheadX = timelineX(for: playback.currentTime, width: width)
-            Rectangle()
-                .fill(Color.accentColor)
-                .frame(width: 2, height: timelineCanvasHeight)
-                .offset(x: playheadX)
-                .allowsHitTesting(false)
-            Circle()
-                .fill(Color.accentColor)
-                .frame(width: 8, height: 8)
-                .offset(x: playheadX - 3, y: 2)
-                .allowsHitTesting(false)
+            PlaybackDrivenView(playback: playback) { playback in
+                let playheadX = timelineX(for: playback.currentTime, width: width)
+                Rectangle()
+                    .fill(Color.accentColor)
+                    .frame(width: 2, height: timelineCanvasHeight)
+                    .offset(x: playheadX)
+                    .allowsHitTesting(false)
+                Circle()
+                    .fill(Color.accentColor)
+                    .frame(width: 8, height: 8)
+                    .offset(x: playheadX - 3, y: 2)
+                    .allowsHitTesting(false)
+            }
         }
         .frame(width: width, height: timelineCanvasHeight)
         .coordinateSpace(name: "timeline-layer-canvas")
@@ -816,36 +656,38 @@ struct VideoTimelineEditorView: View {
     /// Video clips and suggestions retain their existing selection-only behavior.
     @ViewBuilder
     private func layerBlock(row: TimelineTrack, span: TimelineTrackSpan, width: CGFloat) -> some View {
-        if row.kind == .narration, let layer = project.narrations.first(where: { $0.id == span.id }) {
-            TimelineAudioBlock(
-                store: store, model: audioModel, move: layerDrag, project: project, layer: layer,
-                canvasWidth: width, selected: selectedNarrationID == layer.id, playhead: playback.currentTime,
-                onSelect: { audioModel.selectedLayerID = layer.id; selection = .narration(layer.id) },
-                onEditText: {
-                    if layer.voiceProfileID != nil { editingNarration = layer }
-                    else { isInspectorPresented = true }
-                },
-                onBegin: { dragRows = timelineRows; playback.player.pause() },
-                onEnd: { dragRows = nil }
-            )
+        if row.kind == .narration, let layer = timelineSnapshot.narrations[span.id] {
+            PlaybackDrivenView(playback: playback) { playback in
+                TimelineAudioBlock(
+                    store: store, model: audioModel, move: layerDrag, project: project, layer: layer,
+                    canvasWidth: width, selected: selectedNarrationID == layer.id, playhead: playback.currentTime,
+                    onSelect: { audioModel.selectedLayerID = layer.id; selection = .narration(layer.id) },
+                    onEditText: {
+                        if layer.voiceProfileID != nil { editingNarration = layer }
+                        else { isInspectorPresented = true }
+                    },
+                    onBegin: { dragRows = timelineRows; playback.player.pause() },
+                    onEnd: { dragRows = nil }
+                )
+            }
         } else {
-        let selected = layerSelection(kind: row.kind, id: span.id)
-        let target = movableLayer(kind: row.kind, id: span.id)
-        let delta = target != nil && layerDrag.target == target ? layerDrag.delta : 0
-        let displayed = TimelineTrackSpan(id: span.id, start: span.start + delta, end: span.end + delta)
-        timelineBlock(
-            title: layerTitle(row: row, id: span.id), systemImage: row.symbol,
-            span: displayed, canvasWidth: width, color: layerColor(row.kind),
-            isSelected: selection == selected,
-            dragTarget: target,
-            usesSharedRows: row.kind.supportsExpansion && !expandedTrackKinds.contains(row.kind)
-        ) {
-            selection = selected
-            playback.seek(to: row.kind == .click
-                ? project.clicks.first(where: { $0.id == span.id })?.time ?? span.start
-                : span.start)
-        }
-        .zIndex(target != nil && layerDrag.target == target ? 1 : 0)
+            let selected = layerSelection(kind: row.kind, id: span.id)
+            let target = movableLayer(kind: row.kind, id: span.id)
+            let delta = target != nil && layerDrag.target == target ? layerDrag.delta : 0
+            let displayed = TimelineTrackSpan(id: span.id, start: span.start + delta, end: span.end + delta)
+            timelineBlock(
+                title: layerTitle(row: row, id: span.id), systemImage: row.symbol,
+                span: displayed, canvasWidth: width, color: layerColor(row.kind),
+                isSelected: selection == selected,
+                dragTarget: target,
+                usesSharedRows: row.kind.supportsExpansion && !expandedTrackKinds.contains(row.kind)
+            ) {
+                selection = selected
+                playback.seek(to: row.kind == .click
+                    ? timelineSnapshot.clicks[span.id]?.time ?? span.start
+                    : span.start)
+            }
+            .zIndex(target != nil && layerDrag.target == target ? 1 : 0)
         }
     }
 
@@ -876,23 +718,24 @@ struct VideoTimelineEditorView: View {
 
     /// Keeps each block identifiable by its content rather than only its kind.
     private func layerTitle(row: TimelineTrack, id: UUID) -> String {
+        let snapshot = timelineSnapshot
         switch row.kind {
         case .video:
-            guard let clip = project.clips.first(where: { $0.id == id }) else { return row.title }
+            guard let clip = snapshot.clips[id] else { return row.title }
             return clip.kind == .freeze ? "Freeze" : "Clip · \(Self.speed(clip.playbackRate))"
         case .click:
-            guard let click = project.clicks.first(where: { $0.id == id }) else { return row.title }
+            guard let click = snapshot.clicks[id] else { return row.title }
             let name = click.button == .right ? "Right click" : "Click"
             return click.isComplete ? name : "\(name) · Incomplete"
         case .subtitle:
-            let text = project.subtitles.first(where: { $0.id == id })?.text ?? ""
+            let text = snapshot.subtitles[id]?.text ?? ""
             return text.isEmpty ? row.title : text
         case .narration:
-            return project.narrations.first(where: { $0.id == id })?.name ?? row.title
+            return snapshot.narrations[id]?.name ?? row.title
         case .effect:
-            return project.effects.first(where: { $0.id == id })?.displayName ?? row.title
+            return snapshot.effects[id]?.displayName ?? row.title
         case .suggestion:
-            return project.suggestions.first(where: { $0.id == id })?.state.rawValue.capitalized ?? row.title
+            return snapshot.suggestions[id]?.state.rawValue.capitalized ?? row.title
         }
     }
 
@@ -959,7 +802,7 @@ struct VideoTimelineEditorView: View {
         usesSharedRows: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
-        let scale = canvasWidth / max(project.timelineDuration, 0.001)
+        let scale = canvasWidth / max(timelineSnapshot.duration, 0.001)
         let x = CGFloat(span.start) * scale
         let width = max(CGFloat(span.end - span.start) * scale, usesSharedRows ? 1 : 30)
 
@@ -1026,7 +869,7 @@ struct VideoTimelineEditorView: View {
     private var timelineCanvasWidth: CGFloat {
         max(
             720,
-            CGFloat(max(project.timelineDuration, 1))
+            CGFloat(max(timelineSnapshot.duration, 1))
                 * Self.timelinePointsPerSecond
         )
     }
@@ -1039,11 +882,15 @@ struct VideoTimelineEditorView: View {
     }
 
     private var timelineRows: [TimelineTrack] {
-        dragRows ?? TimelineTrackLayout.rows(in: project, expandedKinds: expandedTrackKinds)
+        dragRows ?? timelineSnapshot.rows
+    }
+
+    private var timelineSnapshot: TimelineTrackSnapshot {
+        trackCache.snapshot(project: project, expandedKinds: expandedTrackKinds)
     }
 
     private var timelineTickValues: [Int] {
-        let duration = max(project.timelineDuration, 0)
+        let duration = max(timelineSnapshot.duration, 0)
         let interval: Int
         if duration <= 30 {
             interval = 1
@@ -1064,7 +911,7 @@ struct VideoTimelineEditorView: View {
     private func timelineX(for time: Double, width: CGFloat) -> CGFloat {
         CGFloat(
             min(
-                max(time / max(project.timelineDuration, 0.001), 0),
+                max(time / max(timelineSnapshot.duration, 0.001), 0),
                 1
             )
         ) * width
@@ -1072,7 +919,7 @@ struct VideoTimelineEditorView: View {
 
     private func timelineTime(for x: CGFloat, width: CGFloat) -> Double {
         Double(min(max(x / max(width, 1), 0), 1))
-            * project.timelineDuration
+            * timelineSnapshot.duration
     }
 
     private var inspector: some View {
@@ -1412,8 +1259,8 @@ struct VideoTimelineEditorView: View {
 
     /// Adds one contract-valid effect draft at the playhead for immediate inspector editing.
     private func addEffect(_ kind: NewEffectKind) {
-        let start = min(playback.currentTime, max(project.timelineDuration - 0.1, 0))
-        let end = min(max(start + 1, start + 0.1), project.timelineDuration)
+        let start = min(playback.currentTime, max(timelineSnapshot.duration - 0.1, 0))
+        let end = min(max(start + 1, start + 0.1), timelineSnapshot.duration)
         let effect: DemoEffect
         switch kind {
         case .spotlight:

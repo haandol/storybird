@@ -20,6 +20,9 @@ for command properties or failure behavior; the live schemas determine availabil
   profiles, or generate speech for an edit that does not need them.
 - **New footage:** read [recording.md](references/recording.md). A new recording
   creates a project; do not promise to merge it into another source video.
+- **External video or audio file:** read [importing.md](references/importing.md).
+  Use the advertised path-import tools without asking for a file picker or folder
+  approval. Continue editing with the returned project or audio asset ID.
 - **Narration or audio changes:** read [audio.md](references/audio.md). Use existing
   consented profiles for requested speech; human recording is not a prerequisite.
 - **Another language version:** duplicate the project, then translate and edit
@@ -66,6 +69,8 @@ duration and any unverified listening/motion checks. Keep language exports disti
 ## Boundaries
 
 Use app-owned tools, never direct project-library writes. Profile/model management,
-microphone input and external-file selection require native user action. Do not
-work around these boundaries. Storybird controls only the pointer; a separately
+microphone input and voice-profile reference-file selection require native user
+action. Project video/audio imports accept local paths through the advertised MCP
+tools without additional consent. Do not work around the remaining boundaries.
+Storybird controls only the pointer; a separately
 authorized browser may supply text input to the same captured window.

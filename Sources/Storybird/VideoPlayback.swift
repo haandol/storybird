@@ -42,6 +42,29 @@ struct VideoPlayerSurface: NSViewRepresentable {
     }
 }
 
+/// Owns player lifetime without forwarding every frame to the whole editor.
+@MainActor
+final class VideoPlaybackOwner: ObservableObject {
+    let playback: VideoPlaybackModel
+
+    init(url: URL, project: DemoProject) {
+        playback = VideoPlaybackModel(url: url, project: project)
+    }
+}
+
+/// Only controls and overlays that display playback time subscribe to its clock.
+struct PlaybackDrivenView<Content: View>: View {
+    @ObservedObject var playback: VideoPlaybackModel
+    let content: (VideoPlaybackModel) -> Content
+
+    init(playback: VideoPlaybackModel, @ViewBuilder content: @escaping (VideoPlaybackModel) -> Content) {
+        self.playback = playback
+        self.content = content
+    }
+
+    var body: some View { content(playback) }
+}
+
 @MainActor
 final class VideoPlaybackModel: ObservableObject {
     @Published private(set) var currentTime: Double = 0
@@ -75,11 +98,13 @@ final class VideoPlaybackModel: ObservableObject {
         ) { [weak self] time in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                self.currentTime = min(
+                let currentTime = min(
                     max(CMTimeGetSeconds(time), 0),
                     self.duration
                 )
-                self.isPlaying = self.player.rate != 0
+                if self.currentTime != currentTime { self.currentTime = currentTime }
+                let isPlaying = self.player.rate != 0
+                if self.isPlaying != isPlaying { self.isPlaying = isPlaying }
             }
         }
     }

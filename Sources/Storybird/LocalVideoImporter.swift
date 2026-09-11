@@ -44,11 +44,12 @@ enum LocalVideoImporter {
         return fileExtension
     }
 
-    /// Copies one user-approved movie directly into unpublished project storage and
-    /// validates it before the caller atomically publishes the project.
+    /// Copies a native-selected or MCP-supplied movie into unpublished storage,
+    /// honoring cancellation before the caller atomically publishes the project.
     static func copyAndInspect(
         sourceURL: URL,
-        destinationURL: URL
+        destinationURL: URL,
+        didCopyBytes: @escaping @Sendable (Int) -> Void = { _ in }
     ) async throws -> ImportedVideoMetadata {
         let accessed = sourceURL.startAccessingSecurityScopedResource()
         defer {
@@ -57,9 +58,15 @@ enum LocalVideoImporter {
             }
         }
 
-        let fileManager = FileManager.default
         try Task.checkCancellation()
-        try fileManager.copyItem(at: sourceURL, to: destinationURL)
+        let copy = Task.detached {
+            try LocalMediaFile.copy(from: sourceURL, to: destinationURL, didCopyBytes: didCopyBytes)
+        }
+        try await withTaskCancellationHandler {
+            try await copy.value
+        } onCancel: {
+            copy.cancel()
+        }
         try Task.checkCancellation()
         return try await inspect(url: destinationURL)
     }
@@ -75,6 +82,15 @@ enum LocalVideoImporter {
         ).first else {
             throw LocalVideoImportError.missingVideoTrack
         }
+        let videoReader = try AVAssetReader(asset: asset)
+        let videoOutput = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+        ])
+        guard videoReader.canAdd(videoOutput) else { throw LocalVideoImportError.missingVideoTrack }
+        videoReader.add(videoOutput)
+        guard videoReader.startReading(), videoOutput.copyNextSampleBuffer() != nil,
+              videoReader.status != .failed else { throw LocalVideoImportError.missingVideoTrack }
+        videoReader.cancelReading()
         let videoTimeRange = try await videoTrack.load(.timeRange)
         let duration = CMTimeGetSeconds(videoTimeRange.duration)
         let mediaStartTime = CMTimeGetSeconds(videoTimeRange.start)

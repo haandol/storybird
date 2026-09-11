@@ -11,11 +11,18 @@ struct AudioFileSummary: Codable, Sendable {
 enum ProjectAudioFiles {
     /// Decodes the entire source before publication and produces a project-owned
     /// PCM WAV. Invalid input or cancellation leaves no referenced partial file.
-    static func importFile(from source: URL, to destination: URL) throws -> AudioFileSummary {
+    static func importFile(
+        from source: URL, to destination: URL,
+        didDecodeFrames: @Sendable (Int64) -> Void = { _ in }
+    ) throws -> AudioFileSummary {
         guard source.isFileURL, ["wav", "mp3", "m4a"].contains(source.pathExtension.lowercased()) else {
             throw AgentEditError.invalidField("audio_file")
         }
-        let input = try AVAudioFile(forReading: source)
+        let snapshot = destination.deletingLastPathComponent()
+            .appendingPathComponent(".\(destination.lastPathComponent).source.\(source.pathExtension.lowercased())")
+        defer { try? FileManager.default.removeItem(at: snapshot) }
+        try LocalMediaFile.copy(from: source, to: snapshot)
+        let input = try AVAudioFile(forReading: snapshot)
         let format = input.processingFormat
         guard format.sampleRate > 0, format.channelCount > 0, input.length > 0,
               let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 8_192) else {
@@ -28,8 +35,10 @@ enum ProjectAudioFiles {
                 try input.read(into: buffer)
                 guard buffer.frameLength > 0 else { throw VoiceSynthesisError.invalidResponse }
                 try output.write(from: buffer)
+                didDecodeFrames(input.framePosition)
             }
         }
+        try Task.checkCancellation()
         return try inspect(destination)
     }
 

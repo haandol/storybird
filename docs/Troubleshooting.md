@@ -299,3 +299,19 @@ a voice profile.
 - **Imported audio cannot be used:** select a readable WAV, MP3 or M4A with **Import** in the Audio panel.
   Storybird copies and validates it before registration. Failed placement retains
   the asset, and deleting a layer preserves it for reuse and undo.
+
+## An agent asks me to select a video or audio file
+
+Check that the connected companion advertises `storybird_import_video` and
+`storybird_import_audio`. These tools accept absolute local paths without a file
+picker or folder approval. Update/rebuild the app and bundled companion together
+and reconnect the MCP client if they are absent. Voice-profile reference samples
+and microphone input still use the native consent flow.
+
+Keep the returned `job_id` and poll `storybird_get_import`. After a lost response,
+repeat the same `idempotency_key` and arguments to recover the existing job.
+A key conflict means that key already names a different request. A failed or
+cancelled job needs a new key for an intentional new attempt. An interrupted job
+never restarts automatically. If the job record cannot be saved, restore access
+to the selected library before retrying its status lookup. Imports do not fall
+back to a different project folder.

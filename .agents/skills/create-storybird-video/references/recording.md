@@ -3,6 +3,9 @@
 Read only when the request needs a new recording. For an existing project edit,
 return to the main skill and use its edit context.
 
+For existing local MP4/MOV footage, follow [importing.md](importing.md) instead
+of recording it again. Actual screen recording follows the approval flow below.
+
 Choose one visible display or window and follow Storybird's native approval flow.
 For a browser walkthrough without a user-selected source, prepare a dedicated
 visible demo window with only relevant tabs and a recognizable name if supported.

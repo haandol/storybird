@@ -8,8 +8,8 @@ voice profile. For field details, use the relevant audio/narration sections of
 ## Generate or revise speech
 
 Use existing consented profiles. Users prepare the model and create/manage profiles
-in native Settings; never activate a microphone, download a model, choose an
-external file or modify profile assets indirectly. A prepared model and profile
+in native Settings; never activate a microphone, download a model, choose a
+voice-profile reference file or modify profile assets indirectly. A prepared model and profile
 allow speech from text without a human recording.
 
 Before a longer synthesis with an unverified voice/language, generate a short
@@ -37,6 +37,9 @@ text for a language change. Preserve other sentences and adjust subtitles using
 the new measured duration. Finished audio remains available for undo.
 
 ## Place and mix audio
+
+For an external WAV/MP3/M4A, follow [importing.md](importing.md) to register the
+file without a picker. Then read the current revision before placing its asset.
 
 Inspect reusable assets with `storybird_list_audio_assets`. Duplicate a placed
 sound with `storybird_duplicate_audio_layer`, or place a registered asset with

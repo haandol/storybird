@@ -39,6 +39,7 @@ final class AppStore: ObservableObject {
     private var redoHistory: [UUID: [DemoProject]] = [:]
     private var activeExportID: UUID?
     private var narrationTasks: [UUID: Task<Void, Never>] = [:]
+    lazy var mediaImports = MediaImportController(store: self)
     private let voiceServiceOverride: (any VoiceSynthesisProviding)?
     private lazy var voiceService: any VoiceSynthesisProviding =
         voiceServiceOverride ?? VoiceSynthesisService(
@@ -384,27 +385,36 @@ final class AppStore: ObservableObject {
         }
     }
 
-    /// Imports a user-selected sound into immutable project storage. Asset
-    /// registration survives placement failure and does not advance edit revision.
+    /// Imports a native-selected or MCP-supplied sound into immutable project
+    /// storage. Reserved IDs allow restart recovery; registration leaves revision
+    /// and undo intact and survives subsequent placement failure.
     func importProjectAudio(
         projectID: UUID, sourceURL: URL, name: String? = nil,
-        origin: ProjectAudioAsset.Origin = .imported
+        origin: ProjectAudioAsset.Origin = .imported,
+        assetID: UUID = UUID(),
+        didDecodeFrames: @escaping @Sendable (Int64) -> Void = { _ in }
     ) async throws -> ProjectAudioAsset {
         guard project(id: projectID) != nil else { throw RecordingStoreError.projectNotFound }
         let operation = beginStorageOperation(.voice)
         defer { endStorageOperation(operation) }
-        let prepared = try repository.prepareNarrationURL(projectID: projectID)
+        let prepared = try repository.prepareNarrationURL(projectID: projectID, assetID: assetID)
         let access = sourceURL.startAccessingSecurityScopedResource()
         defer { if access { sourceURL.stopAccessingSecurityScopedResource() } }
         do {
-            let summary = try await Task.detached {
-                try ProjectAudioFiles.importFile(from: sourceURL, to: prepared.url)
-            }.value
+            let worker = Task.detached {
+                try ProjectAudioFiles.importFile(from: sourceURL, to: prepared.url, didDecodeFrames: didDecodeFrames)
+            }
+            let summary = try await withTaskCancellationHandler {
+                try await worker.value
+            } onCancel: {
+                worker.cancel()
+            }
             try Task.checkCancellation()
             guard let index = projects.firstIndex(where: { $0.id == projectID }) else {
                 throw RecordingStoreError.projectNotFound
             }
             let asset = ProjectAudioAsset(
+                id: assetID,
                 filename: prepared.filename,
                 name: name ?? sourceURL.deletingPathExtension().lastPathComponent,
                 duration: summary.duration, origin: origin
@@ -1065,15 +1075,19 @@ final class AppStore: ObservableObject {
         }
     }
 
-    /// Creates a new project only after a user-selected movie has been copied and
-    /// validated as a complete project-owned source asset.
-    func importVideo(from sourceURL: URL) async throws -> UUID {
+    /// Creates a project only after native-selected or MCP-supplied media has been
+    /// copied and validated. Reserved identities support replay reconciliation;
+    /// cancellation and failed publication remove the unpublished copy.
+    func importVideo(
+        from sourceURL: URL, projectID: UUID = UUID(),
+        didCopyBytes: @escaping @Sendable (Int) -> Void = { _ in }
+    ) async throws -> UUID {
         let operation = beginStorageOperation(.importing)
         defer { endStorageOperation(operation) }
         let fileExtension = try LocalVideoImporter.supportedFileExtension(
             for: sourceURL
         )
-        let projectID = UUID()
+        guard project(id: projectID) == nil else { throw AgentEditError.invalidField("project_id") }
         let prepared = try repository.prepareImportedVideoURL(
             projectID: projectID,
             fileExtension: fileExtension
@@ -1081,8 +1095,10 @@ final class AppStore: ObservableObject {
         do {
             let metadata = try await LocalVideoImporter.copyAndInspect(
                 sourceURL: sourceURL,
-                destinationURL: prepared.url
+                destinationURL: prepared.url,
+                didCopyBytes: didCopyBytes
             )
+            try Task.checkCancellation()
             let sourceName = sourceURL.deletingPathExtension()
                 .lastPathComponent
                 .trimmingCharacters(in: .whitespacesAndNewlines)

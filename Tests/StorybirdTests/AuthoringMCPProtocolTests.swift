@@ -65,11 +65,12 @@ final class AuthoringMCPProtocolTests: XCTestCase {
                 let properties = try XCTUnwrap(schema(tool)["properties"] as? [String: Any])
                 XCTAssertNil(properties["expected_revision"], name)
             }
-            for name in ["storybird_create_project", "storybird_start_export"] {
+            for name in ["storybird_create_project", "storybird_start_export", "storybird_import_video",
+                         "storybird_import_audio", "storybird_get_import", "storybird_cancel_import"] {
                 XCTAssertNotNil(tools.first { $0.name == name }, name)
             }
             let before = await probe.calls
-            for name in ["storybird_not_a_tool", "storybird_import_video", "storybird_record_microphone"] {
+            for name in ["storybird_not_a_tool", "storybird_import_voice_profile", "storybird_record_microphone"] {
                 XCTAssertFalse(tools.contains { $0.name == name })
                 let result = try await client.callTool(name: name, arguments: [:])
                 XCTAssertEqual(result.isError, true, name)

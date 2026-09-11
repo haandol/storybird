@@ -406,3 +406,14 @@ microphone samples and user voice profiles out of fixtures. The prompt-to-video
 production regression uses a deterministic local TTS provider through actual MCP
 host commands. Native microphone smoke checks must use the signed app and a user's
 explicit Start Recording action; verify mutual exclusion with screen/profile recording.
+
+### MCP local-media import verification
+
+Run `swift test --filter 'MCPMediaImportTests|MCPFeatureParityTests|ProjectAudioTests'`
+and then `swift test`. Use synthetic MP4/MOV and WAV/MP3/M4A in temporary folders.
+Verify direct path input without a native prompt, request-key replay/conflict,
+registration without revision changes, placement with stale-revision rejection
+and undo, cancellation, write failure cleanup, and restart reconciliation.
+For a signed companion smoke check, use a temporary library and synthetic files;
+never import test media into the user's actual project library. Confirm the new
+advertised tools through the bundled companion before testing the path workflow.

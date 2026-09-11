@@ -3,6 +3,13 @@
 이 문서는 recording 카테고리의 주요 결정 변경 이력이다. ADR 본문은 현재 상태만
 서술하고, 주요 전환의 시간축은 여기에 최신 순으로 남긴다.
 
+## 2026-09-11 — 로컬 미디어 경로 직접 가져오기
+
+- **Current ADR**: [0003-permission-and-signing](./0003-permission-and-signing.md)
+- **Change type**: requirement rule change
+- **What**: 파일별 네이티브 선택 → 인증된 MCP 연결의 로컬 미디어 경로 직접 가져오기와 중복 없는 작업 결과 보존.
+- **Why**: 에이전트 제작에서 파일마다 사용자 클릭을 요구하지 않는다.
+
 ## 2026-09-10 — 분리 제작과 오디오 레이어 편집
 
 - **Current ADR**: [0003-permission-and-signing](./0003-permission-and-signing.md)

@@ -151,6 +151,8 @@ final class StorybirdControlSessionTests: XCTestCase {
             outputURL: output
         )
 
+        let accepted = expectation(description: "First click entered the desktop")
+        await platform.desktop.notifyNextClickStart { accepted.fulfill() }
         let first = Task {
             try await session.click(
                 x: 0.1,
@@ -158,7 +160,7 @@ final class StorybirdControlSessionTests: XCTestCase {
                 button: StorybirdMCPPointerButton.left
             )
         }
-        await Task.yield()
+        await fulfillment(of: [accepted], timeout: 2)
         let second = Task {
             try await session.click(
                 x: 0.8,
@@ -427,6 +429,11 @@ private actor FakeDesktopSession: StorybirdDesktopSession {
     private var sequence: UInt64 = 1
     private var recordedClicks: [RecordedPointerClick] = []
     private var currentRecordingTime = 0.25
+    private var nextClickStart: (@Sendable () -> Void)?
+
+    func notifyNextClickStart(_ action: @escaping @Sendable () -> Void) {
+        nextClickStart = action
+    }
 
     init(
         clickDelayMilliseconds: Int,
@@ -471,6 +478,9 @@ private actor FakeDesktopSession: StorybirdDesktopSession {
         if clickFailsBeforePost {
             throw StorybirdMCPError.noFrame
         }
+        let notify = nextClickStart
+        nextClickStart = nil
+        notify?()
         if clickDelayMilliseconds > 0 {
             try await Task.sleep(
                 for: .milliseconds(clickDelayMilliseconds)

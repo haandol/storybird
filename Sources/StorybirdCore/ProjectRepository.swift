@@ -26,6 +26,7 @@ public struct ProjectRepository {
     private let unavailableReason: String?
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private let libraryEncoder = ProjectLibraryEncoder()
 
     public init(
         rootURL: URL,
@@ -218,7 +219,7 @@ public struct ProjectRepository {
 
     public func saveProjects(_ projects: [DemoProject]) throws {
         try prepare()
-        let data = try encoder.encode(projects)
+        let data = try libraryEncoder.encode(projects)
         try data.write(to: libraryURL, options: .atomic)
     }
 
@@ -284,10 +285,11 @@ public struct ProjectRepository {
     /// Reserves a unique project-owned WAV path that is published in the library
     /// only after synthesis and timeline validation succeed.
     public func prepareNarrationURL(
-        projectID: UUID
+        projectID: UUID,
+        assetID: UUID = UUID()
     ) throws -> (filename: String, url: URL) {
         try checkProjectAccess()
-        let filename = "narration-\(UUID().uuidString.lowercased()).wav"
+        let filename = "narration-\(assetID.uuidString.lowercased()).wav"
         let directory = projectAssetsURL(projectID: projectID)
         try fileManager.createDirectory(
             at: directory,

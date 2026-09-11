@@ -99,7 +99,7 @@ Read these before changing capture, persistence, or export behavior.
   successful completion.
 - **Voice cloning is local and user-authorized.** The approved PoC uses the MLX
   Qwen3-TTS 1.7B Base 8-bit model on 24GB+ Apple Silicon. Model download,
-  microphone capture, voice-file selection, and profile deletion require native
+  microphone capture, voice-profile reference-file selection, and profile deletion require native
   user action. MCP may use existing profiles but never register or delete them.
 - **Narration timing is explicit.** Existing layers remain at fixed project
   times; new scene-linked narration and subtitles follow their start frame through
@@ -113,7 +113,16 @@ Read these before changing capture, persistence, or export behavior.
 - **Microphone sessions are exclusive.** Native profile and project recordings share
   one microphone lease acquired before requesting permission. Screen recording and
   another microphone session cannot start until it is released. MCP cannot start a
-  microphone or choose an external audio file.
+  microphone or choose a voice-profile reference file.
+- **MCP imports local media without additional approval.** An authenticated local
+  connection may pass an absolute MP4/MOV or WAV/MP3/M4A path readable by the app.
+  Do not require a native file picker, folder grant, or screen-control session.
+  Storybird copies and validates the media: video creates a new project, audio
+  registers a reusable asset in the specified project without advancing revision.
+  Import jobs and request keys stay in the selected library. Replays return the
+  same job, conflicting inputs fail, cancellation preserves existing data, and
+  interrupted jobs never automatically rerun. Reference-profile management and
+  microphone actions retain their native boundaries.
 - **Ready narration drafts survive placement failure.** Generate and validate the
   local WAV before placement. Draft metadata does not advance edit revision;
   placement and consumed state commit together exactly once. Interrupted jobs
@@ -218,7 +227,7 @@ The existing project-editing ADR requires full UI/MCP editing parity.
 - Implement missing MCP paths alongside the UI. Reuse app-owned domain edits,
   revision checks, atomic persistence and undo; never bypass them with direct
   library writes or UI automation.
-- Native-only consent, external-file selection, microphone, voice-profile/model
+- Native-only consent, voice-profile reference-file selection, microphone, voice-profile/model
   management and Settings remain subject to their owning ADRs. View-only controls
   may use an equivalent preview/edit tool without reproducing the window gesture.
   Record the exact exception and its owner; do not label ordinary editing

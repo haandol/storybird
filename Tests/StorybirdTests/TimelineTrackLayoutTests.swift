@@ -3,6 +3,27 @@ import XCTest
 @testable import Storybird
 
 final class TimelineTrackLayoutTests: XCTestCase {
+    @MainActor
+    func test_trackCache_unsavedTimingTextAndExpansionRefreshWithoutRevisionChange() {
+        let cache = TimelineTrackCache()
+        var project = fixture()
+        let initial = cache.snapshot(project: project, expandedKinds: [])
+        XCTAssertTrue(initial === cache.snapshot(project: project, expandedKinds: []))
+        project.subtitles[0].endTime = 3
+        project.subtitles[0].text = "Updated"
+        let edited = cache.snapshot(project: project, expandedKinds: [])
+        XCTAssertFalse(initial === edited)
+        XCTAssertEqual(edited.rows.filter { $0.kind == .subtitle }.count, 2)
+        XCTAssertEqual(edited.subtitles[project.subtitles[0].id]?.text, "Updated")
+        project.clips[0].playbackRate = 2
+        XCTAssertEqual(cache.snapshot(project: project, expandedKinds: []).duration, 10)
+        let expanded = cache.snapshot(project: project, expandedKinds: [.subtitle])
+        XCTAssertEqual(expanded.rows.filter { $0.kind == .subtitle }.count, 6)
+        XCTAssertEqual(project.revision, 0)
+        XCTAssertEqual(initial.duration, 20)
+        XCTAssertEqual(initial.rows.filter { $0.kind == .subtitle }.count, 1)
+    }
+
     func test_automaticRows_sequentialAndTouchingSubtitlesShareOneRow() {
         let project = fixture()
         let rows = TimelineTrackLayout.rows(in: project).filter { $0.kind == .subtitle }

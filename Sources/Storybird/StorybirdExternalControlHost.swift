@@ -90,6 +90,18 @@ final class StorybirdExternalControlHost {
         do {
             let arguments = try Self.arguments(from: request.argumentsJSON)
             switch request.name {
+            case "storybird_import_video", "storybird_import_audio":
+                return try Self.jsonResponse(store.mediaImports.start(
+                    kind: request.name == "storybird_import_video" ? .video : .audio,
+                    path: Self.string("path", in: arguments),
+                    projectID: request.name == "storybird_import_audio"
+                        ? Self.uuid("project_id", in: arguments) : nil,
+                    key: Self.string("idempotency_key", in: arguments)
+                ))
+            case "storybird_get_import":
+                return try Self.jsonResponse(store.mediaImports.get(id: Self.uuid("job_id", in: arguments)))
+            case "storybird_cancel_import":
+                return try Self.jsonResponse(store.mediaImports.cancel(id: Self.uuid("job_id", in: arguments)))
             case "storybird_list_sources",
                  "storybird_start_session",
                  "storybird_observe",

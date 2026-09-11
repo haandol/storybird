@@ -86,6 +86,10 @@ not control every Settings or window action.
 | `storybird_get_export` | Returns export state and progress |
 | `storybird_cancel_export` | Cancels an active export without replacing an existing output |
 | `storybird_export_project` | Renders H.264 MP4 with imported audio and generated narration mixed into AAC when present |
+| `storybird_import_video` | Imports local MP4/MOV by absolute path into a new project without a picker; returns a job ID |
+| `storybird_import_audio` | Imports local WAV/MP3/M4A by absolute path into a reusable project audio asset without a picker |
+| `storybird_get_import` | Reads durable media import status and committed result metadata |
+| `storybird_cancel_import` | Cancels an active media import; poll until a terminal state |
 | `storybird_delete_project` | Requests native confirmation before deletion |
 
 Pointer-changing tools can trigger effects in the selected application and
@@ -331,3 +335,64 @@ Protocol regression coverage uses the production server handlers and an actual
 MCP SDK client over in-memory transport, with isolated app IPC and deterministic
 TTS. Run `swift test --filter MCPAudioProtocolTests` without a live app, microphone
 or voice profile.
+
+## Import local video and audio without a file picker
+
+An authenticated local MCP connection can pass an absolute file path readable by
+Storybird. No per-file approval, folder grant, or active recording session is
+required. The app copies and validates the media; the companion never writes the
+project library. Profile reference-file selection and microphone input retain
+native consent.
+
+```json
+{"name":"storybird_import_video","arguments":{"path":"/absolute/path/demo.mov","idempotency_key":"demo-picture-1"}}
+```
+
+```json
+{"name":"storybird_import_audio","arguments":{"project_id":"PROJECT_UUID","path":"/absolute/path/narration.wav","idempotency_key":"demo-narration-1"}}
+```
+
+Video accepts MP4/MOV and creates a new independent project with one whole-source
+clip, revision 0, and the source's primary audio when present. Audio accepts
+WAV/MP3/M4A and registers a reusable WAV asset in the specified project. Audio
+registration does not change revision, playback, or undo history. It does not
+place a layer; read the current revision and call `storybird_place_audio_asset`.
+
+Both start tools require `path` and `idempotency_key`; audio also requires
+`project_id`. Paths are literal absolute filesystem paths, not URLs or shell
+expressions. Supply another key when intentionally importing changed contents
+at the same path. Inputs are identified by kind, normalized absolute path, and
+target project, not by a content hash.
+
+The response has `job_id`, `kind` (`video`/`audio`), and `state`
+(`importing`/`completed`/`failed`/`cancelled`). Poll `storybird_get_import` with
+`job_id` until terminal. Only `completed` includes `result`: video returns
+`projectID`, `duration` in seconds, `width`, `height`, and creation `revision` 0;
+audio returns `projectID`, `assetID`, and `duration` in seconds. Refresh project
+state before later edits. Failure includes `error`. State polling is provided;
+a percentage or ETA is not currently reported.
+
+`storybird_cancel_import` requests cancellation and returns the current state;
+continue polling until terminal. Already terminal jobs do not restart or change
+outcome. Source files and existing projects remain intact after cancellation or
+failure; unfinished copies are not published.
+
+If temporary-file removal fails, `cleanup_pending` is true. Status lookup and
+restart retry only that cleanup; they do not restart the import or change its
+terminal outcome. Cancellation still signals an active worker when another job's
+status write is failing, although status lookup can report that storage error.
+
+Keep the request key and job ID with the production task. If the start response
+is lost, resend exactly the same key and arguments to find the existing job,
+even if its source file has moved. Different arguments with the same key are a
+conflict. Failed/cancelled work requires a new key for a new attempt. Completed
+results retain their identity even if a project is subsequently deleted; replay
+never recreates a deleted project. Import records remain in their library across
+reconnect, restart and folder reselection, with no automatic expiry.
+
+On restart, a previously published reserved result is recovered as completed.
+Unpublished interrupted work is failed and its partial files cleaned; no import
+is automatically rerun. A library write or job-journal write error must be fixed
+before the job can be reported as completed. Project folders cannot be switched
+while an import is active. Missing/unreadable files, directories, special files,
+unsupported formats, and invalid media fail without a partial project.

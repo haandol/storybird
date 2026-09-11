@@ -47,8 +47,8 @@ final class MCPFeatureParityTests: XCTestCase {
         XCTAssertFalse(names.contains("storybird_delete_voice_profile"))
         XCTAssertFalse(names.contains("storybird_prepare_voice_model"))
         XCTAssertFalse(names.contains("storybird_rename_voice_profile"))
-        XCTAssertFalse(names.contains("storybird_import_video"))
-        XCTAssertFalse(names.contains("storybird_import_audio"))
+        XCTAssertTrue(names.contains("storybird_import_video"))
+        XCTAssertTrue(names.contains("storybird_import_audio"))
         XCTAssertFalse(names.contains("storybird_start_microphone"))
         XCTAssertFalse(names.contains("storybird_set_storage_folder"))
     }
@@ -126,6 +126,7 @@ final class MCPFeatureParityTests: XCTestCase {
             "storybird_start_narration_draft", "storybird_cancel_narration_draft",
             "storybird_render_audio_preview", "storybird_start_export",
             "storybird_cancel_export", "storybird_export_project", "storybird_delete_project",
+            "storybird_import_video", "storybird_import_audio", "storybird_cancel_import",
         ]
         let tools = StorybirdMCPService.toolDefinitions
         XCTAssertEqual(nonEditCommands.subtracting(Set(tools.map(\.name))), [])
@@ -137,6 +138,21 @@ final class MCPFeatureParityTests: XCTestCase {
                 required.isSuperset(of: ["project_id", "expected_revision"]),
                 "\(tool.name) must reject stale project state."
             )
+        }
+    }
+
+    func test_toolDefinitions_mediaImport_requiresPathAndReplayKeyWithoutConsentOrEditRevision() throws {
+        for name in ["storybird_import_video", "storybird_import_audio"] {
+            let schema = try schemaObject(for: name)
+            let required = Set(schema["required"] as? [String] ?? [])
+            XCTAssertTrue(required.isSuperset(of: ["path", "idempotency_key"]))
+            XCTAssertEqual(required.contains("project_id"), name == "storybird_import_audio")
+            XCTAssertFalse(required.contains("expected_revision"))
+            let properties = try propertyNames(for: name)
+            XCTAssertFalse(properties.contains("input_grant_id"))
+            XCTAssertFalse(properties.contains("approval"))
+            XCTAssertEqual(schema["additionalProperties"] as? Bool, false)
+            XCTAssertEqual(StorybirdMCPService.toolDefinitions.first { $0.name == name }?.annotations.idempotentHint, true)
         }
     }
 

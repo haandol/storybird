@@ -3,6 +3,27 @@ import StorybirdCore
 import XCTest
 
 final class SceneTimingTests: XCTestCase {
+    func test_sceneIndex_repeatedSourceFramesKeepEachOwnerAfterReorder() throws {
+        var project = fixture()
+        project.clips = (0..<500).map { _ in VideoClip(sourceStart: 0, sourceEnd: 1) }
+        project.subtitles = project.clips.enumerated().map { index, clip in
+            TimedSubtitle(startTime: Double(index) + 0.25, endTime: Double(index) + 0.75,
+                text: "\(index)", sceneAnchor: LayerSceneAnchor(
+                    clipID: clip.id, sourceTime: 0.25, clipOffset: 0.25))
+        }
+        project.clips.reverse()
+        let remapped = SceneTiming.remap(project)
+        for (index, subtitle) in remapped.subtitles.enumerated() {
+            XCTAssertEqual(subtitle.startTime, Double(499 - index) + 0.25)
+            XCTAssertEqual(subtitle.endTime - subtitle.startTime, 0.5)
+        }
+        try SceneTiming.validate(remapped)
+        var stale = remapped
+        stale.subtitles[250].sceneAnchor?.clipID = UUID()
+        XCTAssertThrowsError(try SceneTiming.validate(stale))
+        XCTAssertEqual(SceneTiming.remap(stale).subtitles.count, 499)
+    }
+
     func test_sceneLayers_followMoveSpeedFreezeAndSplitWithoutChangingDuration() throws {
         var project = fixture()
         let owner = project.clips[1].id

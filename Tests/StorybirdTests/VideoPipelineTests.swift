@@ -1097,7 +1097,7 @@ final class VideoPipelineTests: XCTestCase {
         process.arguments = [
             "-loglevel", "error",
             "-f", "lavfi",
-            "-i", "color=c=blue:s=1920x1080:r=1",
+            "-i", "color=c=blue:s=1920x1080:r=30",
             "-t", "120",
             "-pix_fmt", "yuv420p",
             raw.path,
@@ -1114,8 +1114,18 @@ final class VideoPipelineTests: XCTestCase {
                 duration: CMTimeGetSeconds(sourceDuration),
                 width: 1_920,
                 height: 1_080
-            )
+            ),
+            subtitles: (0..<100).map {
+                TimedSubtitle(startTime: Double($0) * 1.2, endTime: Double($0) * 1.2 + 1,
+                    text: "Synthetic export subtitle \($0)")
+            },
+            effects: [.spotlight(SpotlightEffect(startTime: 0, endTime: 120,
+                x: 0.2, y: 0.2, width: 0.4, height: 0.4))]
         )
+        let sourceTracks = try await asset.loadTracks(withMediaType: .video)
+        let sourceTrack = try XCTUnwrap(sourceTracks.first)
+        let sourceRate = try await sourceTrack.load(.nominalFrameRate)
+        XCTAssertEqual(sourceRate, 30, accuracy: 0.01)
         let started = ContinuousClock.now
 
         _ = try await LayeredVideoExporter().export(
@@ -1128,6 +1138,22 @@ final class VideoPipelineTests: XCTestCase {
             started.duration(to: .now),
             .seconds(240)
         )
+        let elapsed = started.duration(to: .now).components
+        print("EXPORT_PERFORMANCE 1920x1080 duration=120 fps=30 subtitles=100 spotlight=1 seconds="
+            + "\(Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18)")
+        let exported = AVURLAsset(url: output)
+        let outputTracks = try await exported.loadTracks(withMediaType: .video)
+        let outputTrack = try XCTUnwrap(outputTracks.first)
+        let reader = try AVAssetReader(asset: exported)
+        let packets = AVAssetReaderTrackOutput(track: outputTrack, outputSettings: nil)
+        reader.add(packets)
+        XCTAssertTrue(reader.startReading())
+        var frames = 0
+        while let sample = packets.copyNextSampleBuffer() {
+            if CMSampleBufferGetNumSamples(sample) > 0 { frames += 1 }
+        }
+        XCTAssertEqual(reader.status, .completed)
+        XCTAssertEqual(frames, 3600)
     }
 
     func test_layeredVideoExporter_destinationIsOriginal_rejectsWithoutChangingSource() async throws {

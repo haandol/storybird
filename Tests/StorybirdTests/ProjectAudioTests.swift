@@ -6,6 +6,31 @@ import XCTest
 
 @MainActor
 final class ProjectAudioTests: XCTestCase {
+    func test_longSilence_preservesLateSoundAndRangePreviewTiming() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("late.wav")
+        try TestVideoFactory.makeToneWAV(at: source, duration: 1)
+        var project = DemoProject(name: "Long silence", recording: VideoRecordingAsset(
+            filename: "synthetic.mp4", duration: 1800, width: 64, height: 48))
+        project.narrations = [NarrationClip(filename: source.lastPathComponent, text: "",
+            startTime: 1798.5, duration: 1)]
+        let composition = AVMutableComposition()
+        let built = try await NarrationCompositionBuilder.addNarrations(
+            project: project, assetsDirectory: root, composition: composition, sourceAudioTrack: nil)
+        XCTAssertEqual(composition.duration.seconds, 1800, accuracy: 0.0001)
+        let output = root.appendingPathComponent("range.wav")
+        try AudioPreviewRenderer.write(asset: composition, tracks: built.tracks, mix: built.audioMix,
+            startTime: 1798.3, duration: 1.4, destination: output)
+        let summary = try ProjectAudioFiles.inspect(output)
+        XCTAssertEqual(summary.duration, 1.4, accuracy: 0.001)
+        let samples = try readSamples(output)
+        XCTAssertLessThan(rms(samples, start: 0.01, end: 0.15), 0.0001)
+        XCTAssertGreaterThan(rms(samples, start: 0.25, end: 1.15), 0.1)
+        XCTAssertLessThan(rms(samples, start: 1.25, end: 1.39), 0.0001)
+    }
+
     /// Uses a synthetic video and isolated library, never the user's media.
     private func fixture(includeAudio: Bool = false) async throws -> (URL, AppStore, DemoProject) {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
