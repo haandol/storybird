@@ -1,7 +1,7 @@
 # Contributing to Storybird
 
 Issues and pull requests are welcome. Read the
-[architecture invariants](./AGENTS.md#architecture-invariants) before changing
+[architecture invariants](./docs/ArchitectureInvariants.md) before changing
 capture, permission, persistence, or export behavior.
 
 ## Build and Run
@@ -188,8 +188,8 @@ exception or broader permission needs the ADR gate. Unexplained MCP omissions
 block feature completion; automated inventory checks do not replace reviewing
 new UI actions. Include the tool/argument mapping and executed checks in the PR.
 
-Tests live in `Tests/StorybirdCoreTests/`, `Tests/StorybirdTests/`, and
-`Tests/StorybirdMCPTests/` and run with `swift test`. Name them
+Tests live in `Tests/StorybirdCoreTests/` and `Tests/StorybirdTests/`
+and run with `swift test`. Name them
 `test_<behavior>_<expectedResult>()`.
 
 - Do not use real screens, windows, click monitors, user projects, or network.
@@ -200,9 +200,32 @@ Tests live in `Tests/StorybirdCoreTests/`, `Tests/StorybirdTests/`, and
 - Match actor isolation in tests; never weaken production annotations.
 - Deliberately break a guarded behavior once to prove its regression test fails.
 
+## Verification by Change
+
+Select checks for the behavior being changed. The manual catalog below covers
+multiple independent features; a capture fix does not require all voice and
+shortcut checks. Reuse passing evidence until affected sources or artifacts change.
+Report skipped, unavailable, and failed checks separately.
+
+| Change | Required verification |
+| --- | --- |
+| Documentation or agent instructions only | Check referenced paths, commands, links and consistency; render changed UI screenshots when applicable |
+| Swift code | Relevant focused tests while editing, then `swift test`; the test command also builds the debug targets |
+| MCP initialization or transport | `MCPInitializationTests` with raw external-client JSON, then bundled companion initialize and tools/list; no native capture permission is needed |
+| Project actions/properties | MCP inventory, schema and app-host behavior checks; production protocol tests for public changes; relevant manual editor checks |
+| Capture, pointer input or permissions | Signed app/companion checks for the affected capture/control behavior, including immediate stop and rejected input |
+| Microphone or voice-profile behavior | Relevant native voice checks with explicit user input; synthetic tests do not prove microphone capture or speech quality |
+| Release scripts or fact collection | `python3 scripts/test-publish-release.py` and/or `python3 scripts/test-collect-release-facts.py` for the changed scripts |
+| Build/signing or release packaging | Signed release build, signature and artifact checks from the release skill; follow the requested release state |
+
+Build and test on macOS. `.devcontainer` supplies Git/release tooling and has no
+macOS frameworks or Swift build environment. No GitHub Actions workflow is
+currently checked in; these commands are local checks, not evidence of CI runs.
+
 ## Manual Smoke Test
 
-ScreenCaptureKit and TCC behavior require a real signed bundle:
+ScreenCaptureKit and TCC behavior require a real signed bundle. Select relevant
+steps using the matrix above; this is a catalog, not an all-changes checklist:
 
 1. Open `build/Storybird.app` and grant Screen Recording/Input Monitoring.
 2. Confirm the source sheet fits on screen and scrolls internally.

@@ -528,7 +528,7 @@ using synthetic state. See [the screenshot notes](docs/images/README.md) for the
 sources and reproduction. Additional component views: [voice settings](docs/images/voice-narration.png),
 [profile creation](docs/images/voice-profile-creation.png), and [storage settings](docs/images/storage-settings.png).
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md), the [architecture invariants](AGENTS.md#architecture-invariants),
+Read [CONTRIBUTING.md](CONTRIBUTING.md), the [architecture invariants](docs/ArchitectureInvariants.md),
 and [Troubleshooting](docs/Troubleshooting.md) before changing capture, persistence,
 or export behavior. Architectural decisions are recorded under `docs/adr/`.
 

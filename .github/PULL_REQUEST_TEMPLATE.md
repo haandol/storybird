@@ -4,9 +4,9 @@
 
 ## Verification
 
-- [ ] `swift build -c debug`
-- [ ] `swift test`
-- [ ] Relevant manual smoke test from `AGENTS.md`
+- [ ] Applicable checks from `CONTRIBUTING.md#verification-by-change` completed
+- [ ] `swift test` for Swift code changes (also builds debug targets)
+- [ ] Relevant signed manual smoke results recorded, including unperformed checks
 - [ ] Synthetic documentation screenshots regenerated when README UI changed
 
 ## Impact
@@ -31,5 +31,8 @@ credentials, private messages, or exported customer demos.
 
 ## Decision Record
 
-- [ ] No architecture decision changed
-- [ ] Relevant ADR and `.mapping.json` were updated with the implementation
+Choose the applicable case and explain it:
+
+- No admitted decision changed (for example, a restorative bug fix or docs edit).
+- An admitted contract changed: its owning ADR and `.mapping.json` were updated,
+  confirmed once before implementation, and landed with the implementation.
