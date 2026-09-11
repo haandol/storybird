@@ -95,11 +95,11 @@ be able to read the source file under its existing macOS permissions.
 
 ### From a release
 
-Download `Storybird-0.1.2.zip` from the
-[0.1.2 release](https://github.com/haandol/storybird/releases/tag/v0.1.2), verify
-its SHA-256 against the release notes, unzip it, and move `Storybird.app` to
-`/Applications`. The prebuilt app requires an **Apple Silicon Mac running
-macOS 14 or later**.
+Download the versioned `Storybird-X.Y.Z.zip` from
+[GitHub Releases](https://github.com/haandol/storybird/releases), verify its
+SHA-256 against the release notes, unzip it, and move `Storybird.app` to
+`/Applications`. If no published release is available, use the source build
+below. The prebuilt app requires an **Apple Silicon Mac running macOS 14 or later**.
 
 These builds are signed but **not notarized**. If macOS blocks the first launch:
 
