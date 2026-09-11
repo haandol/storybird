@@ -4,6 +4,13 @@ This document is the **major decision-change history** of the voice-narration ca
 Each ADR body describes only the current state, while the timeline of "what changed and
 why" accumulates here, newest first. Git preserves the individual diffs.
 
+## 2026-09-11 — 두 8비트 모델과 무인 준비를 지원한다
+
+- **Current ADR**: [local-cloned-voice-narration](./0001-local-cloned-voice-narration.md)
+- **Change type**: requirement rule change
+- **What**: 1.7B 고정·네이티브 다운로드 승인 → 1.7B/0.6B Base 8비트 선택과 UI/MCP의 추가 승인 없는 모델 준비.
+- **Why**: 에이전트가 사용할 모델을 확인하고 준비부터 음성 생성까지 무인으로 수행해야 한다.
+
 ## 2026-09-11 — 로컬 미디어 경로 직접 가져오기
 
 - **Current ADR**: [0001-local-cloned-voice-narration](./0001-local-cloned-voice-narration.md)

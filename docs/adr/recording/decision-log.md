@@ -3,6 +3,13 @@
 이 문서는 recording 카테고리의 주요 결정 변경 이력이다. ADR 본문은 현재 상태만
 서술하고, 주요 전환의 시간축은 여기에 최신 순으로 남긴다.
 
+## 2026-09-11 — 모델 준비의 별도 승인을 제거한다
+
+- **Current ADR**: [permission-and-signing](./0003-permission-and-signing.md)
+- **Change type**: requirement rule change
+- **What**: 모델 다운로드의 네이티브 확인 → UI 준비 버튼 또는 인증된 MCP 준비 요청으로 바로 다운로드.
+- **Why**: 로컬 제작을 위한 모델 설치를 사용자 개입 없이 완료해야 한다.
+
 ## 2026-09-11 — 로컬 미디어 경로 직접 가져오기
 
 - **Current ADR**: [0003-permission-and-signing](./0003-permission-and-signing.md)

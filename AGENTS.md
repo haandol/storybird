@@ -100,8 +100,8 @@ The existing project-editing ADR requires full UI/MCP editing parity.
 - Implement missing MCP paths alongside the UI. Reuse app-owned domain edits,
   revision checks, atomic persistence and undo; never bypass them with direct
   library writes or UI automation.
-- Native-only consent, voice-profile reference-file selection, microphone, voice-profile/model
-  management and Settings remain subject to their owning ADRs. View-only controls
+- Native-only consent, voice-profile reference-file selection, microphone, voice-profile
+  management and non-model Settings remain subject to their owning ADRs. View-only controls
   may use an equivalent preview/edit tool without reproducing the window gesture.
   Record the exact exception and its owner; do not label ordinary editing
   omissions "UI-only". A new exception or permission expansion needs the ADR

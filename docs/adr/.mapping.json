@@ -18,7 +18,7 @@
         {
           "path": "docs/adr/recording/0003-permission-and-signing.md",
           "status": "Accepted (2026-09-11)",
-          "summary": "인증된 로컬 MCP의 미디어 경로 가져오기를 허용하고 화면·마이크·프로필 권한을 분리한다"
+          "summary": "인증된 MCP와 UI의 모델 준비를 추가 승인 없이 실행하고 화면·마이크·프로필 권한을 분리한다"
         }
       ],
       "dependsOn": []
@@ -73,7 +73,7 @@
         {
           "path": "docs/adr/agent-project-editing/0001-versioned-mcp-project-editing.md",
           "status": "Accepted (2026-09-11)",
-          "summary": "인증된 MCP로 영상·오디오를 직접 가져오고 revision 검증으로 프로젝트를 편집한다"
+          "summary": "인증된 MCP로 모델 준비와 로컬 영상·오디오 편집을 무인 실행하고 프로젝트 revision을 검증한다"
         }
       ],
       "dependsOn": [
@@ -154,7 +154,7 @@
         {
           "path": "docs/adr/voice-narration/0001-local-cloned-voice-narration.md",
           "status": "Accepted (2026-09-11)",
-          "summary": "인증된 MCP로 프로젝트 오디오를 직접 가져오고 기존 프로필의 생성 음성과 함께 편집한다"
+          "summary": "UI와 MCP가 1.7B·0.6B Base 8비트 모델을 선택·준비하고 기존 프로필로 로컬 음성을 생성한다"
         }
       ],
       "dependsOn": [

@@ -108,8 +108,10 @@ for service introductions and tutorials. Discover the connected server's tool
 schemas before starting; an installed companion does not by itself mean the
 current agent has a working connection.
 
-1. Have the user prepare the local voice model and a consented reference profile
-   in Settings. Use `storybird_list_voice_profiles` to select an existing profile.
+1. Use `storybird_list_voice_models`, `storybird_select_voice_model`, then
+   `storybird_prepare_voice_model` if needed. Poll `storybird_get_voice_model`
+   until ready or failed; no extra approval is needed. Use
+   `storybird_list_voice_profiles` to choose an existing consented reference profile.
 2. Prepare the script and synthetic demonstration data. Choose one visible
    window or display, then start a session with native approval.
 3. Observe the selected source, perform the approved pointer actions, and verify
@@ -274,13 +276,35 @@ sentences, then recalculate timing; translated speech is not duration-equivalent
 - Live selected-source PNGs are returned only during an approved active session.
   Authenticated project preview can separately return a composited frame from a
   stored project without starting a recording session.
-- Voice model preparation, reference-file selection, microphone recording, and
+- Model status, selection and preparation are available through MCP without
+  extra approval. Reference-file selection, microphone recording and
   profile deletion remain native user actions. Synthesis uses existing local
   profiles without exposing reference audio or exact reference transcripts.
 - The completed raw MP4 stays in the Storybird project library unless the user
   explicitly exports it.
 
 ## Prompt-to-video audio production
+
+### Voice model management
+
+| Tool | Result |
+|---|---|
+| `storybird_list_voice_models` | Both Base 8-bit models, selected model, estimated download bytes and local readiness; no network |
+| `storybird_get_voice_model` | One model's `not_prepared`, `preparing`, `ready` or `failed` state and failure message |
+| `storybird_select_voice_model` | Persist `model_id` for new generation/regeneration; no download, project revision or undo change |
+| `storybird_prepare_voice_model` | Start runtime/model download immediately; no approval dialog. Poll status to completion |
+
+The `model_id` values are `qwen3-tts-1.7b-base-8bit` (default) and
+`qwen3-tts-0.6b-base-8bit`. Model selection is shared with Settings and persists
+across restarts. Both installations may coexist; the existing 1.7B cache is reused.
+A different selection is rejected during voice work. An unprepared model does
+not silently fall back to another model.
+
+Preparation returns immediately. Repeating a request while the same model is
+preparing or ready reuses that result. A failed request may be retried. Restart
+does not automatically resume interrupted downloads; query local status again.
+Preparation failures preserve other models, profiles, completed audio and the
+last valid installation. Synthesis remains offline, and model workers are serialized.
 
 With a prepared local model and an existing consented profile, the agent can finish
 speech production without asking the user to record each sentence:

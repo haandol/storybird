@@ -81,12 +81,28 @@ final class DocumentationScreenshotTests: XCTestCase {
         try await render(
             VoiceStudioView(
                 store: store,
-                refreshRuntimeOnAppear: false
+                refreshRuntimeOnAppear: false,
+                inputDevices: [VoiceInputDevice(uid: "documentation-input", name: "Built-in Microphone")]
             ),
             size: CGSize(width: 680, height: 720),
             to: imageDirectory.appendingPathComponent(
                 "voice-narration.png"
             )
+        )
+        let emptyVoiceStore = AppStore(
+            repository: ProjectRepository(rootURL: root.appendingPathComponent("empty-voices")),
+            voiceService: DocumentationVoiceService()
+        )
+        await emptyVoiceStore.refreshVoiceRuntimeState()
+        try await render(
+            VoiceStudioView(
+                store: emptyVoiceStore,
+                refreshRuntimeOnAppear: false,
+                inputDevices: [VoiceInputDevice(uid: "documentation-input", name: "Built-in Microphone")]
+            ),
+            size: CGSize(width: 680, height: 720),
+            to: imageDirectory.appendingPathComponent("voice-settings-app.png"),
+            hostedInWindow: true
         )
         let domain = "storybird.docs.storage.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: domain))

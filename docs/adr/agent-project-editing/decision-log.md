@@ -2,6 +2,13 @@
 
 이 문서는 agent-project-editing 카테고리의 주요 결정 변경 이력이다.
 
+## 2026-09-11 — MCP에서 음성 모델까지 준비한다
+
+- **Current ADR**: [versioned-mcp-project-editing](./0001-versioned-mcp-project-editing.md)
+- **Change type**: requirement rule change
+- **What**: 준비된 모델의 합성만 제공 → 모델 조회·선택·준비·완료 조회까지 추가 승인 없이 제공.
+- **Why**: 에이전트가 음성 환경 준비 때문에 사용자 입력을 기다리지 않아야 한다.
+
 ## 2026-09-11 — 로컬 미디어 경로 직접 가져오기
 
 - **Current ADR**: [0001-versioned-mcp-project-editing](./0001-versioned-mcp-project-editing.md)

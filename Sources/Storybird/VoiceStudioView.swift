@@ -8,11 +8,11 @@ struct VoiceStudioView: View {
 
     @ObservedObject var store: AppStore
     private let refreshRuntimeOnAppear: Bool
+    private let inputDevicesOverride: [VoiceInputDevice]?
 
     @State private var isCreationPresented = false
     @StateObject private var preview = VoicePreviewPlayer()
     @State private var isWorking = false
-    @State private var showPrepareConfirmation = false
     @State private var profilePendingDeletion: UUID?
     @State private var profilePendingRename: VoiceProfile?
     @State private var availableInputDevices: [VoiceInputDevice] = []
@@ -20,13 +20,16 @@ struct VoiceStudioView: View {
         VoiceInputPreferences.preferredDeviceUID()
 
     /// Keeps shared model, microphone, and profile management in Settings;
-    /// individual creation state belongs to each newly presented sheet.
+    /// optional input metadata isolates documentation from the user's devices.
     init(
         store: AppStore,
-        refreshRuntimeOnAppear: Bool = true
+        refreshRuntimeOnAppear: Bool = true,
+        inputDevices: [VoiceInputDevice]? = nil
     ) {
         self.store = store
         self.refreshRuntimeOnAppear = refreshRuntimeOnAppear
+        inputDevicesOverride = inputDevices
+        if inputDevices != nil { _preferredInputDeviceUID = State(initialValue: nil) }
     }
 
     var body: some View {
@@ -45,21 +48,6 @@ struct VoiceStudioView: View {
             )
         }
         .onDisappear { preview.stop() }
-        .confirmationDialog(
-            "Prepare the local voice model?",
-            isPresented: $showPrepareConfirmation
-        ) {
-            Button("Download and Prepare") {
-                isWorking = true
-                Task {
-                    await store.prepareVoiceRuntime()
-                    isWorking = false
-                }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Storybird will install a local MLX runtime and download the approximately 2 GB Qwen3-TTS 1.7B Base 8-bit model. Voice synthesis stays on this Mac afterward.")
-        }
         .task {
             refreshInputDevices()
             if refreshRuntimeOnAppear {
@@ -91,16 +79,32 @@ struct VoiceStudioView: View {
 
     private var runtimeSection: some View {
         Section("Local MLX Model") {
-            LabeledContent("Model") {
-                Text("Qwen3-TTS 1.7B Base 8-bit")
+            Picker("Model", selection: Binding(
+                get: { store.selectedVoiceModel },
+                set: { model in
+                    do { try store.selectVoiceModel(model) }
+                    catch { store.errorMessage = error.localizedDescription }
+                }
+            )) {
+                ForEach(VoiceModel.allCases) { model in
+                    Text(model.displayName).tag(model)
+                }
             }
+            .disabled(store.isVoiceModelBusy)
             LabeledContent("Status") {
                 Text(runtimeStatus)
             }
+            Text("Estimated model download: \(ByteCountFormatter.string(fromByteCount: store.selectedVoiceModel.estimatedDownloadBytes, countStyle: .file)). Both models stay available after preparation. Speech generation stays on this Mac.")
+                .font(.caption).foregroundStyle(.secondary)
             Button("Prepare Model") {
-                showPrepareConfirmation = true
+                let model = store.selectedVoiceModel
+                isWorking = true
+                Task {
+                    await store.prepareVoiceRuntime(model: model)
+                    isWorking = false
+                }
             }
-            .disabled(isWorking || store.voiceRuntimeState == .ready)
+            .disabled(isWorking || store.isVoiceModelBusy || store.voiceRuntimeState == .ready)
         }
     }
 
@@ -206,14 +210,14 @@ struct VoiceStudioView: View {
         VoiceInputDeviceSelection.resolve(
             preferredUID: preferredInputDeviceUID,
             availableDevices: availableInputDevices,
-            defaultUID: VoiceInputDeviceCatalog.defaultDeviceUID()
+            defaultUID: defaultInputDeviceUID
         )
     }
 
     private var inputDeviceOptions: [VoiceInputDeviceOption] {
         VoiceInputDeviceOption.options(
             availableDevices: availableInputDevices,
-            defaultUID: VoiceInputDeviceCatalog.defaultDeviceUID(),
+            defaultUID: defaultInputDeviceUID,
             preferredUID: preferredInputDeviceUID
         )
     }
@@ -224,7 +228,9 @@ struct VoiceStudioView: View {
             return "The selected microphone is unavailable. Storybird will use the system default and keep your selection."
         }
         if let activeUID = selection.activeUID,
-           let name = VoiceInputDeviceCatalog.name(forUID: activeUID) {
+           let name = inputDevicesOverride == nil
+                ? VoiceInputDeviceCatalog.name(forUID: activeUID)
+                : inputDevicesOverride?.first(where: { $0.uid == activeUID })?.name {
             return preferredInputDeviceUID == nil
                 ? "Following the system default: \(name)."
                 : "Guided recordings will use \(name)."
@@ -235,13 +241,18 @@ struct VoiceStudioView: View {
     /// Reloads current input hardware while leaving the persisted UID intact so
     /// reconnecting a selected microphone restores it without another choice.
     private func refreshInputDevices() {
-        availableInputDevices = VoiceInputDeviceCatalog.devices()
+        availableInputDevices = inputDevicesOverride ?? VoiceInputDeviceCatalog.devices()
+    }
+
+    private var defaultInputDeviceUID: String? {
+        if let inputDevicesOverride { return inputDevicesOverride.first?.uid }
+        return VoiceInputDeviceCatalog.defaultDeviceUID()
     }
 
     /// Persists only explicit user changes; hardware disappearance never
     /// clears the preferred UID and an active recording keeps its start device.
     private func selectInputDevice(_ uid: String?) {
         preferredInputDeviceUID = uid
-        VoiceInputPreferences.save(preferredDeviceUID: uid)
+        if inputDevicesOverride == nil { VoiceInputPreferences.save(preferredDeviceUID: uid) }
     }
 }

@@ -50,7 +50,11 @@ public struct StorybirdMCPService: Sendable {
             storybird_list_audio_assets for reusable asset IDs. Edit or duplicate audio layers, \
             audition storybird_render_audio_preview, and poll the export job to completion. \
             Audio layers can overlap; no live microphone or repeated editing approvals are needed \
-            once the user has prepared the local model and voice profile. \
+            once a local model and voice profile are prepared. \
+            Use storybird_list_voice_models to inspect the two Base 8-bit models, \
+            storybird_select_voice_model to select one, and storybird_prepare_voice_model \
+            to download and prepare it without another approval. Poll \
+            storybird_get_voice_model until ready or failed before synthesizing. \
             Import local video or project audio by absolute path using storybird_import_video \
             or storybird_import_audio with a stable idempotency_key; no file picker or folder \
             approval is needed. Poll storybird_get_import until terminal. Replay the same \
@@ -89,7 +93,7 @@ public struct StorybirdMCPService: Sendable {
 
     /// Defines the public computer-use surface and its side-effect hints.
     static var toolDefinitions: [Tool] {
-        sourceTools + projectTools + layerTools + voiceTools + draftTools + audioTools + exportTools + importTools
+        sourceTools + projectTools + layerTools + voiceTools + draftTools + audioTools + exportTools + importTools + voiceModelTools
     }
 
     private static let exposedTools = Dictionary(uniqueKeysWithValues: toolDefinitions.map { ($0.name, $0) })

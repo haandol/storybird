@@ -260,10 +260,13 @@ steps using the matrix above; this is a catalog, not an all-changes checklist:
 11. Trim or speed-change the imported clip, export it, and confirm one AAC track
     stays synchronized with the edited video. Confirm freeze and full-screen
     card intervals are silent.
-12. Open **Settings › Voice**, approve the roughly 2 GB model preparation, and
-    confirm the 1.7B 8-bit MLX runtime becomes Ready. Quit and reopen Storybird,
-    disconnect the network, and confirm generation does not download the model
-    again.
+12. Open **Settings › Voice** and switch between the 1.7B and 0.6B Base 8-bit
+    models. Selection alone must not download. **Prepare Model** starts without
+    a confirmation dialog; confirm ready/failed state is specific to that model.
+    Prepare both and confirm switching preserves both installations and completed
+    audio. Repeat list/select/prepare/status through MCP without native approval.
+    Quit and reopen Storybird, check the persisted selection, disconnect the
+    network, and confirm prepared generation does not download again.
 13. Choose a specific input device, reopen Storybird, and confirm the choice is
     retained. Disconnect it and confirm Settings keeps the selection while
     reporting that the system default will be used; reconnect it and confirm it
@@ -335,7 +338,7 @@ steps using the matrix above; this is a catalog, not an all-changes checklist:
     non-duplicated click timestamps.
 25. Using an existing voice profile, have MCP create, update, and delete
     narration with project revision checks, then export the result. Confirm MCP
-    exposes no tool for profile import, microphone recording, model preparation,
+    exposes no tool for profile import, microphone recording,
     or profile deletion.
 26. Deny Accessibility or submit an out-of-range coordinate and confirm no
     pointer input or library mutation occurs.
@@ -475,6 +478,16 @@ It does not prove Bluetooth route negotiation or native permission behavior.
 Complete manual smoke step 15 separately with AirPods/Bluetooth and built-in input;
 record each device's result separately instead of treating synthetic success as a
 native pass.
+
+### Voice model selection and preparation
+
+Run `swift test --filter 'VoiceModelTests|MCPVoiceModelProtocolTests|MCPFeatureParityTests'`
+and `python3 scripts/test-voice-runtime.py`. These tests use temporary model
+markers, controlled providers and actual MCP production handlers, without model
+downloads or user voice profiles. Cover persistent selection, independent readiness,
+legacy 1.7B reuse, duplicate preparation, busy selection, pollable failure/retry,
+invalid model IDs, chosen-provider generation, both Python worker model arguments,
+and project revision preservation. Keep real model-download/speech checks distinct.
 
 ### MCP local-media import verification
 

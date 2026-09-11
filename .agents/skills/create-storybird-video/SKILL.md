@@ -68,7 +68,8 @@ duration and any unverified listening/motion checks. Keep language exports disti
 
 ## Boundaries
 
-Use app-owned tools, never direct project-library writes. Profile/model management,
+Use app-owned tools, never direct project-library writes. Model status, selection
+and preparation use MCP without additional approval. Profile management,
 microphone input and voice-profile reference-file selection require native user
 action. Project video/audio imports accept local paths through the advertised MCP
 tools without additional consent. Do not work around the remaining boundaries.

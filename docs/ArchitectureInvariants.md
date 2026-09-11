@@ -68,10 +68,12 @@ Read these before changing capture, persistence, or export behavior.
   imported primary audio track plus project-owned cloned-voice narration as one
   synchronized AAC track when present. Replace the chosen destination only after
   successful completion.
-- **Voice cloning is local and user-authorized.** The approved PoC uses the MLX
-  Qwen3-TTS 1.7B Base 8-bit model on 24GB+ Apple Silicon. Model download,
-  microphone capture, voice-profile reference-file selection, and profile deletion require native
-  user action. MCP may use existing profiles but never register or delete them.
+- **Voice cloning is local and user-authorized.** The approved PoC uses MLX
+  Qwen3-TTS 1.7B or 0.6B Base, both 8-bit, on 24GB+ Apple Silicon. UI and MCP share
+  model status, persistent selection and preparation. The UI preparation button
+  or authenticated MCP preparation request starts download without another approval.
+  Microphone capture, voice-profile reference-file selection and profile deletion
+  retain native user action. MCP may use existing profiles but never register or delete them.
 - **Narration timing is explicit.** Existing layers remain at fixed project
   times; new scene-linked narration and subtitles follow their start frame through
   clip edits without changing speech or display duration. Removing the start or

@@ -7,10 +7,15 @@ voice profile. For field details, use the relevant audio/narration sections of
 
 ## Generate or revise speech
 
-Use existing consented profiles. Users prepare the model and create/manage profiles
-in native Settings; never activate a microphone, download a model, choose a
-voice-profile reference file or modify profile assets indirectly. A prepared model and profile
-allow speech from text without a human recording.
+Use existing consented profiles. Query `storybird_list_voice_models`, select
+`qwen3-tts-1.7b-base-8bit` or `qwen3-tts-0.6b-base-8bit` through
+`storybird_select_voice_model`, and call `storybird_prepare_voice_model` if needed.
+Poll `storybird_get_voice_model` until ready or failed; preparation needs no
+additional approval and model selection alone never downloads. Do not switch
+models during active voice work. Both prepared models remain available.
+Users create/manage profiles in native Settings; never activate a microphone,
+choose a voice-profile reference file or modify profile assets indirectly.
+A prepared model and profile allow speech from text without a human recording.
 
 Before a longer synthesis with an unverified voice/language, generate a short
 representative sentence with service names, numbers or mixed-language phrases.

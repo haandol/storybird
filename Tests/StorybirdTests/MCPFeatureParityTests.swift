@@ -45,7 +45,10 @@ final class MCPFeatureParityTests: XCTestCase {
         XCTAssertFalse(names.contains("storybird_create_voice_profile"))
         XCTAssertFalse(names.contains("storybird_record_voice_profile"))
         XCTAssertFalse(names.contains("storybird_delete_voice_profile"))
-        XCTAssertFalse(names.contains("storybird_prepare_voice_model"))
+        XCTAssertTrue(names.contains("storybird_list_voice_models"))
+        XCTAssertTrue(names.contains("storybird_get_voice_model"))
+        XCTAssertTrue(names.contains("storybird_select_voice_model"))
+        XCTAssertTrue(names.contains("storybird_prepare_voice_model"))
         XCTAssertFalse(names.contains("storybird_rename_voice_profile"))
         XCTAssertTrue(names.contains("storybird_import_video"))
         XCTAssertTrue(names.contains("storybird_import_audio"))
@@ -127,6 +130,7 @@ final class MCPFeatureParityTests: XCTestCase {
             "storybird_render_audio_preview", "storybird_start_export",
             "storybird_cancel_export", "storybird_export_project", "storybird_delete_project",
             "storybird_import_video", "storybird_import_audio", "storybird_cancel_import",
+            "storybird_select_voice_model", "storybird_prepare_voice_model",
         ]
         let tools = StorybirdMCPService.toolDefinitions
         XCTAssertEqual(nonEditCommands.subtracting(Set(tools.map(\.name))), [])

@@ -193,7 +193,10 @@ or deleting project data.
 
 If the connection works but an action is missing, check the
 [UI/MCP feature inventory](MCPFeatureParity.md). File selection, microphone
-recording, model/profile management and Settings require native interaction.
+recording, voice-profile management and non-model Settings require native interaction.
+Model list/status, selection and preparation are available through MCP. Query
+the selected model's state and prepare it if needed; neither another model's
+ready state nor an existing profile means the selected model is prepared.
 After installing a build with new tools, restart Storybird and reconnect the
 MCP client to refresh discovery. A missing project-editing action should be
 reported with the app version, tool name and expected property.

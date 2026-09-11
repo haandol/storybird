@@ -74,9 +74,11 @@ or a Swift 6.2+ toolchain.
 
 Local voice cloning uses **Apple Silicon with at least 24GB of unified memory**
 as its supported proof-of-concept baseline. Install [`uv`](https://docs.astral.sh/uv/),
-leave several GB of free disk space, and approve the initial runtime and roughly
-2GB model download in Settings. Storybird uses the Qwen3-TTS 1.7B Base 8-bit MLX
-model; after preparation, synthesis runs offline.
+leave several GB of free disk space, and prepare a model in Settings or through
+MCP. Choose Qwen3-TTS 1.7B Base 8-bit (default, approximately 3.1 GB) or
+0.6B Base 8-bit (approximately 2.0 GB). Preparation starts without another
+approval; selection alone never downloads. Both models can stay installed, and
+subsequent synthesis runs offline.
 
 | Permission | When Storybird uses it |
 |---|---|
@@ -438,8 +440,9 @@ from native-only setup and local window controls.
 
 ### What still needs you
 
-- For cloned speech, prepare the model and manage voice profiles in native
-  Settings. Reference-file selection and microphone recording remain native
+- For cloned speech, manage voice profiles in native Settings. Model selection,
+  status and preparation also work through MCP without additional approval.
+  Reference-file selection and microphone recording remain native
   actions. Importing finished project video/audio needs none of these steps.
 - Approve the selected recording source and pointer control in Storybird.
   Keep pointer-changing tools out of automatic approval: they operate the real desktop.
@@ -482,7 +485,7 @@ Support folder does not exist, and its original is preserved.
 ### Network and retention
 
 Ordinary recording, media import, editing, and export have no Storybird-owned upload path.
-Model preparation downloads the approved runtime/model; subsequent synthesis
+Model preparation downloads the selected supported runtime/model; subsequent synthesis
 uses the local cache offline. A sync service managing your chosen folder controls
 its own synchronization. MCP disclosure is described above.
 

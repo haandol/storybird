@@ -25,7 +25,11 @@ final class AppStore: ObservableObject {
     @Published var requestedPreviewProjectID: UUID?
     @Published private(set) var isExportActive = false
     @Published private(set) var voiceProfiles: [VoiceProfile] = []
-    @Published private(set) var voiceRuntimeState: VoiceRuntimeState = .notPrepared
+    @Published private(set) var selectedVoiceModel: VoiceModel = .base1_7B
+    @Published private(set) var voiceModelStates: [VoiceModel: VoiceRuntimeState] = [:]
+    var voiceRuntimeState: VoiceRuntimeState {
+        voiceModelStates[selectedVoiceModel] ?? .notPrepared
+    }
 
     @Published private(set) var repository: ProjectRepository
     @Published private(set) var selectedStorageRootURL: URL?
@@ -41,17 +45,35 @@ final class AppStore: ObservableObject {
     private var narrationTasks: [UUID: Task<Void, Never>] = [:]
     lazy var mediaImports = MediaImportController(store: self)
     private let voiceServiceOverride: (any VoiceSynthesisProviding)?
-    private lazy var voiceService: any VoiceSynthesisProviding =
-        voiceServiceOverride ?? VoiceSynthesisService(
-            rootURL: repository.sharedRootURL
-        )
+    private let voiceModelServiceOverrides: [VoiceModel: any VoiceSynthesisProviding]
+    private let voiceModelPreferences: VoiceModelPreferences?
+    private var voiceModelServices: [VoiceModel: any VoiceSynthesisProviding] = [:]
+    private var voiceModelPreparationTasks: [VoiceModel: Task<Void, Never>] = [:]
+    private var voiceService: any VoiceSynthesisProviding { service(for: selectedVoiceModel) }
+
+    /// Reuses one provider per model so readiness and generation target the same
+    /// installation; test overrides never reach the user's runtime.
+    private func service(for model: VoiceModel) -> any VoiceSynthesisProviding {
+        if let provider = voiceModelServiceOverrides[model] ?? voiceServiceOverride { return provider }
+        if let provider = voiceModelServices[model] { return provider }
+        let provider = VoiceSynthesisService(rootURL: repository.sharedRootURL, model: model)
+        voiceModelServices[model] = provider
+        return provider
+    }
 
     init(
         repository: ProjectRepository? = nil,
         voiceService: (any VoiceSynthesisProviding)? = nil,
-        storagePreferences: StorybirdStoragePreferences? = nil
+        storagePreferences: StorybirdStoragePreferences? = nil,
+        voiceModelPreferences: VoiceModelPreferences? = nil,
+        voiceModelServices: [VoiceModel: any VoiceSynthesisProviding] = [:]
     ) {
         voiceServiceOverride = voiceService
+        voiceModelServiceOverrides = voiceModelServices
+        let modelPreferences = voiceModelPreferences
+            ?? (repository == nil ? VoiceModelPreferences() : nil)
+        self.voiceModelPreferences = modelPreferences
+        selectedVoiceModel = modelPreferences?.selected ?? .base1_7B
         let preferences = storagePreferences
             ?? (repository == nil ? StorybirdStoragePreferences() : nil)
         self.storagePreferences = preferences
@@ -200,17 +222,14 @@ final class AppStore: ObservableObject {
         }
     }
 
-    /// Prepares the user-approved local MLX runtime and model without changing
-    /// projects or voice profiles if installation or download fails.
-    func prepareVoiceRuntime() async {
-        let operation = beginStorageOperation(.voice)
-        defer { endStorageOperation(operation) }
-        voiceRuntimeState = .preparing
+    /// The UI button joins the same app-owned preparation task as MCP, with no
+    /// extra approval and no project/profile mutation on failure.
+    func prepareVoiceRuntime(model: VoiceModel? = nil) async {
+        let target = model ?? selectedVoiceModel
         do {
-            try await voiceService.prepare()
-            voiceRuntimeState = .ready
+            _ = try startVoiceModelPreparation(target)
+            await voiceModelPreparationTasks[target]?.value
         } catch {
-            voiceRuntimeState = .failed(error.localizedDescription)
             errorMessage = error.localizedDescription
         }
     }
@@ -218,9 +237,75 @@ final class AppStore: ObservableObject {
     /// Restores the visible runtime state from local executable and model-cache
     /// markers without contacting the model provider.
     func refreshVoiceRuntimeState() async {
-        voiceRuntimeState = await voiceService.prepared()
-            ? .ready
-            : .notPrepared
+        for model in VoiceModel.allCases {
+            let previous = voiceModelStates[model] ?? .notPrepared
+            guard previous != .preparing else { continue }
+            if case .failed = previous { continue }
+            let ready = await service(for: model).prepared()
+            guard (voiceModelStates[model] ?? .notPrepared) == previous else { continue }
+            let current: VoiceRuntimeState = ready ? .ready : .notPrepared
+            if current != previous { voiceModelStates[model] = current }
+        }
+    }
+
+    var isVoiceModelBusy: Bool {
+        storageOperations.values.contains(.voice)
+            || storageOperations.values.contains(.microphone)
+    }
+
+    /// UI and MCP share one persistent selection; an active voice job owns it.
+    func selectVoiceModel(_ model: VoiceModel) throws {
+        guard model != selectedVoiceModel else { return }
+        guard !isVoiceModelBusy else {
+            throw VoiceSynthesisError.processFailed("Finish the active voice operation before changing models.")
+        }
+        voiceModelPreferences?.save(model)
+        selectedVoiceModel = model
+    }
+
+    /// Returns local state without starting a download or exposing voice data.
+    func voiceModelSnapshot(_ model: VoiceModel) -> VoiceModelSnapshot {
+        let state: String
+        var error: String?
+        switch voiceModelStates[model] ?? .notPrepared {
+        case .notPrepared: state = "not_prepared"
+        case .preparing: state = "preparing"
+        case .ready: state = "ready"
+        case let .failed(message): state = "failed"; error = message
+        }
+        return VoiceModelSnapshot(
+            id: model.rawValue, name: model.displayName, repositoryID: model.repositoryID,
+            quantizationBits: 8, estimatedDownloadBytes: model.estimatedDownloadBytes,
+            selected: model == selectedVoiceModel, state: state, error: error
+        )
+    }
+
+    /// Reserve the job before returning so reconnects/repeated calls do not
+    /// launch duplicate downloads. Publication remains owned by the provider.
+    @discardableResult
+    func startVoiceModelPreparation(_ model: VoiceModel) throws -> VoiceModelSnapshot {
+        if voiceModelStates[model] == .preparing || voiceModelStates[model] == .ready {
+            return voiceModelSnapshot(model)
+        }
+        guard !isVoiceModelBusy else {
+            throw VoiceSynthesisError.processFailed("Finish the active voice operation before preparing a model.")
+        }
+        let operation = beginStorageOperation(.voice)
+        let provider = service(for: model)
+        voiceModelStates[model] = .preparing
+        voiceModelPreparationTasks[model] = Task {
+            defer {
+                self.endStorageOperation(operation)
+                self.voiceModelPreparationTasks[model] = nil
+            }
+            do {
+                try await provider.prepare()
+                self.voiceModelStates[model] = .ready
+            } catch {
+                self.voiceModelStates[model] = .failed(error.localizedDescription)
+            }
+        }
+        return voiceModelSnapshot(model)
     }
 
     /// Imports one user-authorized MP3/WAV into the local voice library only

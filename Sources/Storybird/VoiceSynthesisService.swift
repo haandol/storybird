@@ -1,4 +1,5 @@
 import Foundation
+import StorybirdCore
 
 enum VoiceSynthesisError: LocalizedError {
     case uvUnavailable
@@ -37,13 +38,32 @@ private final class CancellableVoiceProcess: @unchecked Sendable {
     }
 }
 
+/// All model instances share one slot so switching models cannot overlap a
+/// download/load with another memory-heavy worker.
+private final class VoiceWorkerSlot: @unchecked Sendable {
+    private let lock = NSLock()
+    private var occupied = false
+
+    /// Claims the shared slot atomically across independent model actors.
+    func acquireIfAvailable() -> Bool {
+        lock.withLock {
+            guard !occupied else { return false }
+            occupied = true
+            return true
+        }
+    }
+
+    /// Makes the slot available only after its worker has completed or exited.
+    func release() { lock.withLock { occupied = false } }
+}
+
 protocol VoiceSynthesisProviding: Sendable {
     /// Reports whether the approved local runtime can synthesize without
     /// initiating model preparation.
     func prepared() async -> Bool
 
-    /// Installs and downloads the local runtime only from a user-approved
-    /// preparation action.
+    /// Installs and downloads the local runtime only from an explicit UI or MCP
+    /// preparation action, without an additional approval step.
     func prepare() async throws
 
     /// Writes one complete local WAV from an existing consented reference and
@@ -58,31 +78,34 @@ protocol VoiceSynthesisProviding: Sendable {
 }
 
 actor VoiceSynthesisService: VoiceSynthesisProviding {
-    static let modelID =
-        "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit"
+    static let modelID = VoiceModel.base1_7B.repositoryID
 
     private let rootURL: URL
-    private var workerBusy = false
+    private let model: VoiceModel
+    private static let workerSlot = VoiceWorkerSlot()
 
-    init(rootURL: URL) {
+    /// Binds cache, marker and worker arguments to one supported model.
+    init(rootURL: URL, model: VoiceModel = .base1_7B) {
         self.rootURL = rootURL
+        self.model = model
     }
 
     var isPrepared: Bool {
         FileManager.default.isExecutableFile(
             atPath: pythonURL.path
-        ) && FileManager.default.fileExists(atPath: modelMarkerURL.path)
+        ) && (try? String(contentsOf: modelMarkerURL, encoding: .utf8))
+            == model.repositoryID
     }
 
     /// Reports readiness from local executable and marker state only, so opening
     /// the studio never initiates a model-provider request.
     func prepared() -> Bool { isPrepared }
 
-    /// Installs the local MLX TTS runtime and downloads the approved model only
-    /// after the UI has obtained native user approval.
+    /// Prepares the requested model from either UI or MCP, staging all files
+    /// before replacing only that model's last complete installation.
     func prepare() async throws {
         try await acquireWorker()
-        defer { workerBusy = false }
+        defer { Self.workerSlot.release() }
         guard let uv = Self.executable(named: "uv") else {
             throw VoiceSynthesisError.uvUnavailable
         }
@@ -125,10 +148,10 @@ actor VoiceSynthesisService: VoiceSynthesisProviding {
         )
         _ = try await run(
             executable: stagingPython.path,
-            arguments: [try scriptURL().path, "prepare"],
+            arguments: [try scriptURL().path, "prepare", "--model", model.repositoryID],
             environment: environment
         )
-        try Data(Self.modelID.utf8).write(
+        try Data(model.repositoryID.utf8).write(
             to: stagingRoot.appendingPathComponent("model-ready.txt"),
             options: .atomic
         )
@@ -148,7 +171,7 @@ actor VoiceSynthesisService: VoiceSynthesisProviding {
         outputURL: URL
     ) async throws -> VoiceSynthesisResult {
         try await acquireWorker()
-        defer { workerBusy = false }
+        defer { Self.workerSlot.release() }
         guard isPrepared else {
             throw VoiceSynthesisError.processFailed(
                 "The voice model is not prepared."
@@ -163,6 +186,7 @@ actor VoiceSynthesisService: VoiceSynthesisProviding {
             arguments: [
                 try scriptURL().path,
                 "generate",
+                "--model", model.repositoryID,
                 "--text", text,
                 "--ref-audio", referenceAudioURL.path,
                 "--ref-text", referenceText,
@@ -336,15 +360,15 @@ actor VoiceSynthesisService: VoiceSynthesisProviding {
     /// Serializes memory-heavy workers and model replacement while preserving
     /// cancellation for queued requests instead of launching concurrent models.
     private func acquireWorker() async throws {
-        while workerBusy {
+        while true {
+            try Task.checkCancellation()
+            if Self.workerSlot.acquireIfAvailable() { return }
             try await Task.sleep(for: .milliseconds(50))
         }
-        try Task.checkCancellation()
-        workerBusy = true
     }
 
     private var runtimeRootURL: URL {
-        rootURL.appendingPathComponent("VoiceRuntime", isDirectory: true)
+        rootURL.appendingPathComponent(model.runtimeDirectoryName, isDirectory: true)
     }
 
     private var pythonURL: URL {

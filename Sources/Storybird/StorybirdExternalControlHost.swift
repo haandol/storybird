@@ -90,6 +90,22 @@ final class StorybirdExternalControlHost {
         do {
             let arguments = try Self.arguments(from: request.argumentsJSON)
             switch request.name {
+            case "storybird_list_voice_models":
+                await store.refreshVoiceRuntimeState()
+                return try Self.jsonResponse(VoiceModel.allCases.map { store.voiceModelSnapshot($0) })
+            case "storybird_get_voice_model", "storybird_select_voice_model", "storybird_prepare_voice_model":
+                let rawModel = try Self.string("model_id", in: arguments)
+                guard let model = VoiceModel(rawValue: rawModel) else {
+                    throw VoiceSynthesisError.processFailed("Unknown voice model: \(rawModel)")
+                }
+                if request.name == "storybird_select_voice_model" {
+                    try store.selectVoiceModel(model)
+                }
+                await store.refreshVoiceRuntimeState()
+                if request.name == "storybird_prepare_voice_model" {
+                    return try Self.jsonResponse(store.startVoiceModelPreparation(model))
+                }
+                return try Self.jsonResponse(store.voiceModelSnapshot(model))
             case "storybird_import_video", "storybird_import_audio":
                 return try Self.jsonResponse(store.mediaImports.start(
                     kind: request.name == "storybird_import_video" ? .video : .audio,

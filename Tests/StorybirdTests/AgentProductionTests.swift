@@ -506,7 +506,7 @@ final class AgentProductionTests: XCTestCase {
         let runtime = root.appendingPathComponent("VoiceRuntime")
         let worker = runtime.appendingPathComponent(".venv/bin/python")
         try FileManager.default.createDirectory(at: worker.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data("test runtime".utf8).write(to: runtime.appendingPathComponent("model-ready.txt"))
+        try Data(VoiceSynthesisService.modelID.utf8).write(to: runtime.appendingPathComponent("model-ready.txt"))
         try TestVideoFactory.makeToneWAV(at: worker.deletingLastPathComponent().appendingPathComponent("template.wav"), duration: 1)
         let script = """
         #!/bin/sh

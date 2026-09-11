@@ -12,12 +12,16 @@ import soundfile as sf
 from mlx_audio.tts.utils import load_model
 
 MODEL_ID = "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit"
+MODEL_IDS = (
+    MODEL_ID,
+    "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit",
+)
 
 
-def load():
-    """Load the fixed local MLX model used by preparation and generation."""
+def load(model_id):
+    """Load the explicitly selected, allowlisted local MLX model."""
     started = time.perf_counter()
-    model = load_model(MODEL_ID)
+    model = load_model(model_id)
     return model, time.perf_counter() - started
 
 
@@ -25,8 +29,10 @@ def main():
     """Prepare the model cache or generate one complete local narration WAV."""
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("prepare")
+    prepare = sub.add_parser("prepare")
+    prepare.add_argument("--model", choices=MODEL_IDS, default=MODEL_ID)
     generate = sub.add_parser("generate")
+    generate.add_argument("--model", choices=MODEL_IDS, default=MODEL_ID)
     generate.add_argument("--text", required=True)
     generate.add_argument("--ref-audio", required=True)
     generate.add_argument("--ref-text", required=True)
@@ -34,11 +40,11 @@ def main():
     generate.add_argument("--output", required=True)
     args = parser.parse_args()
 
-    model, load_seconds = load()
+    model, load_seconds = load(args.model)
     if args.command == "prepare":
         print(json.dumps({
             "ok": True,
-            "model": MODEL_ID,
+            "model": args.model,
             "load_seconds": load_seconds,
             "active_memory": mx.get_active_memory(),
         }))
@@ -64,6 +70,7 @@ def main():
     sf.write(output, audio, sample_rate)
     print(json.dumps({
         "ok": True,
+        "model": args.model,
         "output": str(output),
         "sample_rate": sample_rate,
         "duration": len(audio) / sample_rate,
