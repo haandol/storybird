@@ -4,6 +4,7 @@ struct GuidedVoiceRecordingSection<Recorder: VoiceSampleRecording>: View {
     @ObservedObject var recorder: Recorder
     @ObservedObject var preview: VoicePreviewPlayer
     let prompt: String
+    let targetDurationDescription: String
     let isWorking: Bool
     let onRestart: () -> Void
     let onError: (Error) -> Void
@@ -80,7 +81,7 @@ struct GuidedVoiceRecordingSection<Recorder: VoiceSampleRecording>: View {
                 .foregroundStyle(.secondary)
             }
             Spacer()
-            Text("Target: 10–15 seconds")
+            Text("Target: \(targetDurationDescription)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

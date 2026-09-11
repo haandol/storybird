@@ -4,6 +4,15 @@ This document is the **major decision-change history** of the voice-narration ca
 Each ADR body describes only the current state, while the timeline of "what changed and
 why" accumulates here, newest first. Git preserves the individual diffs.
 
+## 2026-09-11 — 음성 참조 대본을 인사로 시작하는 약 20초 발표로 구성한다
+
+- **Current ADR**: [local-cloned-voice-narration](./0001-local-cloned-voice-narration.md)
+- **Change type**: requirement rule change
+- **What**: 한국어·영어의 `10초...15초` 대본을 각각 해당 언어의 인사로 시작하는 약 `20초`
+  발표 대본으로 바꾼다. 한국어에는 영어 기능명을 자연스럽게 섞고, 두 언어 모두 질문·강조·쉼을
+  포함한다. 최소 녹음은 `10초`를 유지한다.
+- **Why**: 실제 발표에서 쓰는 혼합 발화와 다양한 억양, 충분한 설명 분량을 참조 음성에 담는다.
+
 ## 2026-09-10 — 생성한 음성 프로필의 표시 이름을 변경한다
 
 - **Current ADR**: [local-cloned-voice-narration](./0001-local-cloned-voice-narration.md)

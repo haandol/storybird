@@ -211,10 +211,14 @@ Recorded samples and saved voice profiles play directly inside Storybird.
 Click the preview button again to stop playback; no external music app is needed.
 
 <div align="center">
-  <img src="docs/images/voice-profile-dialog-app.png" width="520" alt="The running profile creation modal with the synthetic name Demo narrator, Korean reference language, voice-use consent, recording prompt, and Cancel/Create Profile buttons" />
+  <img src="docs/images/voice-profile-dialog-app.png" width="520" alt="The profile creation modal with the name Synthetic narrator, Korean reference language, voice-use consent, a mixed-language presentation prompt, and Cancel/Create Profile buttons" />
 </div>
 
-The prompt takes about 10–15 seconds. Its language and microphone stay fixed for
+Both prompts are approximately 20-second presentations that begin with a greeting
+and include questions, emphasis, and brief pauses. The Korean prompt naturally
+includes English feature names in Korean sentences. Read the full script;
+the minimum recording length is 10 seconds.
+The selected language, script, and microphone stay fixed for
 that sample. A selected microphone is remembered across restarts; if it is
 unavailable, the next recording uses the system default while preserving your choice.
 

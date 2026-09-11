@@ -75,7 +75,7 @@ struct VoiceProfileCreationView<Recorder: VoiceSampleRecording>: View {
                                 .font(.body)
                                 .lineSpacing(4)
                                 .textSelection(.enabled)
-                            Text("Read naturally for at least 10 seconds. You can pause, preview, and record again.")
+                            Text("Read the full script naturally (\(model.referenceLanguage.referenceDurationDescription)). Record at least 10 seconds. You can pause, preview, and record again.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                             Button(isStarting ? "Starting…" : "Start Recording") {
@@ -95,6 +95,7 @@ struct VoiceProfileCreationView<Recorder: VoiceSampleRecording>: View {
                         recorder: recorder,
                         preview: preview,
                         prompt: model.referenceLanguage.referencePrompt,
+                        targetDurationDescription: model.referenceLanguage.referenceDurationDescription,
                         isWorking: model.isSaving,
                         onRestart: restartRecording,
                         onError: { model.errorMessage = $0.localizedDescription }

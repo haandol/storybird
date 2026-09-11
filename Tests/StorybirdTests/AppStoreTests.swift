@@ -312,36 +312,39 @@ final class AppStoreTests: XCTestCase {
         )
     }
 
-    func test_voiceRecordingPrompt_defaultKoreanSpeechFitsTargetDuration() async throws {
-        let output = temporaryDirectory()
-            .appendingPathComponent("guided-prompt.aiff")
+    func test_voiceRecordingPrompt_defaultSpeechFitsPresentationTargetDuration() async throws {
+        let directory = temporaryDirectory()
         defer {
             try? FileManager.default.removeItem(
-                at: output.deletingLastPathComponent()
+                at: directory
             )
         }
         try FileManager.default.createDirectory(
-            at: output.deletingLastPathComponent(),
+            at: directory,
             withIntermediateDirectories: true
         )
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/say")
-        process.arguments = [
-            "-v", "Yuna",
-            "-o", output.path,
-            VoiceStudioView.recordingPrompt,
-        ]
-        try process.run()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            throw XCTSkip("The macOS Yuna Korean voice is unavailable.")
-        }
+        for (language, voice) in [(VoiceLanguage.korean, "Yuna"), (.english, "Samantha")] {
+            let output = directory.appendingPathComponent("\(language.rawValue)-prompt.aiff")
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/say")
+            process.arguments = [
+                "-v", voice,
+                "-o", output.path,
+                language.referencePrompt,
+            ]
+            try process.run()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else {
+                throw XCTSkip("The macOS \(voice) voice is unavailable.")
+            }
 
-        let duration = CMTimeGetSeconds(
-            try await AVURLAsset(url: output).load(.duration)
-        )
-        XCTAssertGreaterThanOrEqual(duration, 10)
-        XCTAssertLessThanOrEqual(duration, 15)
+            let duration = CMTimeGetSeconds(
+                try await AVURLAsset(url: output).load(.duration)
+            )
+            // A local speech estimate guards the approximate target, not a human's pace.
+            XCTAssertGreaterThanOrEqual(duration, 17, "\(language) reference is too short.")
+            XCTAssertLessThanOrEqual(duration, 23, "\(language) reference is too long.")
+        }
     }
 
     func test_importVoiceProfile_acceptsMP3() async throws {

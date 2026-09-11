@@ -245,7 +245,10 @@ ScreenCaptureKit and TCC behavior require a real signed bundle:
     and duplicate creation; a save failure preserves inputs and shows an inline error.
 15. Select **Record**, grant Microphone access, and confirm the recording sheet shows the
     full prosody prompt, recording state, live waveform, elapsed time, and the
-    10-second boundary. Pause and resume once, then preview and save a recording
+    10-second boundary. Both languages target about 20 seconds and begin with a
+    greeting; Korean includes English feature names within presentation sentences.
+    Read the full script and confirm its ending remains reachable by scrolling.
+    Pause and resume once, then preview and save a recording
     of at least 10 seconds. Confirm a shorter sample cannot be finalized.
     Deny the permission once and confirm Storybird shows recovery guidance
     without changing a project. Cancel during recording or after preview and
