@@ -10,16 +10,22 @@ public struct StorybirdMCPService: Sendable {
 
     /// Runs one local stdio MCP connection and aborts capture when it closes.
     public func run() async throws {
-        let server = await makeServer()
-        let transport = StdioTransport()
+        let server: Server
         do {
-            try await server.start(transport: transport)
+            server = try await startServer(transport: StdioTransport())
             await server.waitUntilCompleted()
         } catch {
             await abortActiveSession()
             throw error
         }
         await abortActiveSession()
+    }
+
+    /// Uses the same initialization compatibility boundary for stdio and tests.
+    func startServer(transport: any Transport) async throws -> Server {
+        let server = await makeServer()
+        try await server.start(transport: StorybirdMCPTransport(transport))
+        return server
     }
 
     /// Builds the production MCP handlers independently of transport, allowing

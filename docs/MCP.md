@@ -333,7 +333,10 @@ repository automatically. The app and companion should come from the same bundle
 
 Protocol regression coverage uses the production server handlers and an actual
 MCP SDK client over in-memory transport, with isolated app IPC and deterministic
-TTS. Run `swift test --filter MCPAudioProtocolTests` without a live app, microphone
+TTS. Initialization compatibility is also covered by
+`swift test --filter MCPInitializationTests`, which sends raw client JSON through
+the production transport boundary and verifies tool discovery without app access.
+Run `swift test --filter MCPAudioProtocolTests` without a live app, microphone
 or voice profile.
 
 ## Import local video and audio without a file picker

@@ -56,3 +56,8 @@ body:
     attributes:
       label: Diagnostics
       description: Include signing identity or permission state, but no secrets.
+  - type: input
+    id: mcp_client
+    attributes:
+      label: MCP client and companion path (for MCP issues)
+      description: Include client name/version and the configured StorybirdMCP executable path. Do not paste credentials or your entire client configuration.

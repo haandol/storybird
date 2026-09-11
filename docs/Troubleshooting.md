@@ -181,7 +181,15 @@ This is a bug. Storybird marks the HUD as non-shareable and hides the editor
 during capture. Report the macOS version and source type through a private
 security advisory if private content is visible.
 
-## Kiro cannot start the Storybird MCP server
+## The MCP client cannot start the Storybird server
+
+If startup fails during `initialize` with JSON-RPC `-32603` and “The data
+couldn’t be read because it isn’t in the correct format,” install a build with
+the initialization compatibility fix and reconnect the client. Swift MCP SDK
+0.12.1 expects experimental capability values to be strings; clients can send
+objects instead. Storybird ignores unsupported experimental metadata before SDK
+decoding. This handshake failure does not require resetting screen permissions
+or deleting project data.
 
 If the connection works but an action is missing, check the
 [UI/MCP feature inventory](MCPFeatureParity.md). File selection, microphone
@@ -196,14 +204,14 @@ Build and install the signed bundle, then configure:
 /Applications/Storybird.app/Contents/MacOS/StorybirdMCP
 ```
 
-Do not point Kiro at `.build/debug/StorybirdMCP`. Verify the installed companion:
+Do not point the client at `.build/debug/StorybirdMCP`. Verify the installed companion:
 
 ```bash
 codesign --verify --strict --verbose=2 \
   /Applications/Storybird.app/Contents/MacOS/StorybirdMCP
 ```
 
-Restart Kiro after changing its MCP configuration.
+Reconnect the MCP client after changing its configuration or replacing the companion.
 
 ## Storybird MCP lists no sources or returns no frame
 

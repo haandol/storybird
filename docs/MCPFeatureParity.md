@@ -106,6 +106,12 @@ project-editing tools. Changing their scope requires checking the owning ADR.
 
 ## Verification scope
 
+`MCPInitializationTests` sends raw external-client JSON through the production
+transport adapter, including object-valued experimental capabilities. It checks
+initialization, tool discovery, repeated-initialization rejection and standard-field validation
+without launching or contacting Storybird. Same-SDK client tests alone cannot
+detect every wire-format compatibility issue.
+
 Use synthetic temporary projects. Never read the user's project library for a
 parity audit. Run the focused command in [CONTRIBUTING](../CONTRIBUTING.md#mcp-support-is-part-of-feature-completion)
 and `swift test` before declaring the change complete. Recording/pointer changes
