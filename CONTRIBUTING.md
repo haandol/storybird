@@ -119,6 +119,18 @@ Run the isolated shell regression checks for both scripts with
 `python3 scripts/test-publish-release.py`; they use temporary repositories and a
 fake GitHub CLI, without contacting GitHub.
 
+Release fact collection is read-only and runs with Python 3 on macOS:
+
+```bash
+.agents/skills/prepare-storybird-release/scripts/collect_release_facts.sh --target v0.1.2 --online --json
+python3 scripts/test-collect-release-facts.py
+```
+
+Local tags, remote tags and GitHub publication are reported separately. Without
+an online lookup, or if it fails, publication stays `unknown`; a local tag does
+not imply a published release. Comparisons use a reachable previous published
+release, and report missing history instead of silently choosing a local tag.
+
 ### Replacing the App Icon
 
 Generate the artwork with a character image you have permission to use, review

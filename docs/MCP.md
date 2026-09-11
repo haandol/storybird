@@ -120,8 +120,9 @@ current agent has a working connection.
    with `storybird_render_preview`. Every retained click needs both its
    description and Cue subtitle before export.
 7. Start export, poll its job until a terminal state, and inspect the resulting
-   MP4. Ask the user to listen to a short voice sample before relying on its
-   pronunciation or resemblance for a longer production.
+   MP4. For a longer production with an unverified voice/language, inspect a short
+   representative sample. Ask for listening feedback when it resolves material
+   uncertainty or the user requested review; do not require routine sentence approval.
 
 An introduction should show the user benefit and outcome. A tutorial should
 preserve the input, action, and visible result needed to reproduce each step.

@@ -313,6 +313,10 @@ From another workspace, give the agent the path to that skill and ask it to read
 it first. Connecting the MCP server and giving the agent the workflow are separate
 steps; the app is not a built-in chat assistant.
 
+The skill loads recording and audio references only for tasks that need them.
+Keep the repository skill as the maintained source; personal installations should
+refer to it rather than keep independent copies of the workflow and MCP manual.
+
 ### Try these requests
 
 Replace the service, project, profile, and output names with your own.

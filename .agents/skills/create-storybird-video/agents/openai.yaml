@@ -1,4 +1,4 @@
 interface:
   display_name: "Storybird Video Production"
-  short_description: "Create narrated Korean or English Storybird demos"
+  short_description: "Create or edit Korean or English Storybird videos"
   default_prompt: "Use $create-storybird-video to create a service tutorial with my existing voice profile and verify the exported MP4."

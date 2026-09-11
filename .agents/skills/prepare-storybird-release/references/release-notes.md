@@ -1,5 +1,8 @@
 # Storybird 릴리즈 노트 작성 기준
 
+노트를 새로 쓰거나 수정할 때만 읽는다. 한국어로 작성하고 기본 파일은
+`build/release-notes-vX.Y.Z.md`다. 사용자 지정 경로를 우선하며 생성물은 커밋하지 않는다.
+
 ## 사실을 모으는 순서
 
 릴리즈 노트 초안이 사실의 원천이 되어서는 안 된다. 다음 증거를 하나의 릴리즈 레코드로 모은
@@ -15,16 +18,10 @@
 test-only, 문서 정리는 사용자 노트에서 생략할 수 있지만, 릴리즈 안전성이나 운영자 행동에
 영향을 주면 검증 또는 기술 참고로 남긴다.
 
-## 중요도 분류
+## 중요도
 
-초안을 쓰기 전에 항목을 분류한다.
-
-- A: 새 기능, 큰 UX 변화, 호환성 파괴, 권한·접근·데이터 변화, 보안 수정, 사용자 조치 필요
-- B: 기존 흐름의 의미 있는 개선, 사용자가 체감하는 신뢰성 수정, 중요한 설정 변화
-- C: 작은 시각 보정, 낮은 가시성 수정, 내부 유지보수
-
-A를 가장 먼저 쓰고 C가 더 중요한 내용을 묻지 않게 한다. C는 사용자에게 실제 결과가 없으면
-공개 노트에서 제외한다.
+새 기능·호환성·권한·데이터 변화와 필요한 사용자 조치를 먼저 설명한다.
+체감 가능한 개선·수정을 뒤에 두고, 사용자 영향이 없는 내부 유지보수는 생략한다.
 
 ## 문장 규칙
 
@@ -115,25 +112,3 @@ Security의 **Security**에서 Storybird 옆 **Open Anyway**를 누르고 다시
 
 같은 내용을 모든 채널에 복사하지 않는다. GitHub Release에서 긴 복구 절차가 필요하면 해당
 버전의 `docs/Troubleshooting.md`로 연결한다.
-
-## 참고한 베스트 프랙티스
-
-- Capgo, “2026년 애플리케이션 릴리스 노트: 완전한 안내서”
-  - https://capgo.app/ko/blog/application-release-notes/
-  - 릴리즈 끝의 글쓰기 작업이 아니라 commit·ticket·QA·지원 정보를 모으는 입력 pipeline으로
-    다루고, 사용자 영향으로 순위를 매기며, 자동화는 수집에 쓰고 최종 판단은 사람이 검토한다.
-- Keep a Changelog 1.1.0
-  - https://keepachangelog.com/en/1.1.0/
-  - 노트는 사람이 읽는 선별된 기록이며 commit log dump가 아니다. 최신 릴리즈 우선, 날짜와
-    변경 유형, breaking/deprecation/removal을 명확히 한다.
-- GitHub Docs, Automatically generated release notes
-  - https://docs.github.com/en/repositories/releasing-projects-on-github/automatically-generated-release-notes
-  - 자동 노트는 merged PR, contributor, full changelog를 수집하고 label로 분류할 수 있지만,
-    발행 전 포함·누락을 검토해야 한다.
-- Semantic Versioning 2.0.0
-  - https://semver.org/spec/v2.0.0.html
-  - 버전은 호환성 의미를 전달하며 한번 공개한 버전의 내용은 바꾸지 않고 새 버전으로 수정한다.
-- Conventional Commits 1.0.0
-  - https://www.conventionalcommits.org/en/v1.0.0/
-  - `feat`, `fix`, `BREAKING CHANGE`는 변경 의도를 구조화해 수집과 버전 판단을 돕지만,
-    최종 사용자 노트는 그대로 복사하지 않고 사용자 영향으로 편집한다.
