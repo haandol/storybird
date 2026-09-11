@@ -201,6 +201,18 @@ Read these before changing capture, persistence, or export behavior.
 Run Storybird as an app bundle, not with `swift run`, when testing Screen
 Recording, Input Monitoring, or Accessibility pointer-control permissions.
 
+### Release execution
+
+Follow the requested outcome: preparation stays local, an explicitly requested
+draft stays a draft, and registering/publishing a prepared release proceeds
+through `--publish` to public Latest status. Reuse authorization and verified
+artifacts for the same target. Report unperformed native or optional checks
+honestly; their absence alone must not downgrade a publication request to a draft.
+Resolve actual build/test/signature failures, tag/version/checksum conflicts,
+upload or remote-state errors, and known data-loss/security defects. Honor any
+checks the user explicitly makes a prerequisite for that release. Git pushes
+remain the user's action in `.devcontainer`.
+
 ## Coding Style & Naming Conventions
 
 Use four spaces and standard Swift naming: `UpperCamelCase` types,

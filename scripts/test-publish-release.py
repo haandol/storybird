@@ -179,6 +179,38 @@ class PublishReleaseTests(ReleaseFixture):
         self.assertLess(download, publish)
         self.assertFalse(self.state()["isDraft"])
 
+    def test_publish_with_unperformed_native_checks_completes_latest_and_preserves_disclosure(self):
+        self.run_script("--push")
+        disclosure = "\n수동 smoke test: 미수행. 자동 테스트로 실제 권한 검증을 대체하지 않았습니다.\n"
+        self.notes.write_text(self.notes.read_text() + disclosure)
+        self.env["TEST_KERNEL"] = "Darwin"
+        self.env["TEST_GIT_MUTATIONS_DENIED"] = "1"
+        self.run_script("--publish")
+        release = self.state()
+        self.assertFalse(release["isDraft"])
+        self.assertEqual(release["body"], self.notes.read_text())
+        self.assertIn(disclosure, release["body"])
+        calls = [json.loads(line) for line in Path(self.env["TEST_LOG"]).read_text().splitlines()]
+        publication = next(call for call in calls if call[:2] == ["release", "edit"])
+        self.assertIn("--draft=false", publication)
+        self.assertIn("--latest", publication)
+        self.assertTrue(any(call[:2] == ["release", "download"] for call in calls))
+
+    def test_explicit_draft_remains_unpublished(self):
+        self.run_script("--push")
+        self.run_script("--draft")
+        self.assertTrue(self.state()["isDraft"])
+        calls = [json.loads(line) for line in Path(self.env["TEST_LOG"]).read_text().splitlines()]
+        self.assertFalse(any(call[:2] == ["release", "edit"] for call in calls))
+
+    def test_unperformed_check_disclosure_does_not_bypass_corrupt_archive(self):
+        self.run_script("--push")
+        self.notes.write_text(self.notes.read_text() + "\n수동 smoke test: 미수행.\n")
+        self.archive.write_bytes(self.archive.read_bytes() + b"unexpected bytes")
+        result = self.run_script("--publish", success=False)
+        self.assertIn("ZIP SHA-256 mismatch", result.stderr)
+        self.assertFalse(Path(self.env["TEST_STATE"]).exists())
+
     def test_checksum_mismatch_prevents_push(self):
         self.notes.write_text("SHA-256: " + "0" * 64 + "\n")
         self.run_script("--push", checksum="0" * 64, success=False)

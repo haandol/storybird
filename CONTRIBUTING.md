@@ -73,6 +73,9 @@ they are uploaded as release assets/notes, never committed.
 
 Perform Git pushes yourself inside `.devcontainer`. Release creation/publication
 uses `gh` and may run locally on macOS, including by the agent when requested.
+After preparation and push, a request to register or publish the release means
+public Latest status. Use a draft as the final result only when the user asks for
+a draft. Do not ask again for already granted publication authorization.
 Rebuild the container after pulling changes to its Dockerfile (the script requires
 `unzip`). Both environments need `git`, `gh`, `jq`, and `unzip`; checksums use
 `sha256sum` on Linux or `shasum` on macOS. If needed, run
@@ -92,15 +95,14 @@ bash scripts/publish-release.sh "$release_version" "$release_commit" "$release_s
 # In .devcontainer: push only the prepared annotated tag.
 ./scripts/push-version.sh "$release_version"
 
-# On macOS (or in .devcontainer): create and verify a draft using gh.
-bash scripts/publish-release.sh "$release_version" "$release_commit" "$release_sha256" --draft
-
-# Reverify the draft, publish it, and mark it Latest.
+# On macOS (or in .devcontainer): verify, upload, publish, and mark Latest.
 bash scripts/publish-release.sh "$release_version" "$release_commit" "$release_sha256" --publish
 ```
 
-`--publish` can also create the draft and publish in one invocation after the tag
-has been pushed. Only `--push` requires Linux; the other modes never push Git refs.
+`--publish` creates or verifies its intermediate draft and completes publication
+in one invocation. It already performs the checks; a separate `--check` or
+`--draft` is optional, not a mandatory approval step. For an explicitly requested
+draft, use `--draft` instead of `--publish`. Only `--push` requires Linux; the other modes never push Git refs.
 The publisher reads the specified release commit, even if HEAD has advanced or
 unrelated files are uncommitted. Only its legacy `--push` mode requires a clean
 working tree with the prepared commit at an attached HEAD. Both scripts require
@@ -112,7 +114,15 @@ resumed with the same command; a partial upload or metadata mismatch stops for
 inspection. Push and release publication are separate steps; a failed release
 operation leaves the already pushed refs intact.
 
-The publisher does not build, sign, commit, or replace native smoke checks.
+Reuse existing test, build, signature and artifact evidence for the same target;
+repeat the affected checks when sources or artifacts change. Record unperformed
+native smoke or optional performance checks in the notes without treating them
+as failed checks. Their absence alone does not block an authorized publication.
+Actual build/test/signature failures, metadata/checksum conflicts, upload or
+remote-state errors, known data-loss/security defects, and checks the user made
+explicit prerequisites must be resolved before publishing.
+
+The publisher does not build, sign, commit, or perform native smoke checks.
 The older `publish-release.sh … --push` form also pushes the current branch and
 requires the full artifact checks; prefer `push-version.sh` for the tag-only step.
 Run the isolated shell regression checks for both scripts with

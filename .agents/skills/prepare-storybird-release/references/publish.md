@@ -2,6 +2,18 @@
 
 대상 버전의 기존 태그 commit, ZIP, 노트와 검증 기록에서 이어서 작업한다.
 현재 HEAD가 나중의 운영 커밋이라도 이미 준비한 버전의 대상을 바꾸지 않는다.
+태그를 push 전에 만들었다는 사실은 문제가 아니다. 태그가 요청한 commit을 가리키고
+ZIP이 그 commit에서 빌드됐는지 확인한다.
+
+## 요청에 맞는 실행 모드
+
+- 준비된 버전의 “릴리즈 등록”, “공개”, “최신으로 공개”는 `--publish`를 사용한다.
+  이미 받은 공개 요청을 재확인하지 않는다.
+- 초안만 요청받았을 때는 `--draft`, 상태 확인만 요청받았을 때는 `--check`를 사용한다.
+- 공개 요청 뒤의 상태 질문에는 현재 사실을 답하고 실행을 계속한다. 초안 생성이나
+  업로드 시작만으로 공개 완료를 보고하지 않는다.
+- 이미 공개된 동일 버전은 태그·자산을 확인해 완료 상태를 보고한다. 다시 게시하거나
+  새 버전을 임의로 만들지 않는다.
 
 ## 태그 전달
 
@@ -19,27 +31,31 @@ ZIP·checksum 입력이나 별도 `gh` 인증은 필요 없으며 동일한 원�
 ## 로컬 gh 작업
 
 이미 push된 태그는 다시 push하도록 요구하지 않는다. 첫 원격 변경 전에 버전, target SHA,
-제목, 최종 노트와 ZIP checksum을 사용자에게 보여준다. 기존 공개 요청과 권한은 재사용한다.
+제목, 최종 노트와 ZIP checksum을 짧게 알리고 진행한다. 이미 같은 정보를 전달했다면
+변경된 내용만 알린다. 이 진행 안내는 새 승인 단계가 아니다.
 
 기존 스크립트에 검증된 값을 넣어 실행한다. checksum은 검증된 ZIP 기록에서 가져온다.
-
-```bash
-bash scripts/publish-release.sh X.Y.Z FULL_COMMIT_SHA VERIFIED_ZIP_SHA256
-bash scripts/publish-release.sh X.Y.Z FULL_COMMIT_SHA VERIFIED_ZIP_SHA256 --draft
-```
-
-첫 명령은 읽기 전용 검증이다. `--draft`는 초안을 생성하거나 일치하는 초안을 재검증한다.
-스크립트가 태그, 제목·본문, 자산 이름과 업로드 후 다시 내려받은 ZIP의 checksum을 검증한다.
-직접 `gh`로 작업해야 할 때도 이 검증을 유지한다.
-
-공개 요청이 있고 필요한 검증이 완료됐을 때만 실행한다.
+공개 요청의 기본 실행은 다음 한 번이다.
 
 ```bash
 bash scripts/publish-release.sh X.Y.Z FULL_COMMIT_SHA VERIFIED_ZIP_SHA256 --publish
 ```
 
-관련 native smoke 검증이 미완료이면 공개하지 않고 완료된 초안과 차단 항목을 보고한다.
-준비만 요청한 경우에도 공개하지 않는다. 동일한 입력의 완전한 초안은 재사용하되,
+`--publish`는 태그·본문·자산을 검증하고 필요한 초안 생성과 업로드를 거쳐 공개·Latest
+지정까지 수행한다. 같은 검사를 별도 `--check`와 `--draft`로 먼저 반복할 필요는 없다.
+직접 `gh`로 작업할 때도 업로드 후 다시 내려받은 ZIP의 checksum 검증을 유지한다.
+
+초안 또는 읽기 전용 확인을 요청받았을 때만 해당 모드를 선택한다.
+
+```bash
+bash scripts/publish-release.sh X.Y.Z FULL_COMMIT_SHA VERIFIED_ZIP_SHA256 --draft
+bash scripts/publish-release.sh X.Y.Z FULL_COMMIT_SHA VERIFIED_ZIP_SHA256 --check
+```
+
+수동 smoke·선택적 성능 검사의 미수행은 노트의 검증 범위에 기록한다. 미수행만으로
+공개를 보류하거나 초안에 멈추지 않는다. 사용자가 이번 공개에 요구한 필수 검사 또는
+확인된 빌드·서명·테스트 실패, 태그·버전·checksum 불일치와 실제 결함은 별도로 해결한다.
+준비만 요청한 경우에는 공개하지 않는다. 동일한 입력의 완전한 초안은 재사용하되,
 부분 업로드·본문 불일치·조회 실패를 새 릴리즈가 없는 상태로 취급하지 않는다.
 
 공개 후 `isDraft=false`, 대상 태그, Latest, 자산 checksum을 확인한다. 다운로드한 앱의

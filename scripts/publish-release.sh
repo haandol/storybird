@@ -13,6 +13,10 @@ For a simple tag-only push: ./scripts/push-version.sh VERSION
   --draft    Create/verify a draft using gh; the tag must already be pushed.
   --publish  Perform the draft steps, then publish and mark Latest using gh.
 
+Use --publish for a requested publication; it does not stop at the draft step.
+Use --draft only when a draft is the requested result.
+Disclose unperformed native checks in the notes without claiming they passed.
+
 Required files, prepared and verified on macOS:
   build/Storybird-VERSION.zip
   build/release-notes-vVERSION.md (must include the ZIP SHA-256)
