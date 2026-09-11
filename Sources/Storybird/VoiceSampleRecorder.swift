@@ -198,11 +198,46 @@ final class VoiceSampleRecorder: VoiceSampleRecording {
         var startedAttempt: Int?
         for (index, deviceUID) in attempts.enumerated() {
             do {
-                try beginCapture(at: url, deviceUID: deviceUID)
+                let capture = try await VoiceCaptureStartup.start(
+                    makeSession: {
+                        do {
+                            return try self.makeCapture(at: url, deviceUID: deviceUID)
+                        } catch {
+                            try? FileManager.default.removeItem(at: url)
+                            throw error
+                        }
+                    },
+                    snapshot: { $0.sink.snapshot() },
+                    inputFormatChanged: { capture in
+                        let current = capture.engine.inputNode.inputFormat(forBus: 0)
+                        guard current.sampleRate > 0, current.channelCount > 0 else {
+                            return false
+                        }
+                        return current.sampleRate != capture.inputFormat.sampleRate
+                            || current.channelCount != capture.inputFormat.channelCount
+                    },
+                    stopSession: { capture in
+                        capture.engine.inputNode.removeTap(onBus: 0)
+                        capture.engine.stop()
+                        capture.sink.finish()
+                        try? FileManager.default.removeItem(at: url)
+                    },
+                    checkCancellation: {
+                        guard self.startRequestID == requestID else {
+                            throw CancellationError()
+                        }
+                        try Task.checkCancellation()
+                    }
+                )
+                engine = capture.engine
+                sink = capture.sink
+                hasInputTap = true
+                captureURL = url
                 startedAttempt = index
                 break
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
-                stopCapture()
                 try? FileManager.default.removeItem(at: url)
             }
         }
@@ -222,7 +257,7 @@ final class VoiceSampleRecorder: VoiceSampleRecording {
             VoiceInputDeviceCatalog.name(forUID:)
         ) ?? "System Default"
         recordedURL = nil
-        elapsedTime = 0
+        elapsedTime = sink?.snapshot().duration ?? 0
         levelSamples = Array(repeating: 0, count: levelSamples.count)
         isPaused = false
         isRecording = true
@@ -371,10 +406,10 @@ final class VoiceSampleRecorder: VoiceSampleRecording {
 
     /// Opens one device-fixed AVAudioEngine session, taps its native input
     /// format, and normalizes callbacks into the fixed profile WAV format.
-    private func beginCapture(
+    private func makeCapture(
         at url: URL,
         deviceUID: String?
-    ) throws {
+    ) throws -> (engine: AVAudioEngine, sink: VoiceCaptureSink, inputFormat: AVAudioFormat) {
         let engine = AVAudioEngine()
         let input = engine.inputNode
         if let deviceUID {
@@ -398,18 +433,16 @@ final class VoiceSampleRecorder: VoiceSampleRecording {
             format: format,
             sink: sink
         )
-        hasInputTap = true
         engine.prepare()
         do {
             try engine.start()
         } catch {
             input.removeTap(onBus: 0)
-            hasInputTap = false
+            engine.stop()
+            sink.finish()
             throw error
         }
-        self.engine = engine
-        self.sink = sink
-        captureURL = url
+        return (engine, sink, format)
     }
 
     /// Creates the Core Audio callback outside MainActor isolation so the

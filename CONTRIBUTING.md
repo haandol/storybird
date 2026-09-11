@@ -278,7 +278,11 @@ steps using the matrix above; this is a catalog, not an all-changes checklist:
     and duplicate creation; a save failure preserves inputs and shows an inline error.
 15. Select **Record**, grant Microphone access, and confirm the recording sheet shows the
     full prosody prompt, recording state, live waveform, elapsed time, and the
-    10-second boundary. Both languages target about 20 seconds and begin with a
+    10-second boundary. With AirPods/Bluetooth input, check the first start after
+    playback as well as Record Again: Starting must resolve to advancing recorded
+    time or an error, without requiring Pause/Resume or Record Again to recover.
+    Also check the built-in microphone and cancellation while Starting.
+    Both languages target about 20 seconds and begin with a
     greeting; Korean includes English feature names within presentation sentences.
     Read the full script and confirm its ending remains reachable by scrolling.
     Pause and resume once, then preview and save a recording
@@ -439,6 +443,38 @@ microphone samples and user voice profiles out of fixtures. The prompt-to-video
 production regression uses a deterministic local TTS provider through actual MCP
 host commands. Native microphone smoke checks must use the signed app and a user's
 explicit Start Recording action; verify mutual exclusion with screen/profile recording.
+
+### Microphone startup regression harness
+
+Run the hardware-independent checks with:
+
+```bash
+swift test --filter 'VoiceCaptureStartupTests|VoiceCapturePipelineHarnessTests|VoiceInputDeviceTests|VoiceProfileCreationViewTests'
+```
+
+These tests also run in ordinary `swift test`. `VoiceCaptureStartupTests` checks
+readiness, bounded retries, silence, cancellation and failed writes. Include
+exceptions thrown during engine construction/prepare/start, before a session
+exists to poll: a transient format error must use the same bounded retry, while
+cancellation must never open another attempt.
+`VoiceCapturePipelineHarnessTests` scripts input arrival while using the production
+startup coordinator, audio converter, meter and WAV writer. It covers a stalled
+48 kHz start followed by 24 kHz input, direct 44.1/48 kHz input, repeated cold/warm
+starts, retries that never receive audio, cancellation during a retry and late
+callbacks. It also checks that a changed hardware input format with no arriving
+frames triggers an early rebuild without spending the two-second no-input budget.
+Already-arriving audio wins over a format change; the final attempt and unchanged
+formats retain their full input wait. Check that recorded time advances with
+actual WAV frames, output remains
+24 kHz mono 16-bit, and failed/cancelled attempts leave no partial file.
+
+When changing startup, deliberately bypass the written-frame readiness check once
+and confirm the harness fails, then restore it and run the full suite.
+The harness uses temporary synthetic audio and never opens a real microphone.
+It does not prove Bluetooth route negotiation or native permission behavior.
+Complete manual smoke step 15 separately with AirPods/Bluetooth and built-in input;
+record each device's result separately instead of treating synthetic success as a
+native pass.
 
 ### MCP local-media import verification
 
