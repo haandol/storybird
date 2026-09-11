@@ -280,7 +280,8 @@ crossfade. Original movie audio has separate volume and mute controls.
 With a prepared local model and existing voice profile, an agent can generate TTS,
 measure the finished speech, arrange scenes, layer the sounds and captions, inspect
 a mix preview, and export the video without a human recording step. Voice-profile setup and
-screen-control approval remain native user actions. Audio stays on your Mac.
+macOS recording permissions remain native user actions. Storybird's session dialog
+can be skipped using recording auto-approval. Audio stays on your Mac.
 
 ### 5. Preview and export
 
@@ -387,7 +388,7 @@ Preview the result, export it into ~/Movies, and return the completed MP4 path.
 ```
 
 The agent should prepare the scenes, ask Storybird to start the selected source,
-wait for native approval, record the actions, and stop to create the project.
+follow the saved recording approval setting, record the actions, and stop to create the project.
 It then edits the picture, generates speech drafts, places them using measured
 durations, checks composited previews, and waits for export to finish.
 
@@ -444,8 +445,15 @@ from native-only setup and local window controls.
   status and preparation also work through MCP without additional approval.
   Reference-file selection and microphone recording remain native
   actions. Importing finished project video/audio needs none of these steps.
-- Approve the selected recording source and pointer control in Storybird.
-  Keep pointer-changing tools out of automatic approval: they operate the real desktop.
+- Approve the selected recording source and pointer control in Storybird, or enable
+  **Settings › General › MCP Recording › Automatically approve MCP recording**.
+  The setting defaults off. You can also ask the agent to change it through
+  `storybird_set_recording_auto_approval` with `enabled: true` or `false`; use
+  `storybird_get_recording_auto_approval` to inspect it. Enabling it lets authenticated
+  clients record their requested display/window, share live frames and control the
+  pointer without the Storybird session dialog. Changes apply to new sessions.
+  macOS permissions, permanent deletion confirmation and the MCP client's own
+  tool approval settings remain separate.
 - If a demonstrated workflow needs typing, use a separately authorized browser
   tool. Storybird itself only moves, clicks, and scrolls the pointer.
 - Check pronunciation and voice resemblance. A composited still preview verifies
@@ -459,6 +467,12 @@ from native-only setup and local window controls.
 > account and synthetic data when showing a service.
 
 ## Where your data goes
+
+App preferences, including MCP recording auto-approval, persist through macOS
+`UserDefaults` in `~/Library/Preferences/com.storybird.app.plist`. UI and MCP changes
+use the same setting, which survives app restarts and rebuilds with the same bundle
+identifier. Preferences are separate from project libraries; changing project
+folders does not reset them.
 
 ```text
 ~/Documents/Storybird/

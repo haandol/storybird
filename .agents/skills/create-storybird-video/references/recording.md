@@ -6,7 +6,13 @@ return to the main skill and use its edit context.
 For existing local MP4/MOV footage, follow [importing.md](importing.md) instead
 of recording it again. Actual screen recording follows the approval flow below.
 
-Choose one visible display or window and follow Storybird's native approval flow.
+Choose one visible display or window and follow Storybird's saved approval setting.
+The session dialog is skipped only when recording auto-approval is enabled.
+`storybird_get_recording_auto_approval` reads the setting. If the user asks to change
+it, use `storybird_set_recording_auto_approval` with `enabled: true` or `false`.
+The setting persists across restarts and is also available in General Settings.
+macOS permissions still apply. Do not change the preference merely to unblock a
+recording request, and do not treat it as authorization for external side effects.
 For a browser walkthrough without a user-selected source, prepare a dedicated
 visible demo window with only relevant tabs and a recognizable name if supported.
 Keep unrelated work outside it. Honor an explicitly selected source; use a whole

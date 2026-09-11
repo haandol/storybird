@@ -59,7 +59,11 @@ public struct StorybirdMCPService: Sendable {
             or storybird_import_audio with a stable idempotency_key; no file picker or folder \
             approval is needed. Poll storybird_get_import until terminal. Replay the same \
             key and arguments after a lost response; use a new key for a new attempt. \
-            Screen capture still requires native approval of the selected source. \
+            Screen capture follows the saved recording auto-approval preference (off by default). \
+            Use storybird_get_recording_auto_approval to inspect it and \
+            storybird_set_recording_auto_approval with an explicit enabled boolean only when \
+            the user requests that settings change. It persists across app restarts and skips \
+            only Storybird's session dialog, never macOS permissions or deletion approval. \
             Project editing does not require an active screen-control session. \
             Resolve scene and layer IDs with storybird_get_edit_context, make targeted edits, \
             then inspect storybird_render_preview using its returned actual frame time and layer IDs. \
@@ -338,6 +342,30 @@ public struct StorybirdMCPService: Sendable {
     private static var sourceTools: [Tool] {
         [
             Tool(
+                name: "storybird_get_recording_auto_approval",
+                title: "Get MCP recording auto-approval",
+                description: "Return the saved app-wide recording auto-approval setting as {enabled: boolean}. Does not start capture.",
+                inputSchema: Self.objectSchema(),
+                annotations: .init(readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false)
+            ),
+            Tool(
+                name: "storybird_set_recording_auto_approval",
+                title: "Set MCP recording auto-approval",
+                description: """
+                Change the persistent app-wide setting only when the user requests it. \
+                When enabled, future authenticated MCP sessions can record their requested \
+                display or window, share live frames and control the pointer without \
+                Storybird's Allow dialog. Default is false. Returns {enabled: boolean}. \
+                Does not start capture, resolve pending prompts or stop active sessions. \
+                macOS permissions and permanent deletion approval still apply.
+                """,
+                inputSchema: Self.objectSchema(
+                    properties: ["enabled": .object(["type": "boolean"])],
+                    required: ["enabled"]
+                ),
+                annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false)
+            ),
+            Tool(
                 name: "storybird_list_sources",
                 title: "List Storybird capture sources",
                 description: "List displays and ordinary windows available for one Storybird MCP session.",
@@ -355,7 +383,8 @@ public struct StorybirdMCPService: Sendable {
                 description: """
                 Start one source session. This shares live PNG frames with the \
                 MCP client, records a local silent video, and enables real \
-                pointer input after Storybird's native approval.
+                pointer input after Storybird's approval policy and macOS permission checks. \
+                The app dialog is skipped only when recording auto-approval is enabled.
                 """,
                 inputSchema: Self.objectSchema(
                     properties: [

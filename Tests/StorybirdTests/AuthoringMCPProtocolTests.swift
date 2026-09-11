@@ -15,7 +15,9 @@ final class AuthoringMCPProtocolTests: XCTestCase {
         try await withClient { client, _, _, _, probe, initialization in
             XCTAssertEqual(initialization.serverInfo.title, "Storybird Video Production")
             let instructions = try XCTUnwrap(initialization.instructions)
-            for phrase in ["storybird_get_edit_context", "revision", "native approval",
+            for phrase in ["storybird_get_edit_context", "revision", "recording auto-approval",
+                           "off by default", "storybird_set_recording_auto_approval",
+                           "never macOS permissions or deletion approval",
                            "does not require an active screen-control session", "microphone"] {
                 XCTAssertTrue(instructions.contains(phrase), phrase)
             }

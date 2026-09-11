@@ -193,7 +193,9 @@ or deleting project data.
 
 If the connection works but an action is missing, check the
 [UI/MCP feature inventory](MCPFeatureParity.md). File selection, microphone
-recording, voice-profile management and non-model Settings require native interaction.
+recording, voice-profile management, project-folder selection and shortcut Settings
+require native interaction. Recording auto-approval is available in both General
+Settings and MCP.
 Model list/status, selection and preparation are available through MCP. Query
 the selected model's state and prepare it if needed; neither another model's
 ready state nor an existing profile means the selected model is prepared.
@@ -228,11 +230,24 @@ system utility, Storybird, and StorybirdMCP windows are excluded.
 
 Enable Storybird under System Settings › Privacy & Security › Accessibility.
 The companion needs no Accessibility entry. Start a new session, then approve
-the native Storybird dialog.
+the native Storybird dialog unless recording auto-approval is enabled.
 
 Coordinates must be finite normalized values from `0` through `1`. Invalid
-coordinates, missing frames, or revoked permissions post no input. Do not
-auto-approve pointer-changing tools.
+coordinates, missing frames, or revoked permissions post no input.
+
+## Storybird asks “Allow Storybird MCP Control?” for every recording
+
+The app defaults to confirming each screen-control session. Enable **Settings ›
+General › MCP Recording › Automatically approve MCP recording** to skip that dialog.
+You can also request `storybird_set_recording_auto_approval` with `{"enabled": true}`
+or `{"enabled": false}` and read it with `storybird_get_recording_auto_approval`.
+Both paths update the same persistent user preference; reconnecting MCP, reopening
+the app or changing the project folder does not reset it.
+
+The setting applies to new sessions. It does not accept an already open dialog or
+stop an active recording. macOS Screen Recording/Accessibility prompts and permanent
+project deletion confirmation remain in effect. A prompt shown by your MCP client
+uses that client's own approval settings.
 
 ## An MCP session stops but no video project appears
 

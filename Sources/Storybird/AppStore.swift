@@ -22,6 +22,7 @@ final class AppStore: ObservableObject {
     @Published var errorMessage: String?
     @Published var permissionPrompt: RecordingPermissionPrompt?
     @Published var externalControlPrompt: ExternalControlPrompt?
+    @Published private(set) var automaticallyApprovesMCPRecording = false
     @Published var requestedPreviewProjectID: UUID?
     @Published private(set) var isExportActive = false
     @Published private(set) var voiceProfiles: [VoiceProfile] = []
@@ -37,6 +38,7 @@ final class AppStore: ObservableObject {
     @Published private var storageOperations: [UUID: StorageOperation] = [:]
     private let defaultRepository: ProjectRepository
     private let storagePreferences: StorybirdStoragePreferences?
+    private let recordingPreferences: StorybirdRecordingPreferences?
     private var externalControlContinuation:
         CheckedContinuation<Bool, Never>?
     private var undoHistory: [UUID: [DemoProject]] = [:]
@@ -65,6 +67,7 @@ final class AppStore: ObservableObject {
         repository: ProjectRepository? = nil,
         voiceService: (any VoiceSynthesisProviding)? = nil,
         storagePreferences: StorybirdStoragePreferences? = nil,
+        recordingPreferences: StorybirdRecordingPreferences? = nil,
         voiceModelPreferences: VoiceModelPreferences? = nil,
         voiceModelServices: [VoiceModel: any VoiceSynthesisProviding] = [:]
     ) {
@@ -74,6 +77,10 @@ final class AppStore: ObservableObject {
             ?? (repository == nil ? VoiceModelPreferences() : nil)
         self.voiceModelPreferences = modelPreferences
         selectedVoiceModel = modelPreferences?.selected ?? .base1_7B
+        let capturePreferences = recordingPreferences
+            ?? (repository == nil ? StorybirdRecordingPreferences() : nil)
+        self.recordingPreferences = capturePreferences
+        automaticallyApprovesMCPRecording = capturePreferences?.automaticallyApprovesMCPRecording ?? false
         let preferences = storagePreferences
             ?? (repository == nil ? StorybirdStoragePreferences() : nil)
         self.storagePreferences = preferences
@@ -1300,6 +1307,24 @@ final class AppStore: ObservableObject {
         guard activeExportID == id else { return }
         activeExportID = nil
         isExportActive = false
+    }
+
+    /// UI and authenticated MCP share this persistent preference. It affects
+    /// future requests only, without resolving a prompt or ending a session.
+    func setAutomaticallyApprovesMCPRecording(_ enabled: Bool) {
+        recordingPreferences?.saveAutomaticallyApprovesMCPRecording(enabled)
+        automaticallyApprovesMCPRecording = enabled
+    }
+
+    /// Automatic approval is scoped to recording, never permanent deletion.
+    /// An outstanding native decision cannot be overtaken by a new session.
+    func requestRecordingControlApproval(sourceTitle: String) async -> Bool {
+        guard externalControlContinuation == nil else { return false }
+        if automaticallyApprovesMCPRecording { return true }
+        return await requestExternalControlApproval(
+            title: "Allow Storybird MCP Control?",
+            message: "Record “\(sourceTitle)” as local video, share its current frame with the connected MCP client, and allow real pointer movement, clicks, and scrolling?"
+        )
     }
 
     /// Requests a native decision before an external control session or deletion.

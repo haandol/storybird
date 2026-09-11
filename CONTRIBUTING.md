@@ -214,6 +214,7 @@ Report skipped, unavailable, and failed checks separately.
 | MCP initialization or transport | `MCPInitializationTests` with raw external-client JSON, then bundled companion initialize and tools/list; no native capture permission is needed |
 | Project actions/properties | MCP inventory, schema and app-host behavior checks; production protocol tests for public changes; relevant manual editor checks |
 | Capture, pointer input or permissions | Signed app/companion checks for the affected capture/control behavior, including immediate stop and rejected input |
+| Recording auto-approval settings | `MCPRecordingApprovalTests` and `MCPFeatureParityTests`; inspect General Settings and verify UI/MCP persistence, manual/automatic start, stop and macOS denial in the signed bundle |
 | Microphone or voice-profile behavior | Relevant native voice checks with explicit user input; synthetic tests do not prove microphone capture or speech quality |
 | Release scripts or fact collection | `python3 scripts/test-publish-release.py` and/or `python3 scripts/test-collect-release-facts.py` for the changed scripts |
 | Build/signing or release packaging | Signed release build, signature and artifact checks from the release skill; follow the requested release state |
@@ -371,6 +372,9 @@ temporary Storybird library. Regenerate them without opening customer projects:
 STORYBIRD_UPDATE_DOC_SCREENSHOTS=1 \
   swift test --filter DocumentationScreenshotTests/test_generateSyntheticReadmeScreenshots
 ```
+
+For General Settings alone, use the same environment variable with
+`DocumentationScreenshotTests/test_generateSyntheticRecordingSettingsScreenshot`.
 
 The harness writes `docs/images/welcome.png`, `docs/images/voice-narration.png`,
 `docs/images/voice-profile-creation.png`, `docs/images/storage-settings.png`, and

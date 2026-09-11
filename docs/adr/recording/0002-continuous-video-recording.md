@@ -38,7 +38,7 @@ Storybird는 사용자가 고른 디스플레이 하나 또는 창 하나를 무
 순서대로 처리한 뒤 영상 기록을 끝낸다. Storybird는 재생 가능한 영상 자산이 완성된 후에만
 프로젝트를 라이브러리에 공개한다.
 
-외부 MCP 클라이언트는 Storybird의 네이티브 승인을 받은 세션에서 선택 소스의 현재 PNG를
+외부 MCP 클라이언트는 Storybird의 수동 또는 설정 기반 자동 승인을 받은 세션에서 선택 소스의 현재 PNG를
 관찰하고 포인터 이동, 왼쪽·오른쪽 클릭과 스크롤을 요청한다. companion은 화면 권한, 실제 입력
 게시, 영상 인코딩 또는 프로젝트 쓰기를 소유하지 않는다.
 
@@ -133,8 +133,12 @@ sequenceDiagram
 
     Client->>Companion: 단일 소스 세션 요청
     Companion->>App: 인증된 로컬 요청
-    App->>User: 화면 공개와 포인터 제어 승인 요청
-    User-->>App: 승인 또는 거부
+    alt 자동 승인 꺼짐
+        App->>User: 화면 공개와 포인터 제어 승인 요청
+        User-->>App: 승인 또는 거부
+    else 자동 승인 켜짐
+        App->>App: 저장된 설정 적용
+    end
     App->>Target: 승인된 화면 프레임 기록
     Client->>Companion: 포인터 이동·클릭·스크롤
     Companion->>App: 승인된 포인터 요청

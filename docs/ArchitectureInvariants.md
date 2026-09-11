@@ -41,10 +41,14 @@ Read these before changing capture, persistence, or export behavior.
   the pointer but must not observe or synthesize keyboard events. A user-selected
   imported movie may contain one primary audio track. The microphone is used only
   during explicit native voice-profile or independent project-audio recording and never during capture.
-- **MCP control requires explicit disclosure.** One active session exposes one
+- **MCP control follows a persistent user choice.** One active session exposes one
   selected display or window to the connected local client and accepts
-  normalized pointer movement, left/right click, and scroll only after native
-  Storybird approval. The companion has no TCC permission and may call the app
+  normalized pointer movement, left/right click, and scroll after native
+  Storybird approval or the user's saved recording auto-approval setting.
+  Auto-approval defaults off; General Settings and authenticated MCP read/write
+  the same app-wide preference. Changes affect new requests, not pending
+  prompts or active sessions. macOS permissions and permanent deletion approval
+  still apply. The companion has no TCC permission and may call the app
   only through a user-only Unix socket after Team ID and identifier validation.
   Invalid coordinates, missing frames, or missing permissions post no input.
 - **Storybird remains the project writer.** The companion must never edit

@@ -6,6 +6,26 @@ import XCTest
 
 @MainActor
 final class DocumentationScreenshotTests: XCTestCase {
+    func test_generateSyntheticRecordingSettingsScreenshot() async throws {
+        guard ProcessInfo.processInfo.environment["STORYBIRD_UPDATE_DOC_SCREENSHOTS"] == "1" else {
+            throw XCTSkip("Set STORYBIRD_UPDATE_DOC_SCREENSHOTS=1 to update docs/images.")
+        }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("storybird-settings-\(UUID().uuidString)")
+        let domain = "storybird.docs.settings.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: domain))
+        defer {
+            defaults.removePersistentDomain(forName: domain)
+            try? FileManager.default.removeItem(at: root)
+        }
+        let store = AppStore(repository: ProjectRepository(rootURL: root),
+                             recordingPreferences: StorybirdRecordingPreferences(defaults: defaults))
+        try await render(
+            StorybirdSettingsView(store: store, shortcutSettings: StorybirdShortcutSettings(defaults: defaults)).generalTab,
+            size: CGSize(width: 680, height: 720),
+            to: imageDirectory.appendingPathComponent("storage-settings.png")
+        )
+    }
+
     func test_readmeScreenshotAssets_existAndAreRenderable() throws {
         let readme = try String(
             contentsOf: repositoryRoot.appendingPathComponent("README.md"),

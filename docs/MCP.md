@@ -27,7 +27,9 @@ not control every Settings or window action.
 | Tool | Result |
 |---|---|
 | `storybird_list_sources` | Lists eligible displays and windows |
-| `storybird_start_session` | Requests native approval and starts one-source video recording |
+| `storybird_get_recording_auto_approval` | Returns the persistent app-wide setting as `{"enabled": false}` by default |
+| `storybird_set_recording_auto_approval` | Requires `enabled` (boolean); saves and returns the same setting shown in General Settings |
+| `storybird_start_session` | Starts one-source video recording; requests native approval unless saved auto-approval is enabled |
 | `storybird_observe` | Returns the latest selected-source PNG |
 | `storybird_move_pointer` | Moves the real pointer through Storybird |
 | `storybird_click` | Performs a real left or right click through Storybird |
@@ -92,13 +94,34 @@ not control every Settings or window action.
 | `storybird_cancel_import` | Cancels an active media import; poll until a terminal state |
 | `storybird_delete_project` | Requests native confirmation before deletion |
 
-Pointer-changing tools can trigger effects in the selected application and
-must not be auto-approved. Project deletion also requires a Storybird-native
-confirmation.
+Pointer-changing tools can trigger effects in the selected application; follow
+the user's authorized task and the MCP client's own approval policy. Project
+deletion also requires a Storybird-native confirmation.
 
 Every clip mutation includes `project_id`, `expected_revision`, and the target
 clip ID. Read the project again after a revision conflict, then recalculate the
 edit instead of overwriting the newer UI state.
+
+## Recording auto-approval
+
+**Settings › General › MCP Recording** and
+`storybird_set_recording_auto_approval` change the same app-wide preference.
+The setting defaults to `false`. To enable it, pass `{"enabled": true}`; to
+disable it, pass `{"enabled": false}`. The setter and
+`storybird_get_recording_auto_approval` return `{"enabled": boolean}`.
+Only change it when the user asks to change this preference. Missing values,
+numbers, strings and unknown arguments are rejected without changing settings.
+
+When enabled, authenticated MCP sessions start recording their requested display
+or window, sharing live frames and controlling the pointer without Storybird's
+Allow dialog. The value persists through `UserDefaults` in the user's app plist,
+independently of the project library. Reading or changing it starts no recording,
+changes no project revision, and creates no project undo entry.
+
+Changes apply to new sessions. An already open confirmation still needs a
+decision, and an active session continues until Stop or Abort. macOS permissions,
+peer authentication, one-source limits, permanent deletion confirmation and the
+MCP client's own tool approval policy remain in effect.
 
 ## Produce a narrated service video
 
@@ -113,7 +136,7 @@ current agent has a working connection.
    until ready or failed; no extra approval is needed. Use
    `storybird_list_voice_profiles` to choose an existing consented reference profile.
 2. Prepare the script and synthetic demonstration data. Choose one visible
-   window or display, then start a session with native approval.
+   window or display, then start a session under the saved approval setting.
 3. Observe the selected source, perform the approved pointer actions, and verify
    each expected result. Stop the session and retrieve the saved project.
 4. Read `storybird_get_edit_context` to resolve the shot list to scene numbers,

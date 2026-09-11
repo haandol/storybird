@@ -73,5 +73,10 @@ and preparation use MCP without additional approval. Profile management,
 microphone input and voice-profile reference-file selection require native user
 action. Project video/audio imports accept local paths through the advertised MCP
 tools without additional consent. Do not work around the remaining boundaries.
+Screen-control sessions use the persistent recording auto-approval setting, off
+by default. Inspect it with `storybird_get_recording_auto_approval`; change it with
+`storybird_set_recording_auto_approval` and an explicit `enabled` boolean only when
+the user asks to change that preference. It skips Storybird's session dialog only;
+macOS permissions, pending prompts and permanent deletion confirmation remain.
 Storybird controls only the pointer; a separately
 authorized browser may supply text input to the same captured window.

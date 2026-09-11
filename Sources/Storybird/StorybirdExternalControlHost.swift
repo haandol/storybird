@@ -1,3 +1,4 @@
+import CoreFoundation
 import Foundation
 import StorybirdCore
 import StorybirdMCPKit
@@ -90,6 +91,17 @@ final class StorybirdExternalControlHost {
         do {
             let arguments = try Self.arguments(from: request.argumentsJSON)
             switch request.name {
+            case "storybird_get_recording_auto_approval":
+                guard arguments.isEmpty else { throw StorybirdControlWireError.invalidMessage }
+                return try Self.jsonResponse(["enabled": store.automaticallyApprovesMCPRecording])
+            case "storybird_set_recording_auto_approval":
+                guard Set(arguments.keys) == ["enabled"],
+                      let enabled = arguments["enabled"] as? NSNumber,
+                      CFGetTypeID(enabled) == CFBooleanGetTypeID() else {
+                    throw StorybirdControlWireError.invalidMessage
+                }
+                store.setAutomaticallyApprovesMCPRecording(enabled.boolValue)
+                return try Self.jsonResponse(["enabled": store.automaticallyApprovesMCPRecording])
             case "storybird_list_voice_models":
                 await store.refreshVoiceRuntimeState()
                 return try Self.jsonResponse(VoiceModel.allCases.map { store.voiceModelSnapshot($0) })
@@ -345,7 +357,7 @@ final class StorybirdExternalControlHost {
         }
     }
 
-    /// Handles the native-consent recording and real pointer command family.
+    /// Applies the user's recording approval policy before capture and pointer access.
     private func handleRecordingCommand(
         _ name: String,
         arguments: [String: Any]
@@ -367,9 +379,8 @@ final class StorybirdExternalControlHost {
                 sources.first { $0.id == sourceID },
                 message: "The selected source is unavailable."
             )
-            guard await store.requestExternalControlApproval(
-                title: "Allow Storybird MCP Control?",
-                message: "Record “\(source.title)” as local video, share its current frame with the connected MCP client, and allow real pointer movement, clicks, and scrolling?"
+            guard await store.requestRecordingControlApproval(
+                sourceTitle: source.title
             ) else {
                 throw StorybirdMCPError.consentRequired
             }

@@ -108,6 +108,24 @@ struct StorybirdSettingsView: View {
                 .foregroundStyle(.secondary)
             }
 
+            Section("MCP Recording") {
+                Toggle("Automatically approve MCP recording", isOn: Binding(
+                    get: { store.automaticallyApprovesMCPRecording },
+                    set: { store.setAutomaticallyApprovesMCPRecording($0) }
+                ))
+                .accessibilityIdentifier("mcpRecordingAutoApproval")
+                Text(
+                    "Let connected MCP clients record their requested display or window, share live frames, and control the pointer without Storybird’s Allow dialog."
+                )
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                Text(
+                    "Saved across app restarts. Changes apply to new sessions. macOS permissions and permanent project deletion still require approval."
+                )
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            }
+
             Section("Privacy") {
                 Text(
                     "Screen recording never captures microphone or keyboard input. The microphone is used only when you explicitly record a voice-profile sample or a separate project audio clip."

@@ -131,6 +131,7 @@ final class MCPFeatureParityTests: XCTestCase {
             "storybird_cancel_export", "storybird_export_project", "storybird_delete_project",
             "storybird_import_video", "storybird_import_audio", "storybird_cancel_import",
             "storybird_select_voice_model", "storybird_prepare_voice_model",
+            "storybird_set_recording_auto_approval",
         ]
         let tools = StorybirdMCPService.toolDefinitions
         XCTAssertEqual(nonEditCommands.subtracting(Set(tools.map(\.name))), [])
@@ -158,6 +159,20 @@ final class MCPFeatureParityTests: XCTestCase {
             XCTAssertEqual(schema["additionalProperties"] as? Bool, false)
             XCTAssertEqual(StorybirdMCPService.toolDefinitions.first { $0.name == name }?.annotations.idempotentHint, true)
         }
+    }
+
+    func test_recordingAutoApproval_exposesExplicitBooleanAndReadOnlyLookup() throws {
+        let setter = "storybird_set_recording_auto_approval"
+        let schema = try schemaObject(for: setter)
+        XCTAssertEqual(try propertyNames(for: setter), ["enabled"])
+        XCTAssertEqual(schema["required"] as? [String], ["enabled"])
+        XCTAssertEqual(schema["additionalProperties"] as? Bool, false)
+        let properties = try XCTUnwrap(schema["properties"] as? [String: [String: Any]])
+        XCTAssertEqual(properties["enabled"]?["type"] as? String, "boolean")
+        let tools = StorybirdMCPService.toolDefinitions
+        XCTAssertEqual(tools.first { $0.name == setter }?.annotations.idempotentHint, true)
+        XCTAssertEqual(tools.first { $0.name == setter }?.annotations.readOnlyHint, false)
+        XCTAssertEqual(tools.first { $0.name == "storybird_get_recording_auto_approval" }?.annotations.readOnlyHint, true)
     }
 
     func test_toolDefinitions_audioAndEffectTools_coverInspectorProperties() throws {

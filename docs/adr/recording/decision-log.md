@@ -3,6 +3,13 @@
 이 문서는 recording 카테고리의 주요 결정 변경 이력이다. ADR 본문은 현재 상태만
 서술하고, 주요 전환의 시간축은 여기에 최신 순으로 남긴다.
 
+## 2026-09-11 — MCP 화면 제어의 앱 내 자동 승인 설정
+
+- **Current ADR**: [permission-and-signing](./0003-permission-and-signing.md)
+- **Change type**: permission rule change
+- **What**: 모든 세션의 앱 내 확인 → 기본 수동 확인과 사용자가 켜는 지속 자동 승인 설정.
+- **Why**: 반복 녹화를 무인 실행하면서 macOS 권한, 인증, 단일 소스와 삭제 확인을 유지한다.
+
 ## 2026-09-11 — 모델 준비의 별도 승인을 제거한다
 
 - **Current ADR**: [permission-and-signing](./0003-permission-and-signing.md)
