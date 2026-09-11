@@ -169,6 +169,36 @@ shasum -a 256 "$archive"
 
 ## 6. 원격 릴리즈는 명시적으로 요청받았을 때만 수행한다
 
+이 작업공간에서는 사용자가 `.devcontainer`에서 직접 Git push를 수행한다.
+에이전트는 macOS에서 로컬 준비와 검증을 마치고 버전, 전체 commit SHA, 검증된 ZIP
+SHA-256 및 아래 명령을 전달한다. Git push는 대신 실행하지 않는다. 태그가 원격에
+올라간 뒤에는 요청받은 범위에서 로컬 `gh`로 초안 생성·검증·공개를 수행할 수 있다.
+앱은 확정된 릴리즈 commit에서 빌드한다. push 편의 스크립트는 기존 릴리즈 태그 뒤의
+별도 운영 커밋으로 추가할 수 있으며, 그 때문에 기존 태그를 옮기거나 앱을 재빌드하지 않는다.
+`build/`의 ZIP과 노트는 컨테이너와 공유되는 작업공간에 두고 커밋하지 않는다.
+
+버전 태그는 macOS 준비 단계에서 정확한 release commit에 annotated tag로 준비한다.
+사용자에게는 `.devcontainer`에서 실행할 아래 한 줄을 우선 전달한다. 태그가 가리키는
+앱 버전을 검증하고 그 태그만 push하므로 ZIP·SHA 입력이나 `gh` 인증은 필요 없다.
+이미 동일한 원격 태그가 있으면 성공으로 끝내고 다른 태그가 있으면 덮어쓰지 않는다.
+
+```bash
+./scripts/push-version.sh X.Y.Z
+```
+
+그 이후의 로컬 검증·초안·공개 명령:
+
+```bash
+bash scripts/publish-release.sh X.Y.Z FULL_COMMIT_SHA VERIFIED_ZIP_SHA256
+bash scripts/publish-release.sh X.Y.Z FULL_COMMIT_SHA VERIFIED_ZIP_SHA256 --draft
+bash scripts/publish-release.sh X.Y.Z FULL_COMMIT_SHA VERIFIED_ZIP_SHA256 --publish
+```
+
+publish-release.sh의 옵션 없는 실행은 읽기 전용 검증이다.
+`--draft`는 이미 push된 태그로 초안을 생성하고 `--publish`는 초안 검증 후 공개와 Latest
+확인까지 수행한다. 두 gh 단계는 로컬에서 실행할 수 있다. 준비 결과에는 사용자가
+그대로 실행할 수 있도록 placeholder 대신 실제 검증값을 넣는다.
+
 첫 원격 변경 전에 정확한 버전, target SHA, 제목, 최종 노트, asset checksum을 사용자에게
 보여준다. 사용자가 이미 이 값들을 보고 해당 릴리즈의 push·공개를 명시적으로 요청했다면
 같은 내용을 다시 묻지 않는다.

@@ -20,6 +20,7 @@ RUN apk add --no-cache \
         libstdc++ \
         openssh-client \
         ripgrep \
+        unzip \
     && git lfs install --system
 
 ENV SHELL=/bin/bash

@@ -41,6 +41,84 @@ launch, but its designated requirement becomes code-hash-specific, so Screen
 Recording, Input Monitoring, and Storybird's Accessibility permission may need
 approval after every build. The MCP companion itself receives no TCC grant.
 
+### Prepare, Push, and Publish a Release
+
+For a version tag already prepared on macOS, run this in `.devcontainer`:
+
+```bash
+./scripts/push-version.sh 0.1.2
+```
+
+Replace `0.1.2` with the prepared version; a leading `v` is also accepted. This
+pushes only that existing annotated tag, including its referenced commit. It
+does not push a branch or publish a GitHub Release. The script reads the commit
+from the tag and checks its bundle version, so it works even after HEAD advances
+or while unrelated local files are uncommitted. It needs only the container's
+existing shell/Git tools and Git authentication: no ZIP, checksum, `gh` login, or
+container rebuild is needed for this command.
+
+An identical remote tag is a successful no-op. Missing tags, version mismatches,
+or different remote tags stop without creating, moving, or overwriting tags.
+Add `--check` to inspect without pushing; this check also runs on macOS.
+Once the tag is pushed, release creation/publication can continue locally with
+`gh` using the prepared ZIP and notes.
+
+Prepare the release on macOS using
+[the release skill](.agents/skills/prepare-storybird-release/SKILL.md): select the
+version, update both bundle version fields, commit the release sources, run tests
+and relevant native smoke checks, and build/sign the app from that commit. Package
+`build/Storybird-X.Y.Z.zip` and write `build/release-notes-vX.Y.Z.md`, including the
+verified ZIP SHA-256. These ignored files must be present in the shared workspace;
+they are uploaded as release assets/notes, never committed.
+
+Perform Git pushes yourself inside `.devcontainer`. Release creation/publication
+uses `gh` and may run locally on macOS, including by the agent when requested.
+Rebuild the container after pulling changes to its Dockerfile (the script requires
+`unzip`). Both environments need `git`, `gh`, `jq`, and `unzip`; checksums use
+`sha256sum` on Linux or `shasum` on macOS. If needed, run
+`gh auth login --hostname github.com` in the environment executing the script.
+
+Set these three values to the macOS preparation results; the example version is
+only a placeholder. Do not derive the expected checksum from an unverified ZIP.
+
+```bash
+release_version="X.Y.Z"
+release_commit="FULL_COMMIT_SHA_FROM_MACOS_PREPARATION"
+release_sha256="VERIFIED_ZIP_SHA256_FROM_MACOS_PREPARATION"
+
+# Read-only local and GitHub checks.
+bash scripts/publish-release.sh "$release_version" "$release_commit" "$release_sha256"
+
+# In .devcontainer: push only the prepared annotated tag.
+./scripts/push-version.sh "$release_version"
+
+# On macOS (or in .devcontainer): create and verify a draft using gh.
+bash scripts/publish-release.sh "$release_version" "$release_commit" "$release_sha256" --draft
+
+# Reverify the draft, publish it, and mark it Latest.
+bash scripts/publish-release.sh "$release_version" "$release_commit" "$release_sha256" --publish
+```
+
+`--publish` can also create the draft and publish in one invocation after the tag
+has been pushed. Only `--push` requires Linux; the other modes never push Git refs.
+The publisher reads the specified release commit, even if HEAD has advanced or
+unrelated files are uncommitted. Only its legacy `--push` mode requires a clean
+working tree with the prepared commit at an attached HEAD. Both scripts require
+a single `origin` push URL for `haandol/storybird`. The publisher checks the
+ZIP checksum, committed/bundled metadata, tag commit, release title/notes and the
+downloaded asset before publication. It refuses published versions, mismatched
+tags/drafts, force pushes and asset replacement. A matching complete draft can be
+resumed with the same command; a partial upload or metadata mismatch stops for
+inspection. Push and release publication are separate steps; a failed release
+operation leaves the already pushed refs intact.
+
+The publisher does not build, sign, commit, or replace native smoke checks.
+The older `publish-release.sh … --push` form also pushes the current branch and
+requires the full artifact checks; prefer `push-version.sh` for the tag-only step.
+Run the isolated shell regression checks for both scripts with
+`python3 scripts/test-publish-release.py`; they use temporary repositories and a
+fake GitHub CLI, without contacting GitHub.
+
 ### Replacing the App Icon
 
 Generate the artwork with a character image you have permission to use, review
