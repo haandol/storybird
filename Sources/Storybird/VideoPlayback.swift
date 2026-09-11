@@ -20,6 +20,9 @@ struct VideoPlayerSurface: NSViewRepresentable {
     /// Creates a stable AppKit player surface while Storybird owns playback controls.
     func makeNSView(context: Context) -> AVPlayerView {
         let view = AVPlayerView()
+        // AVKit otherwise analyzes text/objects in paused frames by default.
+        // Screen recordings are text-heavy; the editor owns its own overlays.
+        view.allowsVideoFrameAnalysis = false
         view.player = player
         view.controlsStyle = .none
         view.videoGravity = .resizeAspect
