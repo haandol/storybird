@@ -91,11 +91,12 @@ public struct StorybirdMCPService: Sendable {
         return server
     }
 
-    /// Ends any app-owned capture when the stdio client disappears without Stop.
+    /// Ends any app-owned capture without reopening the app just to clean up.
     func abortActiveSession() async {
         _ = try? await client.call(
             name: "storybird_abort_session",
-            argumentsJSON: Data("{}".utf8)
+            argumentsJSON: Data("{}".utf8),
+            launchIfNeeded: false
         )
     }
 

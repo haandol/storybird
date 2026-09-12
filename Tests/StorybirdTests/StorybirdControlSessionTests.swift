@@ -369,6 +369,49 @@ final class StorybirdControlSessionTests: XCTestCase {
         XCTAssertEqual(values, ["storybird_abort_session"])
     }
 
+    func test_mcpService_transportEndWithAppUnavailable_doesNotLaunchOrRetry() async {
+        let names = AsyncStringCollector()
+        let launches = AsyncCounter()
+        let client = StorybirdAppIPCClient(
+            sender: { request in
+                await names.append(request.name)
+                throw StorybirdAppIPCStageError.connectionUnavailable("not running")
+            },
+            launcher: {
+                _ = await launches.increment()
+                throw StorybirdAppIPCStageError.connectionUnavailable("unexpected launch")
+            }
+        )
+
+        await StorybirdMCPService(client: client).abortActiveSession()
+
+        let values = await names.values()
+        let launchCount = await launches.value()
+        XCTAssertEqual(values, ["storybird_abort_session"])
+        XCTAssertEqual(launchCount, 0, "Disconnect cleanup must not start an unused or closed app.")
+    }
+
+    func test_mcpService_transportEndWithLostAbortResponse_doesNotLaunchOrReplay() async {
+        let names = AsyncStringCollector()
+        let launches = AsyncCounter()
+        let client = StorybirdAppIPCClient(
+            sender: { request in
+                await names.append(request.name)
+                throw StorybirdAppIPCStageError.resultUnknown("lost response")
+            },
+            launcher: {
+                _ = await launches.increment()
+            }
+        )
+
+        await StorybirdMCPService(client: client).abortActiveSession()
+
+        let values = await names.values()
+        let launchCount = await launches.value()
+        XCTAssertEqual(values, ["storybird_abort_session"])
+        XCTAssertEqual(launchCount, 0)
+    }
+
     func test_orderedRequestGate_releasesAcceptedRequestsInSequence() async {
         let gate = StorybirdOrderedRequestGate()
         let order = AsyncIntCollector()

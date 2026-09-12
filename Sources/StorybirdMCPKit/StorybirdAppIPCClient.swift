@@ -41,7 +41,8 @@ public struct StorybirdAppIPCClient: Sendable {
     /// Retries only before a request is sent so real pointer commands are never replayed ambiguously.
     public func call(
         name: String,
-        argumentsJSON: Data
+        argumentsJSON: Data,
+        launchIfNeeded: Bool = true
     ) async throws -> StorybirdControlResponse {
         let request = StorybirdControlRequest(
             name: name,
@@ -51,6 +52,9 @@ public struct StorybirdAppIPCClient: Sendable {
             return try await sender(request)
         } catch let error as StorybirdAppIPCStageError {
             guard case .connectionUnavailable = error else {
+                throw error
+            }
+            guard launchIfNeeded else {
                 throw error
             }
             try await launcher()

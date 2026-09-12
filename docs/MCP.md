@@ -357,7 +357,10 @@ sentences, then recalculate timing; translated speech is not duration-equivalent
 
 - Storybird owns capture, video encoding, pointer input, project mutation,
   preview, and export.
-- The companion translates MCP messages and launches Storybird when needed.
+- The companion translates MCP messages and launches Storybird when a tool call
+  needs the app. Initialization and tool discovery do not launch it. Disconnect
+  cleanup attempts to abort an existing session without launching or reopening
+  the app.
 - The socket lives under the user's Storybird Application Support directory and
   is readable and writable only by that user.
 - Storybird accepts only a `StorybirdMCP` peer signed by the same Team ID.
