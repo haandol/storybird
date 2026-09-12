@@ -1,6 +1,6 @@
 ---
 name: prepare-storybird-release
-description: Prepare Storybird releases, write release notes, check readiness, or publish an explicitly requested release. Use for release operations, not ordinary feature development.
+description: Prepare Storybird releases, write release notes, check readiness, or publish with local macOS gh after a publication request or prepared version tag push completion. Use for release operations, not ordinary feature development.
 ---
 
 # Prepare Storybird Release
@@ -15,16 +15,24 @@ description: Prepare Storybird releases, write release notes, check readiness, o
 | 릴리즈 준비 | 요청 범위의 로컬 버전·태그·노트·검증된 ZIP 준비 |
 | 초안 등록 | GitHub Draft와 검증된 업로드 자산 |
 | 준비된 버전의 릴리즈 등록·공개·최신으로 공개 | `--publish`로 공개하고 Latest·업로드 자산 확인 |
+| 준비된 버전 태그의 push 완료 알림 | 원격 태그·준비 자산을 확인하고 추가 확인 없이 공개까지 진행 |
 | 진행 중 상태 질문 | 현재 상태를 답하고 원래 요청의 완료까지 계속 진행 |
 
 준비와 push 이후 “릴리즈 등록해줘”는 초안 요청이 아니라 공개 요청으로 해석한다.
 초안은 사용자가 초안을 요청했을 때만 최종 결과가 된다. 공개 과정의 내부 초안 생성은
 중간 단계이므로 거기서 멈추거나 공개 권한을 다시 묻지 않는다.
 
+준비된 버전 태그의 push 완료 알림은 공개 진행 신호다. `scripts/push-version.sh`는
+컨테이너에서 태그만 전달하고, 에이전트는 일치하는 원격 태그를 확인한 뒤 로컬 macOS의
+기존 `gh` 인증으로 `--publish`를 실행한다. 공개 여부를 다시 묻거나 이를 위해
+컨테이너에 API 인증을 복사하지 않는다. 일반 브랜치 push는 릴리즈 요청이 아니다.
+
 ## 요청과 상태부터 확인한다
 
 기존 버전을 지정한 요청은 해당 `vX.Y.Z` 태그를 대상으로 삼는다. 태그가 없거나
 다음 버전의 신규 준비라면 사용자 지정 ref 또는 HEAD에서 후보를 정한다.
+push 완료 후에는 준비 기록의 버전 태그를 `--target vX.Y.Z`로 명시한다.
+그 뒤에 운영 커밋이 추가됐더라도 HEAD를 릴리즈 대상으로 바꾸지 않는다.
 작업공간 지침은 이미 읽은 내용을 재사용하고, 아래에서 필요한 자료만 추가로 읽는다.
 
 ```bash

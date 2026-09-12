@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prepare on macOS, push in .devcontainer, then create/publish with gh on either.
+# Prepare on macOS, push in .devcontainer, then publish with local macOS gh.
 set -euo pipefail
 
 usage() {
@@ -25,6 +25,8 @@ COMMIT_SHA must be the full commit used for the macOS release build.
 Only the legacy --push mode requires this commit at a clean, attached HEAD.
 The other modes read the specified commit even after later tooling commits.
 Existing published releases and mismatched drafts/tags are never overwritten.
+--check/--publish verify an identical published release and return without changes;
+repeating an older release does not replace the current Latest.
 Re-running with the same inputs resumes a matching draft after an interruption.
 This script does not build, sign, commit, or perform native smoke tests.
 EOF
@@ -121,9 +123,10 @@ check_remote_tag() {
 check_remote_tag
 if [[ "$mode" == "--draft" || "$mode" == "--publish" ]]; then
     [[ "$remote_tag_present" == true ]] ||
-        fail "Push the release tag in .devcontainer first (use --push)."
+        fail "Push the release tag in .devcontainer first: ./scripts/push-version.sh ${version}"
 fi
-gh auth status --hostname github.com >/dev/null
+gh auth status --hostname github.com >/dev/null ||
+    fail "Authenticate GitHub CLI in this environment first: gh auth login --hostname github.com"
 # Listing distinguishes an absent release from authentication/network failures.
 gh api --hostname github.com --paginate "repos/${repo}/releases?per_page=100" |
     jq -s --arg tag "$tag" 'add // [] | map(select(.tag_name == $tag))' > "$scratch/matches.json"
@@ -151,9 +154,16 @@ verify_release() {
         fail "Uploaded ZIP SHA-256 mismatch."
 }
 if [[ "$count" == 1 ]]; then
-    [[ "$(jq -r '.[0].draft' "$scratch/matches.json")" == true ]] ||
-        fail "This version is already published. Use a new version."
-    verify_release true
+    if [[ "$(jq -r '.[0].draft' "$scratch/matches.json")" == true ]]; then
+        verify_release true
+    else
+        [[ "$mode" == "--check" || "$mode" == "--publish" ]] ||
+            fail "This version is already published. Use a new version."
+        verify_release false
+        printf 'Already published and verified. No release or Latest changes were made.\n'
+        jq -r '.url' "$scratch/release.json"
+        exit 0
+    fi
 fi
 
 printf 'Repository: %s\nBranch: %s\nCommit: %s\nTitle: %s\nZIP: %s\nSHA-256: %s\nMode: %s\n\n' \
@@ -183,8 +193,10 @@ if [[ "$mode" == "--push" ]]; then
     exit 0
 fi
 if [[ "$count" == 0 ]]; then
+    # The verified tag may be ahead of the default branch after a tag-only push.
+    # Do not ask gh to infer new commits from default-branch release history.
     gh release create "$tag" "$archive" --repo "github.com/${repo}" --draft \
-        --verify-tag --fail-on-no-commits --target "$target" \
+        --verify-tag --target "$target" \
         --title "$title" --notes-file "$notes"
 fi
 verify_release true

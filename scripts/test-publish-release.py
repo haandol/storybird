@@ -35,15 +35,17 @@ def option(name): return a[a.index(name) + 1]
 def save(value): state.write_text(json.dumps(value))
 s = json.loads(state.read_text()) if state.exists() else None
 if a[:2] == ["auth", "status"]:
-    pass
+    if os.environ.get("TEST_AUTH_FAILURE"): sys.exit("not logged in")
 elif a[0] == "api":
     if os.environ.get("TEST_API_FAILURE"):
         sys.exit("simulated API outage")
     if any(x.endswith("/releases/latest") for x in a):
-        print(s["tagName"])
+        print(os.environ.get("TEST_LATEST_TAG", s["tagName"]))
     else:
         print(json.dumps([{"tag_name": s["tagName"], "draft": s["isDraft"]}] if s else []))
 elif a[:2] == ["release", "create"]:
+    if os.environ.get("TEST_DEFAULT_BRANCH_UNCHANGED") and "--fail-on-no-commits" in a:
+        sys.exit("no new commits since the last release")
     if s: sys.exit("release already exists")
     if os.environ.get("TEST_CREATE_FAILURE"): sys.exit("simulated create failure")
     s = {
@@ -151,13 +153,24 @@ class ReleaseFixture(unittest.TestCase):
 
 
 class PublishReleaseTests(ReleaseFixture):
+    def test_tag_only_publication_uses_verified_tag_not_default_branch_history(self):
+        self.git("tag", "-a", self.tag, "-m", "prepared release", self.target)
+        self.git("push", str(self.remote), "refs/tags/" + self.tag)
+        self.env["TEST_DEFAULT_BRANCH_UNCHANGED"] = "1"
+        self.run_script("--publish")
+        self.assertFalse(self.state()["isDraft"])
+        calls = [json.loads(line) for line in Path(self.env["TEST_LOG"]).read_text().splitlines()]
+        create = next(call for call in calls if call[:2] == ["release", "create"])
+        self.assertIn("--verify-tag", create)
+        self.assertNotIn("--fail-on-no-commits", create)
+
     def test_check_has_no_mutations(self):
         self.run_script()
         self.assertFalse(Path(self.env["TEST_STATE"]).exists())
         self.assertEqual(self.git("tag", "--list").stdout, "")
         self.assertEqual(self.git("--git-dir", str(self.remote), "for-each-ref").stdout, "")
 
-    def test_draft_then_publish_and_reject_republication(self):
+    def test_draft_then_publish_and_verify_republication_without_mutation(self):
         self.run_script("--push")
         self.run_script("--draft")
         self.assertTrue(self.state()["isDraft"])
@@ -165,8 +178,13 @@ class PublishReleaseTests(ReleaseFixture):
         self.assertEqual(remote_sha, self.target)
         self.run_script("--publish")
         self.assertFalse(self.state()["isDraft"])
-        result = self.run_script("--publish", success=False)
-        self.assertIn("already published", result.stderr)
+        before = self.state()
+        result = self.run_script("--publish")
+        self.assertIn("Already published and verified", result.stdout)
+        self.assertEqual(self.state(), before)
+        calls = [json.loads(line) for line in Path(self.env["TEST_LOG"]).read_text().splitlines()]
+        self.assertEqual(sum(call[:2] == ["release", "edit"] for call in calls), 1)
+        self.assertIn("already published", self.run_script("--draft", success=False).stderr)
 
     def test_publish_creates_and_verifies_draft_first(self):
         self.run_script("--push")
@@ -246,6 +264,11 @@ class PublishReleaseTests(ReleaseFixture):
         self.run_script("--push", success=False)
         self.assertEqual(self.git("--git-dir", str(self.remote), "for-each-ref").stdout, "")
 
+    def test_missing_api_authentication_prevents_push(self):
+        self.env["TEST_AUTH_FAILURE"] = "1"
+        self.assertIn("gh auth login", self.run_script("--push", success=False).stderr)
+        self.assertEqual(self.git("--git-dir", str(self.remote), "for-each-ref").stdout, "")
+
     def test_mismatched_uploaded_asset_prevents_publication(self):
         self.run_script("--push")
         self.run_script("--draft")
@@ -308,6 +331,26 @@ class PublishReleaseTests(ReleaseFixture):
         self.git("tag", "-d", self.tag)
         self.assertIn("points elsewhere", self.run_script("--publish", success=False).stderr)
 
+    def test_published_asset_mismatch_is_not_accepted_or_overwritten(self):
+        self.run_script("--push")
+        self.run_script("--publish")
+        before = self.state()
+        Path(self.env["TEST_STATE"] + ".zip").write_bytes(b"corrupt public asset")
+        self.assertIn("Uploaded ZIP", self.run_script("--publish", success=False).stderr)
+        self.assertEqual(self.state(), before)
+
+    def test_repeated_publication_does_not_reclaim_latest_from_newer_release(self):
+        self.run_script("--push")
+        self.run_script("--publish")
+        self.env["TEST_LATEST_TAG"] = "v99.99.99"
+        before = self.state()
+        Path(self.env["TEST_LOG"]).write_text("")
+        self.run_script("--publish")
+        self.assertEqual(self.state(), before)
+        calls = [json.loads(line) for line in Path(self.env["TEST_LOG"]).read_text().splitlines()]
+        self.assertFalse(any(call[:2] in (["release", "create"], ["release", "edit"])
+                             for call in calls))
+
 
 class PushVersionTests(ReleaseFixture):
     def prepared_tag(self):
@@ -346,6 +389,23 @@ class PushVersionTests(ReleaseFixture):
         self.push_version(self.tag)
         self.env["TEST_GIT_MUTATIONS_DENIED"] = "1"
         self.assertIn("이미", self.push_version().stdout)
+
+    def test_container_push_hands_off_to_authenticated_local_publisher(self):
+        self.prepared_tag()
+        self.env["TEST_AUTH_FAILURE"] = "1"
+        result = self.push_version()
+        self.assertIn("로컬 macOS gh", result.stdout)
+        self.assertFalse(Path(self.env["TEST_LOG"]).exists())
+        self.git("commit", "--allow-empty", "-m", "later release tooling")
+        self.env.pop("TEST_AUTH_FAILURE")
+        self.env["TEST_KERNEL"] = "Darwin"
+        self.env["TEST_GIT_MUTATIONS_DENIED"] = "1"
+        self.run_script("--publish")
+        self.assertFalse(self.state()["isDraft"])
+        self.assertEqual(self.state()["tagName"], self.tag)
+        refs = self.git("--git-dir", str(self.remote), "for-each-ref",
+                        "--format=%(refname)").stdout.splitlines()
+        self.assertEqual(refs, ["refs/tags/" + self.tag])
 
     def test_read_only_check_on_macos_does_not_push(self):
         self.prepared_tag()

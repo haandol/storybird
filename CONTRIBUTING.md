@@ -60,8 +60,11 @@ container rebuild is needed for this command.
 An identical remote tag is a successful no-op. Missing tags, version mismatches,
 or different remote tags stop without creating, moving, or overwriting tags.
 Add `--check` to inspect without pushing; this check also runs on macOS.
-Once the tag is pushed, release creation/publication can continue locally with
-`gh` using the prepared ZIP and notes.
+Once the user reports the prepared tag was pushed, the agent verifies the remote
+tag and publishes locally with the existing macOS `gh` authentication and prepared
+ZIP/notes, without another publication confirmation. No GitHub API credential
+needs to be copied into the container. This is the agent handoff workflow;
+ordinary `git push` has no publication hook.
 
 Prepare the release on macOS using
 [the release skill](.agents/skills/prepare-storybird-release/SKILL.md): select the
@@ -71,15 +74,11 @@ and relevant native smoke checks, and build/sign the app from that commit. Packa
 verified ZIP SHA-256. These ignored files must be present in the shared workspace;
 they are uploaded as release assets/notes, never committed.
 
-Perform Git pushes yourself inside `.devcontainer`. Release creation/publication
-uses `gh` and may run locally on macOS, including by the agent when requested.
-After preparation and push, a request to register or publish the release means
-public Latest status. Use a draft as the final result only when the user asks for
-a draft. Do not ask again for already granted publication authorization.
-Rebuild the container after pulling changes to its Dockerfile (the script requires
-`unzip`). Both environments need `git`, `gh`, `jq`, and `unzip`; checksums use
-`sha256sum` on Linux or `shasum` on macOS. If needed, run
-`gh auth login --hostname github.com` in the environment executing the script.
+Use a draft as the final result only when the user explicitly asks for a draft.
+The tag-only container step needs Git and Bash, with no `gh` API authentication.
+Local publication needs `git`, `gh`, `jq`, and `unzip`; checksums use `shasum` on
+macOS or `sha256sum` when available. If local `gh` authentication is missing, run
+`gh auth login --hostname github.com` on macOS.
 
 Set these three values to the macOS preparation results; the example version is
 only a placeholder. Do not derive the expected checksum from an unverified ZIP.
@@ -108,10 +107,11 @@ unrelated files are uncommitted. Only its legacy `--push` mode requires a clean
 working tree with the prepared commit at an attached HEAD. Both scripts require
 a single `origin` push URL for `haandol/storybird`. The publisher checks the
 ZIP checksum, committed/bundled metadata, tag commit, release title/notes and the
-downloaded asset before publication. It refuses published versions, mismatched
-tags/drafts, force pushes and asset replacement. A matching complete draft can be
-resumed with the same command; a partial upload or metadata mismatch stops for
-inspection. Push and release publication are separate steps; a failed release
+downloaded asset before publication. It verifies an identical published release
+without changing its body/assets or moving Latest. It refuses mismatched
+releases, tags/drafts, force pushes and asset replacement. A matching complete
+draft can be resumed with the same command; a partial upload or metadata mismatch
+stops for inspection. Push and release publication are separate steps; a failed release
 operation leaves the already pushed refs intact.
 
 Reuse existing test, build, signature and artifact evidence for the same target;

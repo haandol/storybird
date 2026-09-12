@@ -74,6 +74,12 @@ upload or remote-state errors, and known data-loss/security defects. Honor any
 checks the user explicitly makes a prerequisite for that release. Git pushes
 remain the user's action in `.devcontainer`.
 
+`scripts/push-version.sh VERSION` pushes only the prepared version tag from
+`.devcontainer`. After the user reports that prepared tag was pushed, verify it
+and use authenticated local macOS `gh` to finish publication and Latest without
+another confirmation. Do not copy GitHub API credentials into the container for
+this handoff. Ordinary branch pushes are not release requests.
+
 ## Coding Style & Naming Conventions
 
 Use four spaces and standard Swift naming: `UpperCamelCase` types,

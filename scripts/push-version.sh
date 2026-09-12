@@ -75,5 +75,8 @@ else
     git -c push.followTags=false push "$push_url" "${ref}:${ref}"
     check_remote
     [[ "$remote_present" == true ]] || fail "push 후 원격 태그를 확인하지 못했습니다."
-    printf '%s push 완료. 이제 로컬 gh로 릴리즈를 생성할 수 있습니다.\n' "$tag"
+    printf '%s push 완료.\n' "$tag"
+fi
+if [[ "$mode" == "--push" ]]; then
+    printf '에이전트에 "%s push 완료"를 알리면 로컬 macOS gh로 공개와 Latest 지정을 이어갑니다.\n' "$tag"
 fi

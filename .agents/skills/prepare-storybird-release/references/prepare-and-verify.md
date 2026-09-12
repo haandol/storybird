@@ -71,3 +71,8 @@ checksum이 일치해야 한다. 노트에는 실제 테스트 수·skip·실패
 정확한 release commit에 annotated tag를 로컬에서 준비한다. 기존 태그가 있으면 동일한
 대상인지 확인하며 옮기지 않는다. 이후 추가한 운영 스크립트 커밋 때문에 태그를 옮기거나
 앱을 재빌드할 필요는 없다. 원격 단계는 [publish.md](publish.md)를 따른다.
+
+준비 결과에는 버전 태그, 전체 commit SHA, 검증된 ZIP checksum과 노트 경로를 남기고,
+사용자가 컨테이너에서 실행할 `./scripts/push-version.sh X.Y.Z`를 안내한다.
+push 완료 알림 뒤에는 이 준비 기록과 원격 태그를 대조하고 로컬 macOS의 기존 `gh`
+인증으로 공개·Latest 지정을 이어간다. 준비만 요청한 단계에서 먼저 공개하지 않는다.
