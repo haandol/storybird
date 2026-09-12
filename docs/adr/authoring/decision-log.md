@@ -3,6 +3,20 @@
 이 문서는 authoring 카테고리의 주요 결정 변경 이력이다. ADR 본문은 현재 상태만
 서술하고, 주요 전환의 시간축은 여기에 최신 순으로 남긴다.
 
+## 2026-09-12 — 트랙패드 핀치로 타임라인 확대
+
+- **Current ADR**: [timeline-overlay-editor](./0001-timeline-overlay-editor.md)
+- **Change type**: requirement rule change
+- **What**: 버튼·슬라이더·Option 스크롤 확대에 수정자 없는 두 손가락 핀치를 추가한다.
+- **Why**: 트랙패드에서 같은 포인터 기준 확대를 직접 사용하면서 프로젝트와 재생 시각을 유지한다.
+
+## 2026-09-12 — 편집기 재생 키와 정밀 타임라인 탐색
+
+- **Current ADR**: [timeline-overlay-editor](./0001-timeline-overlay-editor.md)
+- **Change type**: requirement rule change
+- **What**: 버튼 중심 재생과 고정 배율 → 편집 작업 영역의 Space 재생·정지, 일시적인 초 표시, 배율 조절·전체 맞춤·Option 스크롤 확대.
+- **Why**: 포커스가 남은 다른 버튼의 실행을 막고 현재 시각과 짧은 시간 구간을 정확히 찾도록 한다.
+
 ## 2026-09-10 — 기본 빈 영상 화면과 경계 드래그
 
 - **Current ADR**: [timeline-overlay-editor](./0001-timeline-overlay-editor.md)

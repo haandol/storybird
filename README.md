@@ -31,12 +31,12 @@ validates edits, synthesizes speech locally, and renders the video. See [Use it 
 agent](#use-it-with-an-ai-agent) for connection steps and copyable examples.
 
 <div align="center">
-  <img src="docs/images/editor-app.png" width="960" alt="The running Storybird editor with a synthetic Northstar walkthrough, three video clips, click explanations, and timed subtitles" />
+  <img src="docs/images/editor-app.png" width="960" alt="Synthetic Storybird editor with timeline zoom controls, subsecond ticks and a temporary current-time readout" />
 </div>
 
 The preview shows the edited picture; the timeline below holds clips and timed
-layers. This screenshot was taken from the running app with a separate synthetic
-demo library. No customer screen or personal voice sample is included.
+layers. This native editor screenshot uses a separate synthetic demo library.
+No customer screen or personal voice sample is included.
 
 Project details start with an empty video area. Choose **Show Preview** to see
 the edited picture, or **Hide Preview** to give the remaining height to timeline
@@ -45,6 +45,17 @@ to resize the preview and timeline. Playback controls remain available in every
 view, and these layout changes do not edit the project.
 The timeline's incomplete-click menu lists missing descriptions or subtitles and
 opens the selected Cue for editing. Export stays disabled until every Cue is complete.
+
+After clicking the video or timeline, press **Space** to play or pause. Text fields,
+dialogs and other windows keep their normal keyboard input. Dragging the playhead
+or ruler shows the current seconds above that control, then hides the readout shortly
+after release.
+
+Use the timeline **−/＋** controls or zoom slider for finer timing, and **Fit** to
+see the whole video. **Pinch with two fingers** or **Option + scroll** over the
+timeline to zoom around the pointer; ordinary and
+Shift scrolling keep their existing navigation. Zooming leaves the playhead time,
+project data and undo history unchanged.
 
 > [!NOTE]
 > Storybird is an early-stage project. Release binaries are not notarized,
@@ -312,7 +323,7 @@ not automatically use a build from your checkout.
 With Codex installed, register the companion:
 
 ```bash
-codex mcp add storybird -- /Applications/Storybird.app/Contents/MacOS/StorybirdMCP
+codex mcp add storybird -- /Applications/Storybird.app/Contents/MacOS/StorybirdMCP --tool-profile compact
 codex mcp list
 ```
 
@@ -322,7 +333,14 @@ The same server can be configured in `~/.codex/config.toml`:
 ```toml
 [mcp_servers.storybird]
 command = "/Applications/Storybird.app/Contents/MacOS/StorybirdMCP"
+args = ["--tool-profile", "compact"]
 ```
+
+The compact profile groups related project edits into 53 tools. Existing
+configurations without arguments keep the 71-tool legacy profile; select
+`--tool-profile legacy` explicitly if needed. Each connection exposes one fixed
+list. See [tool profiles and call examples](docs/MCP.md#choose-a-tool-profile)
+for the grouped actions and unchanged recording, audio-generation and export tools.
 
 See the [official Codex MCP setup guide](https://learn.chatgpt.com/docs/extend/mcp).
 For Kiro, merge the included [configuration example](mcp/storybird.kiro.json)

@@ -57,12 +57,16 @@ struct VideoTimelineEditorView: View {
     @GestureState private var isDraggingLayer = false
     @State private var expandedTrackKinds: Set<TimelineTrack.Kind> = []
     @State private var dragRows: [TimelineTrack]?
+    @StateObject private var playbackInteraction = TimelinePlaybackInteraction()
+    @StateObject private var scrubFeedback = TimelineScrubFeedback()
+    @State private var isScrubbingSlider = false
+    @State private var timelineZoom = TimelineZoom()
+    @StateObject private var timelineScroll = TimelineScrollController()
 
     private static let timelineLabelWidth: CGFloat = 136
-    private static let timelineRulerHeight: CGFloat = 26
+    private static let timelineRulerHeight: CGFloat = 46
     private static let timelineTrackHeight: CGFloat = 38
     private static let timelineTrackSpacing: CGFloat = 6
-    private static let timelinePointsPerSecond: CGFloat = 48
 
     private var selectedClickID: UUID? {
         guard case let .click(id) = selection else { return nil }
@@ -146,6 +150,9 @@ struct VideoTimelineEditorView: View {
             layerDrag.cancel()
             audioModel.cancel()
             dragRows = nil
+            scrubFeedback.cancel()
+            playbackInteraction.deactivate()
+            isScrubbingSlider = false
         }
         .onChange(of: project.id) { _, _ in
             layerDrag.cancel()
@@ -154,6 +161,11 @@ struct VideoTimelineEditorView: View {
             expandedTrackKinds = []
             previewLayout = TimelinePreviewLayout()
             isPlacingClick = false
+            scrubFeedback.cancel()
+            playbackInteraction.deactivate()
+            isScrubbingSlider = false
+            timelineZoom = TimelineZoom()
+            timelineScroll.requestOffset(0)
         }
         .onChange(of: isDraggingLayer) { _, active in
             if !active {
@@ -172,6 +184,12 @@ struct VideoTimelineEditorView: View {
         }
         .onChange(of: selection) { _, _ in
             audioModel.cancelAdjustment()
+        }
+        .onChange(of: project.timelineDuration) { _, duration in
+            if duration > 0 { setTimelineZoom(timelineZoom.pointsPerSecond) }
+        }
+        .onChange(of: timelineScroll.viewportWidth) { _, _ in
+            if project.timelineDuration > 0 { setTimelineZoom(timelineZoom.pointsPerSecond) }
         }
     }
 
@@ -221,7 +239,7 @@ struct VideoTimelineEditorView: View {
         GeometryReader { proxy in
             let audioHeight: CGFloat = compact && showAudioComposer
                 ? min(190, max(80, proxy.size.height * 0.24)) : 0
-            let toolsHeight: CGFloat = selectedNarrationID == nil ? 160 : 204
+            let toolsHeight: CGFloat = selectedNarrationID == nil ? 204 : 248
             TimelinePreviewSplitView(
                 layout: $previewLayout,
                 minimumTimelineHeight: toolsHeight + 48 + audioHeight
@@ -238,6 +256,11 @@ struct VideoTimelineEditorView: View {
                 }
             }
         }
+        .background(TimelinePlaybackKeyScope(
+            interaction: playbackInteraction,
+            isEnabled: !isPlacingClick,
+            togglePlayback: { playback.togglePlayback() }
+        ))
     }
 
     private var playerStage: some View {
@@ -321,6 +344,7 @@ struct VideoTimelineEditorView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+        .simultaneousGesture(TapGesture().onEnded { playbackInteraction.activate() })
     }
 
     private var playbackControls: some View {
@@ -347,15 +371,36 @@ struct VideoTimelineEditorView: View {
             .buttonStyle(.borderedProminent)
             .accessibilityLabel(playback.isPlaying ? "Pause" : "Play")
             .accessibilityIdentifier("timeline-playback-toggle")
+            .help("Play or pause (Space)")
 
             Slider(
                 value: Binding(
                     get: { playback.currentTime },
-                    set: { playback.seek(to: $0) }
+                    set: {
+                        playback.seek(to: $0)
+                        scrubFeedback.show(playback.currentTime, origin: .slider)
+                        if !isScrubbingSlider { scrubFeedback.finish() }
+                    }
                 ),
-                in: 0...max(playback.duration, 0.001)
+                in: 0...max(playback.duration, 0.001),
+                onEditingChanged: { active in
+                    isScrubbingSlider = active
+                    if active {
+                        playbackInteraction.activate(takeFocus: false)
+                        scrubFeedback.show(playback.currentTime, origin: .slider)
+                    } else {
+                        scrubFeedback.finish()
+                    }
+                }
             )
             .accessibilityLabel("Playhead")
+            .overlay(alignment: .top) {
+                if let time = scrubFeedback.time, scrubFeedback.origin == .slider {
+                    TimelineScrubReadout(time: time)
+                        .offset(y: -30)
+                        .transition(.opacity)
+                }
+            }
 
             Text(
                 "\(Self.time(playback.currentTime)) / \(Self.time(playback.duration))"
@@ -391,6 +436,7 @@ struct VideoTimelineEditorView: View {
                 }
                 .fixedSize(horizontal: false, vertical: true)
             }
+            timelineZoomControls
             ScrollView(.vertical) { timelineTrackEditor }
                 .frame(maxHeight: .infinity)
                 .scrollIndicators(.visible)
@@ -553,6 +599,14 @@ struct VideoTimelineEditorView: View {
 
             ScrollView(.horizontal) {
                 timelineCanvas(width: timelineCanvasWidth)
+                    .background(TimelineScrollBridge(controller: timelineScroll) { fraction, viewportX, multiplier in
+                        let duration = timelineSnapshot.duration
+                        let time = fraction * duration
+                        setTimelineZoom(
+                            effectivePointsPerSecond * CGFloat(multiplier),
+                            anchorTime: time, viewportX: viewportX
+                        )
+                    }.frame(maxWidth: .infinity, maxHeight: .infinity))
             }
             .scrollIndicators(.visible)
         }
@@ -661,7 +715,11 @@ struct VideoTimelineEditorView: View {
                 TimelineAudioBlock(
                     store: store, model: audioModel, move: layerDrag, project: project, layer: layer,
                     canvasWidth: width, selected: selectedNarrationID == layer.id, playhead: playback.currentTime,
-                    onSelect: { audioModel.selectedLayerID = layer.id; selection = .narration(layer.id) },
+                    onSelect: {
+                        playbackInteraction.activate()
+                        audioModel.selectedLayerID = layer.id
+                        selection = .narration(layer.id)
+                    },
                     onEditText: {
                         if layer.voiceProfileID != nil { editingNarration = layer }
                         else { isInspectorPresented = true }
@@ -682,6 +740,7 @@ struct VideoTimelineEditorView: View {
                 dragTarget: target,
                 usesSharedRows: row.kind.supportsExpansion && !expandedTrackKinds.contains(row.kind)
             ) {
+                playbackInteraction.activate()
                 selection = selected
                 playback.seek(to: row.kind == .click
                     ? timelineSnapshot.clicks[span.id]?.time ?? span.start
@@ -755,27 +814,39 @@ struct VideoTimelineEditorView: View {
         ZStack(alignment: .topLeading) {
             Color.clear
             ForEach(timelineTickValues, id: \.self) { second in
-                let x = timelineX(for: Double(second), width: width)
+                let x = timelineX(for: second, width: width)
                 Rectangle()
                     .fill(Color.secondary.opacity(0.4))
                     .frame(width: 1, height: 7)
-                    .offset(x: x)
-                Text(Self.shortTime(Double(second)))
+                    .offset(x: x, y: 20)
+                Text(TimelineZoom.label(
+                    second, interval: TimelineZoom.tickInterval(duration: timelineSnapshot.duration, canvasWidth: width)
+                ))
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.secondary)
-                    .offset(x: x + 4, y: 7)
+                    .offset(x: x + 4, y: 27)
+            }
+            if let time = scrubFeedback.time, scrubFeedback.origin == .ruler {
+                TimelineScrubReadout(time: time)
+                    .position(
+                        x: min(
+                            max(timelineX(for: time, width: width), timelineScroll.offset + 60),
+                            max(timelineScroll.offset + 60, min(width, timelineScroll.offset + timelineScroll.viewportWidth) - 60)
+                        ), y: 12
+                    )
+                    .transition(.opacity)
             }
         }
         .frame(width: width, height: Self.timelineRulerHeight)
-        .contentShape(Rectangle())
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged {
-                    playback.seek(
-                        to: timelineTime(for: $0.location.x, width: width)
-                    )
-                }
-        )
+        .overlay(TimelineRulerInput(
+            seek: { fraction in
+                playbackInteraction.activate(takeFocus: false)
+                let time = fraction * timelineSnapshot.duration
+                playback.seek(to: time)
+                scrubFeedback.show(time, origin: .ruler)
+            },
+            finish: { scrubFeedback.finish() }
+        ).frame(maxWidth: .infinity, maxHeight: .infinity))
     }
 
     private func timelineTrackRow<Content: View>(
@@ -867,11 +938,7 @@ struct VideoTimelineEditorView: View {
     }
 
     private var timelineCanvasWidth: CGFloat {
-        max(
-            720,
-            CGFloat(max(timelineSnapshot.duration, 1))
-                * Self.timelinePointsPerSecond
-        )
+        timelineZoom.canvasWidth(duration: timelineSnapshot.duration, viewportWidth: timelineScroll.viewportWidth)
     }
 
     private var timelineCanvasHeight: CGFloat {
@@ -889,23 +956,66 @@ struct VideoTimelineEditorView: View {
         trackCache.snapshot(project: project, expandedKinds: expandedTrackKinds)
     }
 
-    private var timelineTickValues: [Int] {
-        let duration = max(timelineSnapshot.duration, 0)
-        let interval: Int
-        if duration <= 30 {
-            interval = 1
-        } else if duration <= 120 {
-            interval = 5
-        } else {
-            interval = 10
-        }
-        return Array(
-            stride(
-                from: 0,
-                through: Int(ceil(duration)),
-                by: interval
-            )
+    private var timelineTickValues: [Double] {
+        TimelineZoom.ticks(
+            duration: timelineSnapshot.duration, canvasWidth: timelineCanvasWidth,
+            offset: timelineScroll.offset, viewportWidth: timelineScroll.viewportWidth
         )
+    }
+
+    private var effectivePointsPerSecond: CGFloat {
+        timelineCanvasWidth / CGFloat(max(timelineSnapshot.duration, 0.001))
+    }
+
+    /// Changes horizontal scale around an existing project time without seeking or saving.
+    private func setTimelineZoom(_ points: CGFloat, anchorTime: Double? = nil, viewportX: CGFloat? = nil) {
+        let time = anchorTime ?? playback.currentTime
+        let currentX = timelineX(for: time, width: timelineCanvasWidth) - timelineScroll.offset
+        let anchorX = viewportX ?? (currentX >= 0 && currentX <= timelineScroll.viewportWidth
+            ? currentX : timelineScroll.viewportWidth / 2)
+        timelineZoom.set(points, duration: timelineSnapshot.duration, viewportWidth: timelineScroll.viewportWidth)
+        timelineScroll.requestOffset(TimelineZoom.anchoredOffset(
+            time: time, viewportX: anchorX, duration: timelineSnapshot.duration,
+            canvasWidth: timelineCanvasWidth, viewportWidth: timelineScroll.viewportWidth
+        ))
+    }
+
+    private var timelineZoomControls: some View {
+        let limits = timelineZoom.range(duration: timelineSnapshot.duration, viewportWidth: timelineScroll.viewportWidth)
+        return HStack(spacing: 8) {
+            Text("Timeline").font(.caption).foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+            Button { setTimelineZoom(effectivePointsPerSecond / 1.5) } label: {
+                Image(systemName: "minus.magnifyingglass")
+            }
+            .accessibilityLabel("Zoom out timeline")
+            .accessibilityIdentifier("timeline-zoom-out")
+            .disabled(effectivePointsPerSecond <= limits.lowerBound + 0.01)
+            Slider(
+                value: Binding(
+                    get: { log2(Double(effectivePointsPerSecond)) },
+                    set: { setTimelineZoom(CGFloat(pow(2, $0))) }
+                ),
+                in: log2(Double(limits.lowerBound))...log2(Double(limits.upperBound))
+            )
+            .frame(minWidth: 60, idealWidth: 100, maxWidth: 140)
+            .accessibilityLabel("Timeline zoom")
+            .accessibilityIdentifier("timeline-zoom-slider")
+            Button { setTimelineZoom(effectivePointsPerSecond * 1.5) } label: {
+                Image(systemName: "plus.magnifyingglass")
+            }
+            .accessibilityLabel("Zoom in timeline")
+            .accessibilityIdentifier("timeline-zoom-in")
+            .disabled(effectivePointsPerSecond >= limits.upperBound - 0.01)
+            Button("Fit") {
+                setTimelineZoom(limits.lowerBound, anchorTime: 0, viewportX: 0)
+            }
+            .accessibilityLabel("Fit entire timeline")
+            .accessibilityIdentifier("timeline-zoom-fit")
+            .help("Fit the entire video. Pinch or Option-scroll over the timeline to zoom at the pointer.")
+        }
+        .buttonStyle(.borderless)
+        .disabled(timelineSnapshot.duration <= 0)
     }
 
     private func timelineX(for time: Double, width: CGFloat) -> CGFloat {
@@ -917,13 +1027,9 @@ struct VideoTimelineEditorView: View {
         ) * width
     }
 
-    private func timelineTime(for x: CGFloat, width: CGFloat) -> Double {
-        Double(min(max(x / max(width, 1), 0), 1))
-            * timelineSnapshot.duration
-    }
-
+    /// Keeps timing and the selected layer's form inside one split-view column.
     private var inspector: some View {
-        Group {
+        VStack(alignment: .leading, spacing: 0) {
             if let index = project.clips.firstIndex(where: {
                 $0.id == selectedClipID
             }) {
@@ -1323,11 +1429,6 @@ struct VideoTimelineEditorView: View {
         let minutes = Int(bounded) / 60
         let remainder = bounded - Double(minutes * 60)
         return String(format: "%d:%05.2f", minutes, remainder)
-    }
-
-    private static func shortTime(_ seconds: Double) -> String {
-        let total = max(Int(seconds.rounded()), 0)
-        return String(format: "%d:%02d", total / 60, total % 60)
     }
 
     private static func speed(_ rate: Double) -> String {

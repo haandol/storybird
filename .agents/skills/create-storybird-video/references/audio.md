@@ -46,10 +46,12 @@ the new measured duration. Finished audio remains available for undo.
 For an external WAV/MP3/M4A, follow [importing.md](importing.md) to register the
 file without a picker. Then read the current revision before placing its asset.
 
-Inspect reusable assets with `storybird_list_audio_assets`. Duplicate a placed
-sound with `storybird_duplicate_audio_layer`, or place a registered asset with
-`storybird_place_audio_asset`. Move/trim/mute/change gain or fades with
-`storybird_update_audio_layer`; split at project seconds with `storybird_split_audio_layer`.
+Inspect reusable assets with `storybird_list_audio_assets`. In compact, use
+`storybird_edit_audio_layer` with `action: "duplicate"`, `"update"`, `"split"` or
+`"delete"` and put `layer_id` plus operation fields in `input`. A split uses
+project seconds. In legacy, use the advertised `storybird_duplicate_audio_layer`,
+`storybird_update_audio_layer`, `storybird_split_audio_layer` or deletion tool.
+Place a registered asset with `storybird_place_audio_asset` in either profile.
 Original movie gain/mute uses `storybird_set_source_audio` without changing picture timing.
 
 Overlapping voices, music and effects are allowed and mixed. Keep speech intelligible

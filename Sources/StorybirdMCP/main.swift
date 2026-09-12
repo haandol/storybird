@@ -6,7 +6,8 @@ struct StorybirdMCPMain {
     /// Starts the stdio server without writing protocol diagnostics to stdout.
     static func main() async {
         do {
-            try await StorybirdMCPService().run()
+            let profile = try StorybirdMCPToolProfile(arguments: Array(CommandLine.arguments.dropFirst()))
+            try await StorybirdMCPService(toolProfile: profile).run()
             Foundation.exit(EXIT_SUCCESS)
         } catch {
             FileHandle.standardError.write(

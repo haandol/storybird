@@ -165,8 +165,8 @@ final class TimelineLayerDragTests: XCTestCase {
             if width == 1100 {
                 let before = try XCTUnwrap(store.project(id: project.id))
                 // The synthetic subtitle spans 2–4 seconds; its center is at
-                // x=144 on the 48-point/second ruler and y=139 on the third row.
-                let start = canvas.convert(NSPoint(x: 144, y: canvas.isFlipped ? 139 : canvas.bounds.height - 139), to: nil)
+                // x=144 on the 48-point/second ruler and y=159 on the third row.
+                let start = canvas.convert(NSPoint(x: 144, y: canvas.isFlipped ? 159 : canvas.bounds.height - 159), to: nil)
                 sendMouse(.leftMouseDown, at: start, in: window)
                 for offset in [10.0, 30, 60, 96] {
                     sendMouse(.leftMouseDragged, at: NSPoint(x: start.x + offset, y: start.y), in: window)
@@ -189,7 +189,7 @@ final class TimelineLayerDragTests: XCTestCase {
                 ? document.bounds.height - scroll.contentSize.height : 0))
             try await Task.sleep(for: .milliseconds(150))
             let finalRowRect = canvas.convert(
-                NSRect(x: 96, y: canvas.isFlipped ? 784 : canvas.bounds.height - 822, width: 96, height: 38),
+                NSRect(x: 96, y: canvas.isFlipped ? 804 : canvas.bounds.height - 842, width: 96, height: 38),
                 to: scroll
             )
             XCTAssertTrue(scroll.bounds.intersects(finalRowRect), "The final subtitle must be reachable by vertical scroll.")
@@ -226,7 +226,7 @@ final class TimelineLayerDragTests: XCTestCase {
 
             let canvas = try XCTUnwrap(descendants(view).compactMap { $0 as? NSScrollView }
                 .compactMap(\.documentView).first { $0.bounds.width >= 960 })
-            XCTAssertEqual(canvas.bounds.height, 290, accuracy: 1)
+            XCTAssertEqual(canvas.bounds.height, 310, accuracy: 1)
             try snapshot(view, name: "view-mode-automatic-\(Int(width))")
 
             for expanded in [true, false] {
@@ -234,19 +234,19 @@ final class TimelineLayerDragTests: XCTestCase {
                 let libraryURL = store.repository.rootURL.appendingPathComponent("library.json")
                 let bytes = try Data(contentsOf: libraryURL)
                 let toggle = canvas.convert(
-                    NSPoint(x: -120, y: canvas.isFlipped ? 139 : canvas.bounds.height - 139), to: nil
+                    NSPoint(x: -120, y: canvas.isFlipped ? 159 : canvas.bounds.height - 159), to: nil
                 )
                 sendMouse(.leftMouseDown, at: toggle, in: window)
                 sendMouse(.leftMouseUp, at: toggle, in: window)
                 try await Task.sleep(for: .milliseconds(150))
-                XCTAssertEqual(canvas.bounds.height, expanded ? 510 : 290, accuracy: 1)
+                XCTAssertEqual(canvas.bounds.height, expanded ? 530 : 310, accuracy: 1)
                 XCTAssertEqual(store.project(id: project.id), before)
                 XCTAssertEqual(try Data(contentsOf: libraryURL), bytes)
                 try snapshot(view, name: "view-mode-\(expanded ? "expanded" : "compacted")-\(Int(width))")
 
                 let heightBeforeDrag = canvas.bounds.height
                 let start = canvas.convert(
-                    NSPoint(x: 144, y: canvas.isFlipped ? 139 : canvas.bounds.height - 139), to: nil
+                    NSPoint(x: 144, y: canvas.isFlipped ? 159 : canvas.bounds.height - 159), to: nil
                 )
                 sendMouse(.leftMouseDown, at: start, in: window)
                 for offset in [20.0, 48, 96] {
@@ -260,7 +260,7 @@ final class TimelineLayerDragTests: XCTestCase {
                 let moved = try XCTUnwrap(store.project(id: project.id))
                 XCTAssertEqual(moved.subtitles[0].startTime, 4, accuracy: 0.05)
                 XCTAssertEqual(moved.revision, before.revision + 1)
-                XCTAssertEqual(canvas.bounds.height, expanded ? 510 : 334, accuracy: 1)
+                XCTAssertEqual(canvas.bounds.height, expanded ? 530 : 354, accuracy: 1)
                 _ = try store.undo(projectID: project.id)
                 try await Task.sleep(for: .milliseconds(150))
                 XCTAssertEqual(store.project(id: project.id)?.subtitles, before.subtitles)

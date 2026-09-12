@@ -24,6 +24,75 @@ See the [UI/MCP feature inventory](MCPFeatureParity.md) for action coverage,
 native-only boundaries, view-only equivalents and regression checks. MCP does
 not control every Settings or window action.
 
+### Choose a tool profile
+
+No launch arguments selects `legacy`: the existing 71 tool names, schemas,
+responses and errors. To use 53 tools covering the same actions, configure the
+companion arguments as `["--tool-profile", "compact"]` and reconnect. Explicit
+`["--tool-profile", "legacy"]` also works. Invalid arguments fail before the
+server starts; a connection never changes profiles during use.
+
+Compact groups only related project edits. Recording, pointer actions, settings,
+imports, voice generation, draft lifecycle, previews and exports remain separate.
+An unadvertised name is rejected, including legacy names replaced in compact.
+
+| Compact tool | Selector | Existing operations |
+|---|---|---|
+| `storybird_edit_clip` | `action` | split, trim, delete, move, set_speed, insert_freeze |
+| `storybird_edit_click` | `action` | create, update, delete |
+| `storybird_edit_subtitle` | `action` | upsert, delete |
+| `storybird_create_visual_effect` | `kind` | spotlight, pan_zoom |
+| `storybird_insert_card` | `kind` | title, cta |
+| `storybird_edit_effect` | `action` | update, delete |
+| `storybird_edit_suggestion` | `action` | update, apply, reject |
+| `storybird_edit_audio_layer` | `action` | update, split, duplicate, delete |
+| `storybird_edit_history` | `action` | undo, redo |
+
+Each compact call requires top-level `project_id`, `expected_revision`, its
+selector, and an `input` object containing that operation's existing fields.
+For example, trim a clip to the source range from 2 to 8 seconds:
+
+```json
+{
+  "name": "storybird_edit_clip",
+  "arguments": {
+    "project_id": "PROJECT_UUID",
+    "expected_revision": 12,
+    "action": "trim",
+    "input": {"clip_id": "CLIP_UUID", "source_start": 2, "source_end": 8}
+  }
+}
+```
+
+Read actual IDs and revision first. Use `input: {}` for undo/redo.
+Required fields, allowed values, units, optional-field behavior and results
+match the corresponding operation below. For example, `source_time` is recording
+time, audio `time` is project time, and clip `destination` is a zero-based index.
+Subtitle upsert still requires both endpoints. Cue `time` alone still leaves its
+component windows fixed. Title and CTA retain distinct insertion rules.
+
+Audio deletion uses `storybird_edit_audio_layer` with `action: "delete"` and
+`input.layer_id` for any placed audio, including narration. There is no compact
+`storybird_delete_narration` alias. Use `storybird_update_narration` for text
+regeneration; reusable asset placement and one-time draft placement remain separate.
+
+One compact call invokes one app command. Unknown or cross-operation fields,
+missing inputs, invalid types and schema bounds are rejected before app IPC.
+Revision conflicts and domain errors still come from the app. Suggestion
+update/reject does not advance output revision; apply does. All grouped tools
+have `idempotentHint: false` because some actions create another result on retry.
+After an ambiguous response, read the project before retrying.
+
+Compact spotlight inputs require positive `width` and `height` up to 1, including
+effect updates and nested suggestion patches. This exposes the existing app
+constraint before IPC; legacy schemas and rejection behavior remain unchanged.
+
+### Operation-specific reference
+
+The table and detailed examples below use legacy names. In compact, use the
+matching grouped tool above and move operation fields into `input`; the other
+44 tool names and argument shapes are unchanged.
+
 | Tool | Result |
 |---|---|
 | `storybird_list_sources` | Lists eligible displays and windows |

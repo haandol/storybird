@@ -2,7 +2,7 @@
   "mcpServers": {
     "storybird": {
       "command": "/Applications/Storybird.app/Contents/MacOS/StorybirdMCP",
-      "args": [],
+      "args": ["--tool-profile", "compact"],
       "disabled": false,
       "autoApprove": [
         "storybird_list_sources",

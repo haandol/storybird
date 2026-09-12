@@ -4,13 +4,24 @@ import XCTest
 @testable import StorybirdMCPKit
 
 final class MCPInitializationTests: XCTestCase {
+    /// Preserves compatibility with external initialization on the default profile.
     func test_objectExperimentalCapabilities_initializesAndListsToolsWithoutAppAccess() async throws {
+        try await assertInitialization(profile: .legacy)
+    }
+
+    /// Exposes the compact catalog through raw protocol discovery without app access.
+    func test_compactInitialization_listsReducedCatalogWithoutAppAccess() async throws {
+        try await assertInitialization(profile: .compact)
+    }
+
+    /// Sends raw client JSON through production initialization and catalog handlers.
+    private func assertInitialization(profile: StorybirdMCPToolProfile) async throws {
         let ipc = StorybirdAppIPCClient(
             sender: { _ in XCTFail("Initialization must not access the app"); throw FixtureError.unexpectedIPC },
             launcher: { XCTFail("Initialization must not launch the app"); throw FixtureError.unexpectedIPC }
         )
         let pair = await InMemoryTransport.createConnectedPair()
-        let server = try await StorybirdMCPService(client: ipc).startServer(transport: pair.server)
+        let server = try await StorybirdMCPService(client: ipc, toolProfile: profile).startServer(transport: pair.server)
         try await pair.client.connect()
         // Bound the receive even when a broken server never responds.
         let deadline = Task {
@@ -44,7 +55,8 @@ final class MCPInitializationTests: XCTestCase {
             let toolsResult = try XCTUnwrap(toolsResponse["result"] as? [String: Any])
             let tools = try XCTUnwrap(toolsResult["tools"] as? [[String: Any]])
             XCTAssertEqual(Set(tools.compactMap { $0["name"] as? String }),
-                           Set(StorybirdMCPService.toolDefinitions.map(\.name)))
+                           Set(StorybirdMCPService.toolDefinitions(for: profile).map(\.name)))
+            XCTAssertEqual(tools.count, profile == .legacy ? 71 : 53)
             try await pair.client.send(Data(#"{"jsonrpc":"2.0","id":3,"method":"initialize","params":{}}"#.utf8))
             let repeatedInitialization = try await responses.next()
             XCTAssertNotNil(try decode(XCTUnwrap(repeatedInitialization))["error"],

@@ -2,6 +2,13 @@
 
 이 문서는 agent-project-editing 카테고리의 주요 결정 변경 이력이다.
 
+## 2026-09-12 — 편집 대상별 통합 목록과 기존 호출 호환
+
+- **Current ADR**: [versioned-mcp-project-editing](./0001-versioned-mcp-project-editing.md)
+- **Change type**: requirement rule change
+- **What**: 단일 71개 도구 목록 → 기존 호출을 유지하는 호환 목록과 같은 기능의 53개 통합 목록을 연결 시작 시 선택.
+- **Why**: 에이전트의 중복 선택지를 줄이되 조회·자산 수명·권한 경계와 기존 자동화를 보존한다.
+
 ## 2026-09-11 — MCP에서 음성 모델까지 준비한다
 
 - **Current ADR**: [versioned-mcp-project-editing](./0001-versioned-mcp-project-editing.md)

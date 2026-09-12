@@ -6,9 +6,13 @@ import XCTest
 
 @MainActor
 final class MCPFeatureParityTests: XCTestCase {
+    /// Checks each profile's unique names and complete documentation of their union.
     func test_toolInventory_matchesGuideAndFeatureCoverage() throws {
-        let names = StorybirdMCPService.toolDefinitions.map(\.name)
-        XCTAssertEqual(Set(names).count, names.count, "Tool names must be unique.")
+        let names = Set(StorybirdMCPToolProfile.allCases.flatMap { profile in
+            let tools = StorybirdMCPService.toolDefinitions(for: profile)
+            XCTAssertEqual(Set(tools.map(\.name)).count, tools.count, "Tool names must be unique within a profile.")
+            return tools.map(\.name)
+        })
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()

@@ -13,8 +13,40 @@ An unexplained missing editing path blocks completion.
 
 ## Supported actions
 
-Every name below is an advertised tool. Read IDs and the current `revision`
+Every name below is advertised in its stated profile. Read IDs and the current `revision`
 (the project's edit version) before changing an existing project.
+
+### Connection profiles
+
+The default `legacy` profile preserves the 71 operation-specific tools below.
+Launch with `--tool-profile compact` to advertise 53 tools for the same actions.
+The selected list is fixed for that connection. Compact replaces 27 names with
+the following nine tools; the other 44 tools retain their schemas and handlers.
+There are no hidden aliases or batch edits.
+
+| Compact tool | Selector and matching legacy actions | Shared implementation and evidence |
+|---|---|---|
+| `storybird_edit_clip` | `action`: split, trim, delete, move, set_speed, insert_freeze | Companion validates one branch → existing clip handler → `VideoTimelineEditor` → app revision/save/undo |
+| `storybird_edit_click` | `action`: create, update, delete | Existing Cue commands; all indicator/description/subtitle properties remain available |
+| `storybird_edit_subtitle` | `action`: upsert, delete | Existing subtitle commands and scene-timing validation |
+| `storybird_create_visual_effect` | `kind`: spotlight, pan_zoom | Existing effect creation commands |
+| `storybird_insert_card` | `kind`: title, cta | Existing card insertion rules and linked timing |
+| `storybird_edit_effect` | `action`: update, delete | Existing effect validation and card reconciliation |
+| `storybird_edit_suggestion` | `action`: update, apply, reject | Existing suggestion commands; update/reject preserve output revision |
+| `storybird_edit_audio_layer` | `action`: update, split, duplicate, delete | Existing audio commands; delete also covers narration deletion using `layer_id`; text regeneration remains separate |
+| `storybird_edit_history` | `action`: undo, redo | Existing app history and revision validation |
+
+All nine require `project_id`, `expected_revision`, their selector, and `input`.
+`input` contains only the selected operation's existing fields; even empty history
+input is explicit `{}`. Required fields, units, optional-field behavior, and return
+values come from the corresponding legacy command. The companion rejects invalid
+branch input before IPC, including the app's positive spotlight width/height rule
+for creation, effect updates and nested suggestion patches. Legacy schemas stay
+unchanged. App-owned validation, atomic writes and undo still apply.
+`MCPCompactToolTests`, the profile coverage in `MCPFeatureParityTests`, and both
+profiles of `AuthoringMCPProtocolTests`/`MCPAudioProtocolTests` cover these paths.
+
+### Legacy actions and unchanged tools
 
 | Native action or result | MCP path | Implementation and regression evidence |
 |---|---|---|
@@ -82,10 +114,10 @@ Shared performance changes preserve these tool arguments and results:
   output revision. Applying a suggestion or placing audio does. Do not infer
   revision behavior only from a tool's mutating annotation.
 
-The inventory test compares all advertised tool names against this file and
+The inventory test compares the union of both profiles' advertised names against this file and
 `MCP.md`, rejects stale documented names and checks uniqueness. Property tests
 cover Cue/subtitle/audio/effect fields and require revision envelopes on edit
-commands. Existing host and protocol suites check behavior, including failure
+commands, including each compact branch's nested property contract. Existing host and protocol suites check behavior, including failure
 and undo. These automated checks cannot detect a new UI action omitted from
 both the inventory and MCP; review of the changed UI remains mandatory.
 
@@ -103,7 +135,7 @@ project-editing tools. Changing their scope requires checking the owning ADR.
 | Select microphone, pause/resume/finalize microphone recording | Native recording UI; no MCP microphone start | [Voice](adr/voice-narration/0001-local-cloned-voice-narration.md), [permissions](adr/recording/0003-permission-and-signing.md) |
 | Change/reset project folder, open Finder, configure shortcuts | Native Settings is the entry point; MCP uses the currently selected library | [Settings](adr/application-settings/0001-native-settings-and-shortcuts.md) |
 | Grant OS permissions or accept native capture/deletion prompts | The user approves in macOS/Storybird; capture prompts are skipped only under the user's native auto-approval setting. OS permission and permanent deletion still require native approval | [Permissions](adr/recording/0003-permission-and-signing.md) |
-| Play/pause/seek the native player, show/hide/resize preview, fold rows, scroll, select inspector tabs | Local view state has no dedicated MCP control; inspect specified times through rendered frame/audio tools and edit by stable IDs | [Authoring](adr/authoring/0001-timeline-overlay-editor.md) |
+| Play/pause/seek the native player (including Space), show transient scrub time, zoom/Fit/pinch/Option-scroll the timeline, show/hide/resize preview, fold rows, scroll, select inspector tabs | Local view state has no dedicated MCP control; inspect specified times through rendered frame/audio tools and edit by stable IDs. No project revision or undo change. `TimelineNavigationTests` covers input boundaries, native playback, pinch lifecycle, zoom geometry and pointer anchoring | [Authoring](adr/authoring/0001-timeline-overlay-editor.md) |
 | Type or observe keyboard input; record live system audio during screen capture | Unsupported by Storybird itself; no MCP parity path | [Recording](adr/recording/0002-continuous-video-recording.md), [permissions](adr/recording/0003-permission-and-signing.md) |
 
 ## Verification scope

@@ -249,8 +249,130 @@ final class AuthoringMCPProtocolTests: XCTestCase {
     /// Runs a coordinate-free UI workflow through SDK calls: resolve IDs, edit
     /// media/layers, inspect PNG output, reject atomic failures, undo and export.
     /// Normalized layer coordinates describe video content, never desktop controls.
+    /// Retains the original operation-specific production workflow expectations.
     func test_protocolAuthoring_editsPreviewsRejectsAtomicallyAndCompletesExport() async throws {
-        try await withClient { client, store, initial, source, probe, _ in
+        try await assertAuthoring(profile: .legacy)
+    }
+
+    /// Runs the same output, failure and history checks through the compact wire form.
+    func test_compactAuthoring_preservesEditsPreviewAtomicRejectionUndoAndExport() async throws {
+        try await assertAuthoring(profile: .compact)
+    }
+
+    /// The SDK's binary Value case is still a JSON string on the wire; caption
+    /// text containing a data URL must behave the same in both profiles.
+    func test_dataURLSubtitleText_preservesLegacyBehaviorInCompact() async throws {
+        for profile in StorybirdMCPToolProfile.allCases {
+            try await withClient(profile: profile) { client, _, initial, _, _, _ in
+                let text = "data:text/plain;base64,SGVsbG8="
+                let result: AuthoringLayerMutation<TimedSubtitle> = try await call(client, "storybird_upsert_subtitle", [
+                    "project_id": .string(initial.id.uuidString), "expected_revision": 0,
+                    "start_time": 0, "end_time": 1, "text": .string(text),
+                ])
+                XCTAssertEqual(result.value.text, text, profile.rawValue)
+                XCTAssertEqual(result.revision, 1)
+            }
+        }
+    }
+
+    /// Exercises the remaining grouped actions against real app-owned domain edits.
+    func test_compactRemainingActions_preserveClipCardSuggestionAndAudioBehavior() async throws {
+        try await withClient(profile: .compact) { client, store, initial, _, _, _ in
+            /// Uses the latest revision and reads the committed app value after one call.
+            @MainActor func edit(_ name: String, _ input: [String: Value]) async throws -> DemoProject {
+                let current = try XCTUnwrap(store.project(id: initial.id))
+                let response = try await client.callTool(name: "storybird_" + name, arguments: input.merging([
+                    "project_id": .string(initial.id.uuidString), "expected_revision": .int(current.revision),
+                ]) { _, new in new })
+                XCTAssertNotEqual(response.isError, true, "\(name): \(response.content)")
+                guard response.isError != true else { throw AuthoringProtocolError.invalidResponse }
+                return try XCTUnwrap(store.project(id: initial.id))
+            }
+            var project = try await edit("split_clip", [
+                "clip_id": .string(initial.clips[0].id.uuidString), "source_time": 2,
+            ])
+            XCTAssertEqual(project.clips.count, 2)
+            let first = project.clips[0].id
+            project = try await edit("move_clip", ["clip_id": .string(first.uuidString), "destination": 1])
+            XCTAssertEqual(project.clips.last?.id, first)
+            let accelerated = project.clips[0].id
+            project = try await edit("set_clip_speed", ["clip_id": .string(accelerated.uuidString), "rate": 2])
+            XCTAssertEqual(project.timelineDuration, 3)
+            project = try await edit("insert_freeze", [
+                "clip_id": .string(accelerated.uuidString), "source_time": 2.5, "duration": 1,
+            ])
+            XCTAssertEqual(project.timelineDuration, 4)
+            let freeze = try XCTUnwrap(project.clips.first { $0.kind == .freeze })
+            project = try await edit("delete_clip", ["clip_id": .string(freeze.id.uuidString)])
+            XCTAssertEqual(project.timelineDuration, 3)
+
+            project = try await edit("insert_title", ["title": "Start", "duration": 1])
+            let title = try XCTUnwrap(project.effects.first)
+            XCTAssertEqual(project.timelineDuration, 4)
+            project = try await edit("insert_cta", ["title": "Finish", "button_label": "Done", "duration": 1])
+            XCTAssertEqual(project.timelineDuration, 5)
+            project = try await edit("delete_effect", ["effect_id": .string(title.id.uuidString)])
+            XCTAssertEqual(project.timelineDuration, 4)
+            project = try await edit("create_pan_zoom", [
+                "start_time": 0, "end_time": 0.75, "end_x": 0.5, "end_y": 0.5, "end_scale": 1.5,
+            ])
+            XCTAssertTrue(project.effects.contains { if case .panZoom = $0 { return true }; return false })
+
+            project = try await edit("create_click", [
+                "time": 1.5, "x": 0.5, "y": 0.5, "description": "Synthetic cue", "subtitle": "Synthetic cue",
+            ])
+            let cue = try XCTUnwrap(project.clicks.first)
+            let suggestion = try XCTUnwrap(project.suggestions.first)
+            let beforeMetadata = project.revision
+            project = try await edit("update_suggestion", [
+                "suggestion_id": .string(suggestion.id.uuidString),
+                "spotlight": .object(["dim_opacity": 0.3]),
+            ])
+            XCTAssertEqual(project.revision, beforeMetadata)
+            XCTAssertEqual(project.suggestions[0].spotlight.dimOpacity, 0.3)
+            project = try await edit("apply_suggestion", ["suggestion_id": .string(suggestion.id.uuidString)])
+            XCTAssertEqual(project.revision, beforeMetadata + 1)
+            XCTAssertEqual(project.suggestions[0].state, .applied)
+            project = try await edit("create_click", [
+                "time": 2.5, "x": 0.4, "y": 0.4, "description": "Second cue", "subtitle": "Second cue",
+            ])
+            let pending = try XCTUnwrap(project.suggestions.first { $0.state == .pending })
+            let beforeRejection = project.revision
+            project = try await edit("reject_suggestion", ["suggestion_id": .string(pending.id.uuidString)])
+            XCTAssertEqual(project.revision, beforeRejection)
+            XCTAssertEqual(project.suggestions.first { $0.id == pending.id }?.state, .rejected)
+            project = try await edit("delete_click", ["click_id": .string(cue.id.uuidString)])
+            XCTAssertFalse(project.clicks.contains { $0.id == cue.id })
+            XCTAssertFalse(project.suggestions.contains { $0.clickID == cue.id })
+
+            project = try await edit("upsert_subtitle", ["start_time": 0, "end_time": 1, "text": "Temporary"])
+            let subtitle = try XCTUnwrap(project.subtitles.first)
+            project = try await edit("delete_subtitle", ["subtitle_id": .string(subtitle.id.uuidString)])
+            XCTAssertTrue(project.subtitles.isEmpty)
+
+            let audioURL = store.repository.rootURL.appendingPathComponent("synthetic-audio.wav")
+            try TestVideoFactory.makeToneWAV(at: audioURL, duration: 1)
+            let audio = try await store.importProjectAudio(projectID: initial.id, sourceURL: audioURL)
+            project = try await edit("place_audio_asset", ["asset_id": .string(audio.id.uuidString), "start_time": 0])
+            let layer = try XCTUnwrap(project.narrations.first)
+            project = try await edit("split_audio_layer", ["layer_id": .string(layer.id.uuidString), "time": 0.5])
+            XCTAssertEqual(project.narrations.count, 2)
+            XCTAssertEqual(project.narrations.map(\.duration), [0.5, 0.5])
+            let removed = project.narrations[0]
+            project = try await edit("delete_audio_layer", ["layer_id": .string(removed.id.uuidString)])
+            XCTAssertEqual(project.narrations.count, 1)
+            XCTAssertTrue(FileManager.default.fileExists(
+                atPath: store.repository.assetURL(projectID: initial.id, filename: audio.filename).path
+            ))
+            project = try await edit("undo_project", [:])
+            XCTAssertEqual(project.narrations.count, 2)
+            XCTAssertTrue(project.narrations.contains { $0.id == removed.id })
+        }
+    }
+
+    /// Compares observable authoring behavior across both profiles using isolated media.
+    private func assertAuthoring(profile: StorybirdMCPToolProfile) async throws {
+        try await withClient(profile: profile) { client, store, initial, source, probe, _ in
             let sourceBytes = try Data(contentsOf: source)
             let placeholder: DemoProject = try await call(client, "storybird_create_project", [
                 "name": "Agent-created placeholder",
@@ -463,7 +585,7 @@ final class AuthoringMCPProtocolTests: XCTestCase {
     /// Sends a raw serialized replacement through the MCP protocol without
     /// model decoding that could hide malformed values before the app sees them.
     private func rejectReplacement(
-        _ object: [String: Any], client: Client, store: AppStore, expected: DemoProject,
+        _ object: [String: Any], client: MCPProfileTestClient, store: AppStore, expected: DemoProject,
         libraryBytes: Data, source: URL, sourceBytes: Data
     ) async throws {
         let json = try JSONSerialization.data(withJSONObject: object)
@@ -476,7 +598,7 @@ final class AuthoringMCPProtocolTests: XCTestCase {
     /// Verifies error responses leave the entire project and original media
     /// unchanged; later protocol undo/redo checks the retained history contents.
     private func assertRejected(
-        _ client: Client, _ name: String, _ arguments: [String: Value],
+        _ client: MCPProfileTestClient, _ name: String, _ arguments: [String: Value],
         store: AppStore, expected: DemoProject, libraryBytes: Data, source: URL, sourceBytes: Data
     ) async throws {
         let result = try await client.callTool(name: name, arguments: arguments)
@@ -491,7 +613,8 @@ final class AuthoringMCPProtocolTests: XCTestCase {
     /// Executes real server handlers and host publication with in-memory MCP
     /// transport; only the IPC socket and pre-existing synthetic source are injected.
     private func withClient(
-        _ body: (Client, AppStore, DemoProject, URL, AuthoringIPCProbe, Initialize.Result) async throws -> Void
+        profile: StorybirdMCPToolProfile = .legacy,
+        _ body: (MCPProfileTestClient, AppStore, DemoProject, URL, AuthoringIPCProbe, Initialize.Result) async throws -> Void
     ) async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -510,13 +633,13 @@ final class AuthoringMCPProtocolTests: XCTestCase {
             await probe.record(request.name)
             return await host.handle(request)
         }, launcher: { throw AuthoringProtocolError.unexpectedLaunch })
-        let server = await StorybirdMCPService(client: ipc).makeServer()
+        let server = await StorybirdMCPService(client: ipc, toolProfile: profile).makeServer()
         let transport = await InMemoryTransport.createConnectedPair()
         try await server.start(transport: transport.server)
         let client = Client(name: "Authoring production protocol test", version: "1")
         do {
             let initialization = try await client.connect(transport: transport.client)
-            try await body(client, store, initial, target.url, probe, initialization)
+            try await body(MCPProfileTestClient(client: client, profile: profile), store, initial, target.url, probe, initialization)
             await client.disconnect()
             await server.stop()
         } catch {
@@ -529,7 +652,7 @@ final class AuthoringMCPProtocolTests: XCTestCase {
     /// Decodes successful wire content and fails immediately on a tool error,
     /// preventing later assertions from obscuring the failed workflow action.
     private func call<T: Decodable>(
-        _ client: Client, _ name: String, _ arguments: [String: Value]
+        _ client: MCPProfileTestClient, _ name: String, _ arguments: [String: Value]
     ) async throws -> T {
         let result = try await client.callTool(name: name, arguments: arguments)
         XCTAssertNotEqual(result.isError, true, "\(name): \(result.content)")

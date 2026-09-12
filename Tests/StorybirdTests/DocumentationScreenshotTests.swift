@@ -6,6 +6,66 @@ import XCTest
 
 @MainActor
 final class DocumentationScreenshotTests: XCTestCase {
+    /// Refreshes only the editor illustration using owned synthetic media and native controls.
+    func test_generateTimelineNavigationScreenshot() async throws {
+        guard ProcessInfo.processInfo.environment["STORYBIRD_UPDATE_DOC_SCREENSHOTS"] == "1" else {
+            throw XCTSkip("Set STORYBIRD_UPDATE_DOC_SCREENSHOTS=1 to update the timeline illustration.")
+        }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("timeline-docs-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repository = ProjectRepository(rootURL: root)
+        let id = UUID()
+        let source = try repository.prepareVideoRecordingURL(projectID: id)
+        let media = try await TestVideoFactory.makeMovie(at: source.url, includeAudio: false, duration: 12)
+        var project = DemoProject(id: id, name: "Precise timeline navigation",
+            recording: VideoRecordingAsset(filename: source.filename, duration: media.duration,
+                                           width: media.width, height: media.height),
+            subtitles: [
+                TimedSubtitle(startTime: 0, endTime: 4, text: "Space to play or pause"),
+                TimedSubtitle(startTime: 4, endTime: 8, text: "Zoom in to place each moment precisely"),
+            ])
+        project = try VideoTimelineEditor.addClickCue(to: project, at: 3.2, x: 0.5, y: 0.5)
+        project.clicks[0].description.text = "Choose the next step"
+        project.clicks[0].cueSubtitle.text = "Continue the walkthrough"
+        try repository.saveProjects([project])
+        let store = AppStore(repository: repository)
+        try await render(
+            ProjectWorkspaceView(store: store, projectID: id),
+            size: CGSize(width: 1100, height: 760),
+            to: imageDirectory.appendingPathComponent("editor-app.png"),
+            hostedInWindow: true
+        ) { view, window in
+            let window = try XCTUnwrap(window)
+            let sliders = self.navigationDescendants(view).compactMap { $0 as? NSSlider }
+            let playhead = try XCTUnwrap(sliders.first)
+            let zoom = try XCTUnwrap(sliders.last)
+            playhead.doubleValue = playhead.minValue + 4.23 / 12 * (playhead.maxValue - playhead.minValue)
+            XCTAssertTrue(playhead.sendAction(playhead.action, to: playhead.target))
+            zoom.doubleValue = zoom.minValue + 0.55 * (zoom.maxValue - zoom.minValue)
+            XCTAssertTrue(zoom.sendAction(zoom.action, to: zoom.target))
+            try await Task.sleep(for: .milliseconds(250))
+            let bridge = try XCTUnwrap(self.navigationDescendants(view).compactMap { $0 as? TimelineScrollBridgeView }.first)
+            let frame = bridge.convert(bridge.bounds, to: nil)
+            print("TIMELINE_DOC_GEOMETRY bounds=\(bridge.bounds) frame=\(frame) flipped=\(bridge.isFlipped) visible=\(bridge.visibleRect)")
+            for (type, time): (NSEvent.EventType, Double) in [
+                (.leftMouseDown, 4), (.leftMouseDragged, 4.23), (.leftMouseUp, 4.23),
+            ] {
+                let point = NSPoint(x: frame.minX + time / 12 * bridge.bounds.width, y: frame.maxY - 12)
+                window.sendEvent(try XCTUnwrap(NSEvent.mouseEvent(
+                    with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1
+                )))
+                try await Task.sleep(for: .milliseconds(30))
+            }
+            try await Task.sleep(for: .milliseconds(180))
+        }
+    }
+
+    /// Searches only the hosted screenshot's native controls.
+    private func navigationDescendants(_ view: NSView) -> [NSView] {
+        view.subviews.flatMap { [$0] + navigationDescendants($0) }
+    }
+
     func test_generateSyntheticRecordingSettingsScreenshot() async throws {
         guard ProcessInfo.processInfo.environment["STORYBIRD_UPDATE_DOC_SCREENSHOTS"] == "1" else {
             throw XCTSkip("Set STORYBIRD_UPDATE_DOC_SCREENSHOTS=1 to update docs/images.")
@@ -191,7 +251,8 @@ final class DocumentationScreenshotTests: XCTestCase {
         size: CGSize,
         to destination: URL,
         hostedInWindow: Bool = false,
-        openAudioForProject: UUID? = nil
+        openAudioForProject: UUID? = nil,
+        configure: ((NSView, NSWindow?) async throws -> Void)? = nil
     ) async throws {
         let rootView = content
             .frame(width: size.width, height: size.height)
@@ -215,6 +276,7 @@ final class DocumentationScreenshotTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(200))
         }
         hostingView.layoutSubtreeIfNeeded()
+        if let configure { try await configure(hostingView, window) }
 
         let bitmap = try XCTUnwrap(
             hostingView.bitmapImageRepForCachingDisplay(

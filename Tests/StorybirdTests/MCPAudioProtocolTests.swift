@@ -41,8 +41,19 @@ final class MCPAudioProtocolTests: XCTestCase {
         }
     }
 
+    /// Keeps the legacy audio production path covered through the MCP client.
     func test_mcpTTSProduction_editsOverlappingAudioAndExportsThroughProtocol() async throws {
-        try await withClient { client, store, initial, _, _ in
+        try await assertAudioProduction(profile: .legacy)
+    }
+
+    /// Applies the same audio and export expectations to the compact editing tools.
+    func test_compactTTSProduction_preservesOverlappingAudioAndCompletedExport() async throws {
+        try await assertAudioProduction(profile: .compact)
+    }
+
+    /// Verifies draft generation, placement, layered audio and export in one profile.
+    private func assertAudioProduction(profile: StorybirdMCPToolProfile) async throws {
+        try await withClient(profile: profile) { client, store, initial, _, _ in
             let projectID = Value.string(initial.id.uuidString)
             let generated = try await client.callTool(name: "storybird_start_narration_draft", arguments: [
                 "project_id": projectID, "voice_profile_id": .string(store.voiceProfiles[0].id.uuidString),
@@ -140,7 +151,8 @@ final class MCPAudioProtocolTests: XCTestCase {
     /// Runs the production MCP handlers, wire encoding and app host together;
     /// injected IPC and TTS keep the real socket, profiles and microphone untouched.
     private func withClient(
-        _ body: (Client, AppStore, DemoProject, ProtocolIPCProbe, Initialize.Result) async throws -> Void
+        profile: StorybirdMCPToolProfile = .legacy,
+        _ body: (MCPProfileTestClient, AppStore, DemoProject, ProtocolIPCProbe, Initialize.Result) async throws -> Void
     ) async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -161,13 +173,13 @@ final class MCPAudioProtocolTests: XCTestCase {
             await probe.record(request.name)
             return await host.handle(request)
         }, launcher: { throw ProtocolFixtureError.unexpectedLaunch })
-        let server = await StorybirdMCPService(client: ipc).makeServer()
+        let server = await StorybirdMCPService(client: ipc, toolProfile: profile).makeServer()
         let transport = await InMemoryTransport.createConnectedPair()
         try await server.start(transport: transport.server)
         let client = Client(name: "Audio production test", version: "1")
         do {
             let initialization = try await client.connect(transport: transport.client)
-            try await body(client, store, project, probe, initialization)
+            try await body(MCPProfileTestClient(client: client, profile: profile), store, project, probe, initialization)
             await client.disconnect()
             await server.stop()
         } catch {

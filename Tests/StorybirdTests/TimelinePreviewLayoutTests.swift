@@ -7,6 +7,51 @@ import XCTest
 
 @MainActor
 final class TimelinePreviewLayoutTests: XCTestCase {
+    /// Timing controls and the layer form must stay in the same right-hand pane.
+    func test_selectedSubtitleAndAudio_keepExactlyTwoEditorColumns() async throws {
+        let (store, initial) = try await fixture()
+        var project = initial
+        project.subtitles = Array(project.subtitles.prefix(1))
+        project = try store.saveProject(project, expectedRevision: initial.revision)
+        let sound = store.repository.rootURL.appendingPathComponent("inspector-source.wav")
+        try TestVideoFactory.makeToneWAV(at: sound, duration: 1)
+        let asset = try await store.importProjectAudio(projectID: project.id, sourceURL: sound)
+        project = try store.placeAudioAsset(
+            projectID: project.id, assetID: asset.id, expectedRevision: project.revision, startTime: 0.5
+        )
+        let before = try XCTUnwrap(store.project(id: project.id))
+        let library = store.repository.rootURL.appendingPathComponent("library.json")
+        let bytes = try Data(contentsOf: library)
+        let view = NSHostingView(rootView: editorContent(store, project: project, width: 1100, height: 760))
+        let window = NSWindow(
+            contentRect: NSRect(x: -10_000, y: -10_000, width: 1100, height: 760),
+            styleMask: [.titled, .closable], backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = view
+        window.orderFront(nil)
+        defer { window.close() }
+        await settle()
+        let split = try XCTUnwrap(descendants(view).compactMap { $0 as? NSSplitView }.first)
+        XCTAssertEqual(split.arrangedSubviews.count, 2)
+        for kind: TimelineTrack.Kind in [.subtitle, .narration] {
+            let bridge = try XCTUnwrap(descendants(view).compactMap { $0 as? TimelineScrollBridgeView }.first)
+            let row = try XCTUnwrap(TimelineTrackLayout.rows(in: project).firstIndex { $0.kind == kind })
+            let frame = bridge.convert(bridge.bounds, to: nil)
+            let point = NSPoint(
+                x: frame.minX + bridge.bounds.width / CGFloat(project.timelineDuration),
+                y: frame.maxY - (52 + CGFloat(row) * 44 + 19)
+            )
+            sendMouse(.leftMouseDown, at: point, in: window)
+            sendMouse(.leftMouseUp, at: point, in: window)
+            await settle()
+            XCTAssertEqual(split.arrangedSubviews.count, 2, "\(kind): Timing must not create a third split column.")
+            try snapshot(view, name: "inspector-two-columns-\(kind)")
+            XCTAssertEqual(store.project(id: project.id), before)
+            XCTAssertEqual(try Data(contentsOf: library), bytes)
+        }
+    }
+
     func test_previewVisibility_startsEmptyAndRepeatedTogglesRestoreActualPreview() {
         var layout = TimelinePreviewLayout()
         XCTAssertEqual(layout.visibility, .empty)

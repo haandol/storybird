@@ -150,6 +150,11 @@ Read these before changing capture, persistence, or export behavior.
   timeline layers. Dragging the boundary resizes the viewports, not layer rows.
   Keep playback and layer scrolling reachable in both window layouts without
   changing project data, revision, or undo.
+- **Timeline navigation stays local.** Space toggles playback in the active
+  editing work area without intercepting text input, dialogs or other windows.
+  Scrub-time readouts and horizontal zoom/Fit/pinch/Option-scroll change only the
+  current view. Preserve playhead time, ordinary scrolling, project data,
+  revision and undo; keep pointer time anchored during wheel zoom.
 - **Timeline rows are a view of independent layers.** Click Cue groups, subtitles,
   audio, and effects reuse non-overlapping rows by default. Each kind's disclosure
   control toggles individual rows without changing project data, revision, or undo.

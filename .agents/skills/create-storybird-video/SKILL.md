@@ -15,6 +15,13 @@ Discover the connected tools before choosing commands. An installed app does not
 prove a connection. Read only the relevant sections of [MCP.md](../../../docs/MCP.md)
 for command properties or failure behavior; the live schemas determine availability.
 
+If discovery includes the compact editing tools, use the matching tool with an
+explicit `action` (`kind` for visual-effect creation and card insertion).
+Keep `project_id` and `expected_revision` at the top level; put only the selected
+operation's fields in `input`. The [profile table](../../../docs/MCP.md#choose-a-tool-profile)
+maps actions. Use `input: {}` for history operations. Do not call replaced legacy
+names when they are absent from discovery. The legacy profile keeps direct fields.
+
 - **Existing video:** start with `storybird_get_edit_context`. Resolve one-based
   scene numbers, clip times and layer IDs. Do not start a recording, inspect voice
   profiles, or generate speech for an edit that does not need them.

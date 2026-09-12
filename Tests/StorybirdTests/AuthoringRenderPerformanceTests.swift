@@ -1,9 +1,10 @@
 import AppKit
 @preconcurrency import AVFoundation
 import AVKit
+import MCP
 import QuartzCore
 import StorybirdCore
-import StorybirdMCPKit
+@testable import StorybirdMCPKit
 import SwiftUI
 import XCTest
 @testable import Storybird
@@ -23,7 +24,7 @@ final class AuthoringRenderPerformanceTests: XCTestCase {
     private let firstColor = "#F01428"
     private let secondColor = "#14DC3C"
 
-    /// Measures all 100 actions through decoded source pixels and mounted
+    /// Measures 100 seeks and 100 MCP edits through decoded source pixels and mounted
     /// subtitle pixels; slow actions and readiness timeouts remain in the result.
     func test_renderedPreview_1080p120Seconds100Layers_95Of100ActionsWithin500ms() async throws {
         guard ProcessInfo.processInfo.environment["STORYBIRD_RUN_AUTHORING_RENDER_PERFORMANCE"] == "1" else {
@@ -97,66 +98,70 @@ final class AuthoringRenderPerformanceTests: XCTestCase {
         try await waitUntil("restored calibration") { try self.mask(hosted, surface: surface).matches(first) }
         let host = StorybirdExternalControlHost(store: store)
         var samples: [Sample] = []
-        for index in 0..<50 {
-            // Coprime traversal samples early/late times and forward/backward
-            // jumps, visiting 50 distinct layers without per-action warmups.
-            let layerIndex = (index * 37 + 11) % layerCount
-            let time = Double(layerIndex * 36 + 12) / Double(fps)
-            let seekStart = clock.now
-            try seek(slider, to: time)
-            let seekActionMS = milliseconds(since: seekStart)
-            let sought = try await ready(hosted, surface: surface, output: output, player: player,
-                probe: probe, time: time, expected: first, start: seekStart,
-                actionMS: seekActionMS, index: index * 2, kind: "native-slider-seek")
-            samples.append(sought)
+        try await withCompactClient(host: host) { client in
+            for index in 0..<100 {
+                // Coprime traversal samples early/late times and forward/backward
+                // jumps, visiting every layer without per-action warmups.
+                let layerIndex = (index * 37 + 11) % layerCount
+                let time = Double(layerIndex * 36 + 12) / Double(fps)
+                let seekStart = clock.now
+                try seek(slider, to: time)
+                let seekActionMS = milliseconds(since: seekStart)
+                let sought = try await ready(hosted, surface: surface, output: output, player: player,
+                    probe: probe, time: time, expected: first, start: seekStart,
+                    actionMS: seekActionMS, index: index * 2, kind: "native-slider-seek")
+                samples.append(sought)
 
-            let current = binding.wrappedValue
-            let subtitle = current.subtitles[layerIndex]
-            let useHost = index.isMultiple(of: 2)
-            let request = StorybirdControlRequest(name: "storybird_upsert_subtitle",
-                argumentsJSON: try JSONSerialization.data(withJSONObject: [
-                    "project_id": project.id.uuidString,
-                    "expected_revision": current.revision,
-                    "subtitle_id": subtitle.id.uuidString,
-                    "start_time": subtitle.startTime, "end_time": subtitle.endTime,
-                    "text": secondText, "background_hex": secondColor,
-                ]))
-            let editStart = clock.now
-            if useHost {
-                let response = await host.handle(request)
-                XCTAssertFalse(response.isError, response.text)
-            } else {
-                var changed = current
-                changed.subtitles[layerIndex].text = secondText
-                changed.subtitles[layerIndex].style.backgroundHex = secondColor
-                binding.wrappedValue = changed
+                let current = binding.wrappedValue
+                let subtitle = current.subtitles[layerIndex]
+                let editStart = clock.now
+                let response = try await client.callTool(name: "storybird_edit_subtitle", arguments: [
+                    "project_id": .string(project.id.uuidString), "expected_revision": .int(current.revision),
+                    "action": "upsert", "input": .object([
+                        "subtitle_id": .string(subtitle.id.uuidString),
+                        "start_time": .double(subtitle.startTime), "end_time": .double(subtitle.endTime),
+                        "text": .string(secondText), "background_hex": .string(secondColor),
+                    ]),
+                ])
+                XCTAssertNotEqual(response.isError, true, "\(response.content)")
+                let editActionMS = milliseconds(since: editStart)
+                let edited = try await ready(hosted, surface: surface, output: output, player: player,
+                    probe: probe, time: time, expected: second, start: editStart,
+                    actionMS: editActionMS, index: index * 2 + 1,
+                    kind: "compact-mcp-subtitle-edit")
+                samples.append(edited)
+                XCTAssertEqual(binding.wrappedValue.subtitles.count, layerCount)
+                XCTAssertEqual(binding.wrappedValue.subtitles[layerIndex].text, secondText)
+                XCTAssertNil(store.errorMessage)
             }
-            let editActionMS = milliseconds(since: editStart)
-            let edited = try await ready(hosted, surface: surface, output: output, player: player,
-                probe: probe, time: time, expected: second, start: editStart,
-                actionMS: editActionMS, index: index * 2 + 1,
-                kind: useHost ? "mcp-host-subtitle-edit" : "ui-binding-subtitle-edit")
-            samples.append(edited)
-            XCTAssertEqual(binding.wrappedValue.subtitles.count, layerCount)
-            XCTAssertEqual(binding.wrappedValue.subtitles[layerIndex].text, secondText)
-            XCTAssertNil(store.errorMessage)
         }
         try snapshot(hosted, to: artifacts.appendingPathComponent("final-workspace.png"))
         let sorted = samples.map(\.totalMS).sorted()
-        let p95 = sorted[94]
+        let p95 = sorted[Int(ceil(Double(sorted.count) * 0.95)) - 1]
         let successes = samples.filter { $0.ready && $0.totalMS <= 500 }.count
+        let seeks = samples.filter { $0.kind == "native-slider-seek" }
+        let edits = samples.filter { $0.kind == "compact-mcp-subtitle-edit" }
+        let seekSuccesses = seeks.filter { $0.ready && $0.totalMS <= 500 }.count
+        let editSuccesses = edits.filter { $0.ready && $0.totalMS <= 500 }.count
         let report = Report(source: metadata, samples: samples, p95MS: p95,
             successes: successes, failures: samples.count - successes,
-            readinessTimeouts: samples.filter { !$0.ready }.count)
+            readinessTimeouts: samples.filter { !$0.ready }.count,
+            seekSuccesses: seekSuccesses, editSuccesses: editSuccesses,
+            seekP95MS: seeks.map(\.totalMS).sorted()[94], editP95MS: edits.map(\.totalMS).sorted()[94])
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(report).write(to: artifacts.appendingPathComponent("results.json"), options: .atomic)
         print("AUTHORING_RENDER_S5 \(width)x\(height) duration=\(duration)s fps=\(fps) layers=\(layerCount) "
-            + "actions=100 <=500ms=\(successes) failures=\(100 - successes) p95=\(p95)ms "
+            + "actions=200 <=500ms=\(successes) failures=\(200 - successes) p95=\(p95)ms "
+            + "seeksWithinTarget=\(seekSuccesses)/100 editsWithinTarget=\(editSuccesses)/100 "
+            + "editP95=\(report.editP95MS)ms "
             + "timeouts=\(report.readinessTimeouts) report=\(artifacts.path)/results.json")
-        XCTAssertEqual(samples.count, 100)
+        XCTAssertEqual(samples.count, 200)
+        XCTAssertEqual(seeks.count, 100)
+        XCTAssertEqual(edits.count, 100)
         XCTAssertEqual(report.readinessTimeouts, 0, "See results.json for the unresolved source/overlay stage.")
-        XCTAssertGreaterThanOrEqual(successes, 95, "Genuine action-to-render response exceeded the 500ms goal.")
+        XCTAssertGreaterThanOrEqual(seekSuccesses, 95)
+        XCTAssertGreaterThanOrEqual(editSuccesses, 95)
         XCTAssertLessThanOrEqual(p95, 500)
     }
 
@@ -192,11 +197,37 @@ final class AuthoringRenderPerformanceTests: XCTestCase {
         let successes: Int
         let failures: Int
         let readinessTimeouts: Int
+        let seekSuccesses: Int
+        let editSuccesses: Int
+        let seekP95MS: Double
+        let editP95MS: Double
         let measurement = "Native control/binding or MCP host action through decoded source frame/time, "
             + "AVPlayerView readiness and mounted SwiftUI glyph/background pixels; includes polling and snapshot overhead. "
             + "Decoded frame counter must exactly match returned PTS; returned PTS may differ from the seek by at most one source frame."
-        let environment = "Debug SwiftPM; onscreen 760x760 point native workspace; 50 seeks, 25 UI binding edits, "
-            + "25 MCP host edits; two unmeasured calibration states; nearest-rank p95; 3000ms readiness deadline."
+        let environment = "Debug SwiftPM; onscreen 760x760 point native workspace; 100 seeks and "
+            + "100 compact MCP client edits; two unmeasured calibration states; nearest-rank p95; 3000ms readiness deadline."
+    }
+
+    /// Exercises the public compact protocol while using only the synthetic app host.
+    private func withCompactClient(
+        host: StorybirdExternalControlHost, body: (Client) async throws -> Void
+    ) async throws {
+        let ipc = StorybirdAppIPCClient(sender: { await host.handle($0) }, launcher: {
+            throw NSError(domain: "AuthoringRenderPerformance", code: 6)
+        })
+        let transport = await InMemoryTransport.createConnectedPair()
+        let server = try await StorybirdMCPService(client: ipc, toolProfile: .compact).startServer(transport: transport.server)
+        let client = Client(name: "Rendered preview verification", version: "1")
+        do {
+            _ = try await client.connect(transport: transport.client)
+            try await body(client)
+            await client.disconnect()
+            await server.stop()
+        } catch {
+            await client.disconnect()
+            await server.stop()
+            throw error
+        }
     }
 
     private final class FrameProbe {

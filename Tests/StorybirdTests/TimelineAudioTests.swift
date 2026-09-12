@@ -390,7 +390,8 @@ final class TimelineAudioTests: XCTestCase {
             }?.documentView)
             let project = try XCTUnwrap(store.project(id: initial.id))
             let row = try XCTUnwrap(TimelineTrackLayout.rows(in: project).firstIndex { $0.kind == .narration })
-            let y = 32.0 + Double(row) * 44 + 19
+            // The ruler reserves a 20-point band for the temporary scrub readout.
+            let y = 52.0 + Double(row) * 44 + 19
             // The resizable preview may leave this row below the visible viewport.
             try scrollAudioRow(canvas, centerY: y)
             try await Task.sleep(for: .milliseconds(150))

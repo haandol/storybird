@@ -3,9 +3,13 @@ import MCP
 
 public struct StorybirdMCPService: Sendable {
     private let client: StorybirdAppIPCClient
+    private let toolProfile: StorybirdMCPToolProfile
 
-    public init(client: StorybirdAppIPCClient = .init()) {
+    /// Keeps one profile for the connection, defaulting to the original public
+    /// calls so existing client configurations retain their behavior.
+    public init(client: StorybirdAppIPCClient = .init(), toolProfile: StorybirdMCPToolProfile = .legacy) {
         self.client = client
+        self.toolProfile = toolProfile
     }
 
     /// Runs one local stdio MCP connection and aborts capture when it closes.
@@ -72,13 +76,13 @@ public struct StorybirdMCPService: Sendable {
             Use exact advertised argument names; unknown arguments are rejected without changes. \
             A ready draft survives placement failure: edit the picture or placement and reuse it. \
             Do not infer speech quality from a generated file or waveform alone.
-            """,
+            """ + profileInstructions,
             capabilities: .init(tools: .init(listChanged: false)),
             configuration: .strict
         )
 
         await server.withMethodHandler(ListTools.self) { _ in
-            .init(tools: Self.toolDefinitions)
+            .init(tools: Self.toolDefinitions(for: toolProfile))
         }
         await server.withMethodHandler(CallTool.self) { parameters in
             await callTool(parameters)
@@ -101,6 +105,36 @@ public struct StorybirdMCPService: Sendable {
     }
 
     private static let exposedTools = Dictionary(uniqueKeysWithValues: toolDefinitions.map { ($0.name, $0) })
+
+    /// Advertises either original tools or grouped edits, never both aliases.
+    static func toolDefinitions(for profile: StorybirdMCPToolProfile) -> [Tool] {
+        switch profile {
+        case .legacy: toolDefinitions
+        case .compact:
+            toolDefinitions.filter { !StorybirdMCPToolGroup.replacedNames.contains($0.name) }
+                + StorybirdMCPToolGroup.all.map { $0.definition(legacy: exposedTools) }
+        }
+    }
+
+    private var profileInstructions: String {
+        switch toolProfile {
+        case .legacy:
+            "\nTool profile: legacy. Use the advertised operation-specific tools."
+        case .compact:
+            """
+            \nTool profile: compact. Use storybird_edit_clip, storybird_edit_click, \
+            storybird_edit_subtitle, storybird_edit_effect, storybird_edit_suggestion, \
+            storybird_edit_audio_layer and storybird_edit_history with an explicit action. \
+            storybird_create_visual_effect and storybird_insert_card use kind instead. \
+            Put project_id and expected_revision at the top level and operation fields in input \
+            ({} for undo/redo). One call executes one operation. Use layer_id for placed audio, \
+            including generated narration; text regeneration remains storybird_update_narration. \
+            Read the selected branch's required fields and units; do not mix actions' fields. \
+            Pending suggestion update/reject keeps the output revision; apply edits the project. \
+            After an ambiguous edit response, read current state before retrying.
+            """
+        }
+    }
 
     /// Lists complete audio assets and exposes the same independent layer edits
     /// as the native editor. Microphone and voice-profile reference selection stay native.
@@ -790,6 +824,18 @@ public struct StorybirdMCPService: Sendable {
     private func callTool(
         _ parameters: CallTool.Parameters
     ) async -> CallTool.Result {
+        if toolProfile == .compact,
+           let group = StorybirdMCPToolGroup.all.first(where: { $0.name == parameters.name }) {
+            do {
+                let resolved = try group.resolve(parameters.arguments ?? [:], legacy: Self.exposedTools)
+                return await callApp(name: resolved.name, arguments: resolved.arguments)
+            } catch {
+                return Self.toolError(error.localizedDescription)
+            }
+        }
+        if toolProfile == .compact, StorybirdMCPToolGroup.replacedNames.contains(parameters.name) {
+            return Self.toolError("Unknown Storybird tool: \(parameters.name)")
+        }
         guard let tool = Self.exposedTools[parameters.name] else {
             return Self.toolError("Unknown Storybird tool: \(parameters.name)")
         }
@@ -800,10 +846,15 @@ public struct StorybirdMCPService: Sendable {
            let unknown = Set(arguments.keys).subtracting(properties.keys).sorted().first {
             return Self.toolError("Unknown argument for \(parameters.name): \(unknown). No changes were made.")
         }
+        return await callApp(name: parameters.name, arguments: arguments)
+    }
+
+    /// Forwards one validated request and preserves the app's text, PNG and error flag.
+    private func callApp(name: String, arguments: [String: Value]) async -> CallTool.Result {
         do {
             let argumentsData = try JSONEncoder().encode(arguments)
             let response = try await client.call(
-                name: parameters.name,
+                name: name,
                 argumentsJSON: argumentsData
             )
             var content: [Tool.Content] = [
