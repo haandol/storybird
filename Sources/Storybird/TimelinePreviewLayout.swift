@@ -3,14 +3,14 @@ import SwiftUI
 /// Presentation state stays outside the project so resizing never creates an edit.
 struct TimelinePreviewLayout: Equatable {
     enum Visibility {
-        case empty, visible, hidden
+        case visible, hidden
     }
 
-    var visibility: Visibility = .empty
+    var visibility: Visibility = .visible
     var previewFraction: CGFloat = 0.45
     static let dividerHeight: CGFloat = 10
 
-    /// Both the empty placeholder and a rendered preview can yield their space.
+    /// Hiding the preview yields its space without changing project data.
     mutating func toggleVisibility() {
         visibility = visibility == .hidden ? .visible : .hidden
     }
@@ -56,28 +56,7 @@ struct TimelinePreviewSplitView<Preview: View, Timeline: View>: View {
             )
             VStack(spacing: 0) {
                 if layout.visibility != .hidden {
-                    Group {
-                        if layout.visibility == .empty {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 10).fill(.black)
-                                Button {
-                                    layout.visibility = .visible
-                                } label: {
-                                    Label("Show Preview", systemImage: "video")
-                                        .foregroundStyle(.white)
-                                        .padding(.horizontal, 14)
-                                        .padding(.vertical, 8)
-                                        .background(.indigo, in: RoundedRectangle(cornerRadius: 8))
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityIdentifier("timeline-preview-load")
-                            }
-                            .padding(12)
-                        } else {
-                            preview()
-                        }
-                    }
-                    .frame(height: height)
+                    preview().frame(height: height)
 
                     divider(height: height, totalHeight: proxy.size.height)
                 }

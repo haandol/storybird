@@ -120,6 +120,11 @@ final class AudioAuditionPlayer: ObservableObject {
     }
 
     func stop() {
+        // SwiftUI subscriptions may replay video state when the editor updates.
+        // Publishing idle -> idle here creates a stop/update/resubscribe loop.
+        guard activeID != nil || isPreparing || preparation != nil || playback != nil || prepared != nil else {
+            return
+        }
         generation = UUID()
         preparation?.cancel()
         preparation = nil

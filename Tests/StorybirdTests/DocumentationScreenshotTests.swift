@@ -68,6 +68,7 @@ final class DocumentationScreenshotTests: XCTestCase {
         project = try VideoTimelineEditor.addClickCue(to: project, at: 3.2, x: 0.5, y: 0.5)
         project.clicks[0].description.text = "Choose the next step"
         project.clicks[0].cueSubtitle.text = "Continue the walkthrough"
+        project.clicks[0].cueSubtitle.endTime = 3.9
         try repository.saveProjects([project])
         let store = AppStore(repository: repository)
         try await render(

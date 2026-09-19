@@ -1,5 +1,6 @@
 import AppKit
 import AVFAudio
+import Combine
 import Foundation
 import StorybirdCore
 import SwiftUI
@@ -8,6 +9,16 @@ import XCTest
 
 @MainActor
 final class AudioAuditionTests: XCTestCase {
+    func test_stopWhileIdle_doesNotPublishAnotherEditorUpdate() {
+        let model = AudioAuditionPlayer { _ in AuditionTestPlayback() }
+        var updates = 0
+        let subscription = model.objectWillChange.sink { updates += 1 }
+        model.stop()
+        model.stop()
+        XCTAssertEqual(updates, 0, "A replayed video state must not trigger another editor render.")
+        withExtendedLifetime(subscription) {}
+    }
+
     func test_projectAudioButton_togglesStopAndReturnsToListenWhenFinished() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

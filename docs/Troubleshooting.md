@@ -130,6 +130,14 @@ For imported videos, confirm the source contains a readable primary audio track.
 Storybird preserves that track in preview and exports it as one AAC track.
 Original movie audio stays silent during freeze frames, title cards, and CTA cards; independent audio layers can play across those sections.
 
+## The editor freezes while video or audio keeps playing
+
+Update to a build containing the idle-audition stop fix and restart Storybird.
+Earlier builds could repeatedly refresh the editor when video playback tried to
+stop an audio audition that was already stopped. The audio device could continue
+playing while the UI was stuck in that update loop. The fix leaves an already
+idle audition unchanged and preserves normal stop, selection and completion behavior.
+
 ## An edited, narrated project fails with AVFoundation error -11841
 
 Update to a build containing the shared composition-clock fix. Earlier builds

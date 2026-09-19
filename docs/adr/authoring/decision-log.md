@@ -3,6 +3,14 @@
 이 문서는 authoring 카테고리의 주요 결정 변경 이력이다. ADR 본문은 현재 상태만
 서술하고, 주요 전환의 시간축은 여기에 최신 순으로 남긴다.
 
+## 2026-09-19 — 영상 미리보기를 초기 화면에 자동 표시
+
+- **Current ADR**: [timeline-overlay-editor](./0001-timeline-overlay-editor.md)
+- **Change type**: requirement rule change
+- **What**: 빈 영상 영역에서 별도 표시를 선택하던 초기 상태를, 재생 가능한 영상 프레임이
+  자동으로 보이는 상태로 바꾼다. 자동 재생은 하지 않으며 숨기기와 다시 표시하기는 유지한다.
+- **Why**: 영상이 있는 프로젝트에서 편집을 시작할 때마다 표시 버튼을 누르는 단계를 없앤다.
+
 ## 2026-09-19 — 레이어 단독 청취와 미리듣기 상태 표시
 
 - **Current ADR**: [timeline-overlay-editor](./0001-timeline-overlay-editor.md)

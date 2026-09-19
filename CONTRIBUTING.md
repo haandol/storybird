@@ -233,7 +233,7 @@ steps using the matrix above; this is a catalog, not an all-changes checklist:
 2. Confirm the source sheet fits on screen and scrolls internally.
 3. Resize the main window to its minimum size. Confirm the project sidebar
    collapses and the timeline inspector opens as a sheet without clipping.
-   Confirm project details start with an empty video area. Show and hide the
+   Confirm project details automatically show the available video without autoplay. Show and hide the
    preview repeatedly, drag its boundary in both directions, and resize the
    window. The hidden preview gives all remaining height to the timeline;
    playback controls and the final layer remain reachable without a project edit.

@@ -38,10 +38,11 @@ The preview shows the edited picture; the timeline below holds clips and timed
 layers. This native editor screenshot uses a separate synthetic demo library.
 No customer screen or personal voice sample is included.
 
-Project details start with an empty video area. Choose **Show Preview** to see
-the edited picture, or **Hide Preview** to give the remaining height to timeline
-layers. Drag the handle between the video area and playback controls up or down
-to resize the preview and timeline. Playback controls remain available in every
+Project details show the edited picture automatically when video is available,
+without starting playback. Choose **Hide Preview** to give the remaining height
+to timeline layers, or **Show Preview** to bring the video back. Drag the handle
+between the video area and playback controls up or down to resize the preview
+and timeline. Playback controls remain available in every
 view, and these layout changes do not edit the project.
 The timeline's incomplete-click menu lists missing descriptions or subtitles and
 opens the selected Cue for editing. Export stays disabled until every Cue is complete.
