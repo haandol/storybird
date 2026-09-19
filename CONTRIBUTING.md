@@ -526,6 +526,16 @@ project end is used for video and audio, exports all six narration intervals,
 and includes independent subtitles. A single unedited clip cannot detect the
 per-clip rounding regression.
 
+### Video preview loading verification
+
+For first-frame presentation, run `swift test --filter VideoPreviewLoadingTests`.
+The native player stays mounted behind the loading cover; metadata readiness alone
+must not expose it. Check preparation, first-frame readiness, failed/empty media,
+and queued callbacks after a surface is detached. Synthetic loading/error captures
+are written under `.build/video-preview-loading/`.
+Regenerate the README example with
+`STORYBIRD_UPDATE_DOC_SCREENSHOTS=1 swift test --filter DocumentationScreenshotTests/test_generateVideoLoadingScreenshot`.
+
 ### Audio audition verification
 
 For audio audition changes, run `swift test --filter 'AudioAuditionTests|MCPAudioProtocolTests|ProjectAudioTests'`.

@@ -6,6 +6,16 @@ import XCTest
 
 @MainActor
 final class DocumentationScreenshotTests: XCTestCase {
+    func test_generateVideoLoadingScreenshot() async throws {
+        guard ProcessInfo.processInfo.environment["STORYBIRD_UPDATE_DOC_SCREENSHOTS"] == "1" else {
+            throw XCTSkip("Set STORYBIRD_UPDATE_DOC_SCREENSHOTS=1 to update the video loading screenshot.")
+        }
+        try await render(
+            VideoPreviewPlaceholder(phase: .loading), size: CGSize(width: 480, height: 260),
+            to: imageDirectory.appendingPathComponent("video-preview-loading.png"), hostedInWindow: true
+        )
+    }
+
     func test_generateAudioAuditionScreenshots() async throws {
         guard ProcessInfo.processInfo.environment["STORYBIRD_UPDATE_DOC_SCREENSHOTS"] == "1" else {
             throw XCTSkip("Set STORYBIRD_UPDATE_DOC_SCREENSHOTS=1 to update the audition screenshots.")

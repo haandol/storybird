@@ -37,7 +37,7 @@ enum NarrationCompositionBuilder {
             guard let silenceTrack = try await silence.loadTracks(withMediaType: .audio).first else {
                 throw LayeredVideoExportError.cannotReadVideo
             }
-            let projectEnd = CMTime(seconds: project.timelineDuration, preferredTimescale: 48_000)
+            let projectEnd = ProjectCompositionTime.fromSeconds(project.timelineDuration)
             for narration in project.narrations {
                 try Task.checkCancellation()
                 let url = assetsDirectory.appendingPathComponent(narration.filename)
@@ -57,12 +57,12 @@ enum NarrationCompositionBuilder {
                 guard CMTimeGetSeconds(range.duration) + 0.0001 >= narration.sourceStart + narration.duration else {
                     throw LayeredVideoExportError.recordingMetadataMismatch
                 }
-                let start = CMTime(seconds: narration.startTime, preferredTimescale: 48_000)
-                let end = CMTime(seconds: narration.endTime, preferredTimescale: 48_000)
+                let start = ProjectCompositionTime.fromSeconds(narration.startTime)
+                let end = ProjectCompositionTime.fromSeconds(narration.endTime)
                 let duration = end - start
                 try insertSilence(from: .zero, to: start, source: silenceTrack, destination: track)
                 try track.insertTimeRange(CMTimeRange(
-                    start: range.start + CMTime(seconds: narration.sourceStart, preferredTimescale: 48_000),
+                    start: range.start + ProjectCompositionTime.fromSeconds(narration.sourceStart),
                     duration: duration
                 ), of: source, at: start)
                 try insertSilence(from: end, to: projectEnd, source: silenceTrack, destination: track)
@@ -79,8 +79,8 @@ enum NarrationCompositionBuilder {
                         fromStartVolume: volume * Float(envelope.gain(at: from)),
                         toEndVolume: volume * Float(envelope.gain(at: to)),
                         timeRange: CMTimeRange(
-                            start: start + CMTime(seconds: from, preferredTimescale: 48_000),
-                            duration: CMTime(seconds: to - from, preferredTimescale: 48_000)
+                            start: start + ProjectCompositionTime.fromSeconds(from),
+                            duration: ProjectCompositionTime.fromSeconds(to - from)
                         )
                     )
                 }

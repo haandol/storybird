@@ -39,13 +39,18 @@ layers. This native editor screenshot uses a separate synthetic demo library.
 No customer screen or personal voice sample is included.
 
 Project details show the edited picture automatically when video is available,
-without starting playback. Choose **Hide Preview** to give the remaining height
-to timeline layers, or **Show Preview** to bring the video back. Drag the handle
+without starting playback. A **Loading preview…** indicator covers the video
+until its first frame is ready, then fades away. Choose **Hide Preview** to give
+the remaining height to timeline layers, or **Show Preview** to bring the video back. Drag the handle
 between the video area and playback controls up or down to resize the preview
 and timeline. Playback controls remain available in every
 view, and these layout changes do not edit the project.
 The timeline's incomplete-click menu lists missing descriptions or subtitles and
 opens the selected Cue for editing. Export stays disabled until every Cue is complete.
+
+<div align="center">
+  <img src="docs/images/video-preview-loading.png" width="480" alt="Loading preview indicator shown until the first video frame is ready" />
+</div>
 
 After clicking the video or timeline, press **Space** to play or pause. Text fields,
 dialogs and other windows keep their normal keyboard input. Dragging the playhead

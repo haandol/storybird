@@ -1,5 +1,4 @@
 import AVFoundation
-import AVKit
 import StorybirdCore
 import SwiftUI
 
@@ -11,37 +10,6 @@ private final class VideoTimeObserverBox: @unchecked Sendable {
         if let token {
             player?.removeTimeObserver(token)
         }
-    }
-}
-
-struct VideoPlayerSurface: NSViewRepresentable {
-    let player: AVPlayer
-
-    /// Creates a stable AppKit player surface while Storybird owns playback controls.
-    func makeNSView(context: Context) -> AVPlayerView {
-        let view = AVPlayerView()
-        // AVKit otherwise analyzes text/objects in paused frames by default.
-        // Screen recordings are text-heavy; the editor owns its own overlays.
-        view.allowsVideoFrameAnalysis = false
-        view.player = player
-        view.controlsStyle = .none
-        view.videoGravity = .resizeAspect
-        return view
-    }
-
-    /// Keeps the reusable AppKit view attached to the current project player.
-    func updateNSView(_ view: AVPlayerView, context: Context) {
-        if view.player !== player {
-            view.player = player
-        }
-    }
-
-    /// Detaches media resources when the project view leaves the SwiftUI tree.
-    static func dismantleNSView(
-        _ view: AVPlayerView,
-        coordinator: ()
-    ) {
-        view.player = nil
     }
 }
 
@@ -74,6 +42,7 @@ final class VideoPlaybackModel: ObservableObject {
     @Published private(set) var isPlaying = false
     @Published private(set) var duration: Double
     @Published private(set) var errorMessage: String?
+    @Published private(set) var isPreparing = true
     private(set) var frameDuration = CMTime(value: 1, timescale: 30)
 
     let player: AVPlayer
@@ -118,6 +87,7 @@ final class VideoPlaybackModel: ObservableObject {
         rebuildTask?.cancel()
         let requestID = UUID()
         rebuildID = requestID
+        if !isPreparing { isPreparing = true }
         let resumeTime = min(currentTime, project.timelineDuration)
         errorMessage = nil
         guard !project.clips.isEmpty else {
@@ -126,6 +96,7 @@ final class VideoPlaybackModel: ObservableObject {
             duration = 0
             currentTime = 0
             isPlaying = false
+            isPreparing = false
             return
         }
         rebuildTask = Task {
@@ -149,6 +120,7 @@ final class VideoPlaybackModel: ObservableObject {
                 installTimeObserver(interval: cadence)
                 duration = max(result.duration, 0)
                 seek(to: resumeTime)
+                isPreparing = false
             } catch {
                 guard rebuildID == requestID, !Task.isCancelled else { return }
                 player.pause()
@@ -158,6 +130,7 @@ final class VideoPlaybackModel: ObservableObject {
                 isPlaying = false
                 errorMessage =
                     "The edited preview could not be composed: \(error.localizedDescription)"
+                isPreparing = false
             }
         }
     }

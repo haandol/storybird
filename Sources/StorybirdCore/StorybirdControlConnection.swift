@@ -65,18 +65,11 @@ public final class StorybirdControlConnection: @unchecked Sendable {
         } onCancel: {
             self.close()
         }
-        do {
-            return try JSONDecoder().decode(type, from: data)
-        } catch {
-            throw StorybirdControlWireError.invalidMessage
-        }
+        return try StorybirdControlWire.decodePayload(type, from: data)
     }
 
     public func send<Value: Encodable & Sendable>(_ value: Value) async throws {
-        let payload = try JSONEncoder().encode(value)
-        guard payload.count <= StorybirdControlWire.maximumMessageBytes else {
-            throw StorybirdControlWireError.oversizedMessage
-        }
+        let payload = try StorybirdControlWire.encodePayload(value)
         var length = UInt32(payload.count).bigEndian
         let header = withUnsafeBytes(of: &length) { Data($0) }
         let message = header + payload

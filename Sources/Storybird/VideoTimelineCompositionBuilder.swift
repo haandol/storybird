@@ -64,7 +64,7 @@ enum VideoTimelineCompositionBuilder {
                 // Convert absolute boundaries on the same clock as narration.
                 // Summing separately truncated 600 Hz durations shortened the
                 // six-scene 59.96 s fixture by 3.33 ms and caused -11841.
-                let outputEnd = CMTime(seconds: scheduled.projectEnd, preferredTimescale: 48_000)
+                let outputEnd = ProjectCompositionTime.fromSeconds(scheduled.projectEnd)
                 let outputDuration = outputEnd - cursor
                 track.scaleTimeRange(
                     CMTimeRange(
@@ -88,19 +88,17 @@ enum VideoTimelineCompositionBuilder {
                     let sourceOffset = CMTimeGetSeconds(
                         audioSourceRange.start - sourceRange.start
                     )
-                    let destination = CMTime(
-                        seconds: scheduled.projectStart + sourceOffset / scheduled.clip.playbackRate,
-                        preferredTimescale: 48_000
+                    let destination = ProjectCompositionTime.fromSeconds(
+                        scheduled.projectStart + sourceOffset / scheduled.clip.playbackRate
                     )
                     try audioTrack.insertTimeRange(
                         audioSourceRange,
                         of: sourceAudioTrack,
                         at: destination
                     )
-                    let audioEnd = min(outputEnd, CMTime(
-                        seconds: scheduled.projectStart
-                            + (sourceOffset + audioSourceRange.duration.seconds) / scheduled.clip.playbackRate,
-                        preferredTimescale: 48_000
+                    let audioEnd = min(outputEnd, ProjectCompositionTime.fromSeconds(
+                        scheduled.projectStart
+                            + (sourceOffset + audioSourceRange.duration.seconds) / scheduled.clip.playbackRate
                     ))
                     let audioOutputDuration = audioEnd - destination
                     audioTrack.scaleTimeRange(
@@ -129,8 +127,8 @@ enum VideoTimelineCompositionBuilder {
     ) -> CMTimeRange {
         switch clip.kind {
         case .video:
-            let start = CMTime(seconds: mediaStartTime + clip.sourceStart, preferredTimescale: 48_000)
-            let end = CMTime(seconds: mediaStartTime + clip.sourceEnd, preferredTimescale: 48_000)
+            let start = ProjectCompositionTime.fromSeconds(mediaStartTime + clip.sourceStart)
+            let end = ProjectCompositionTime.fromSeconds(mediaStartTime + clip.sourceEnd)
             return CMTimeRange(
                 start: start,
                 duration: end - start
@@ -172,7 +170,7 @@ enum VideoTimelineCompositionBuilder {
             of: sourceTrack,
             at: cursor
         )
-        let outputDuration = CMTime(seconds: endTime, preferredTimescale: 48_000) - cursor
+        let outputDuration = ProjectCompositionTime.fromSeconds(endTime) - cursor
         compositionTrack.scaleTimeRange(
             CMTimeRange(start: cursor, duration: sourceRange.duration),
             toDuration: outputDuration

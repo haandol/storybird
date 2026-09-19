@@ -48,10 +48,7 @@ public enum StorybirdControlWire {
 
     /// Sends one length-prefixed Codable message over a local stream socket.
     public static func send<T: Encodable>(_ value: T, fileDescriptor: Int32) throws {
-        let payload = try JSONEncoder().encode(value)
-        guard payload.count <= maximumMessageBytes else {
-            throw StorybirdControlWireError.oversizedMessage
-        }
+        let payload = try encodePayload(value)
         var length = UInt32(payload.count).bigEndian
         try withUnsafeBytes(of: &length) {
             try writeAll($0, fileDescriptor: fileDescriptor)
@@ -78,6 +75,20 @@ public enum StorybirdControlWire {
         try payload.withUnsafeMutableBytes {
             try readAll($0, fileDescriptor: fileDescriptor)
         }
+        return try decodePayload(type, from: payload)
+    }
+
+    /// Both socket implementations use the same Codable defaults and size limit.
+    /// Each call owns its encoder; transports retain their existing I/O order.
+    static func encodePayload<T: Encodable>(_ value: T) throws -> Data {
+        let payload = try JSONEncoder().encode(value)
+        guard payload.count <= maximumMessageBytes else {
+            throw StorybirdControlWireError.oversizedMessage
+        }
+        return payload
+    }
+
+    static func decodePayload<T: Decodable>(_ type: T.Type, from payload: Data) throws -> T {
         do {
             return try JSONDecoder().decode(type, from: payload)
         } catch {
