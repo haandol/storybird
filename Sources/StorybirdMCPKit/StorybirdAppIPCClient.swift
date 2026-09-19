@@ -44,6 +44,7 @@ public struct StorybirdAppIPCClient: Sendable {
         argumentsJSON: Data,
         launchIfNeeded: Bool = true
     ) async throws -> StorybirdControlResponse {
+        try Task.checkCancellation()
         let request = StorybirdControlRequest(
             name: name,
             argumentsJSON: argumentsJSON
@@ -57,6 +58,7 @@ public struct StorybirdAppIPCClient: Sendable {
             guard launchIfNeeded else {
                 throw error
             }
+            try Task.checkCancellation()
             try await launcher()
             for _ in 0..<50 {
                 try await Task.sleep(for: .milliseconds(100))
@@ -75,35 +77,31 @@ public struct StorybirdAppIPCClient: Sendable {
         }
     }
 
-    /// Performs blocking Unix-socket I/O away from the cooperative executor.
+    /// Readiness-driven I/O lets unrelated requests run while the app is busy.
     private static func send(
         _ request: StorybirdControlRequest
     ) async throws -> StorybirdControlResponse {
-        try await Task.detached {
-            let fd: Int32
-            do {
-                fd = try Self.connectSocket()
-            } catch {
-                throw StorybirdAppIPCStageError.connectionUnavailable(
-                    error.localizedDescription
-                )
+        let connection: StorybirdControlConnection
+        do {
+            let fd: Int32 = try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    continuation.resume(with: Result { try Self.connectSocket() })
+                }
             }
-            defer { Darwin.close(fd) }
-            do {
-                try StorybirdControlWire.send(
-                    request,
-                    fileDescriptor: fd
-                )
-                return try StorybirdControlWire.receive(
-                    StorybirdControlResponse.self,
-                    fileDescriptor: fd
-                )
-            } catch {
-                throw StorybirdAppIPCStageError.resultUnknown(
-                    error.localizedDescription
-                )
-            }
-        }.value
+            connection = try StorybirdControlConnection(fileDescriptor: fd)
+        } catch {
+            if Task.isCancelled { throw CancellationError() }
+            throw StorybirdAppIPCStageError.connectionUnavailable(error.localizedDescription)
+        }
+        defer { connection.close() }
+        do {
+            try Task.checkCancellation()
+            try await connection.send(request)
+            return try await connection.receive(StorybirdControlResponse.self)
+        } catch {
+            if Task.isCancelled { throw CancellationError() }
+            throw StorybirdAppIPCStageError.resultUnknown(error.localizedDescription)
+        }
     }
 
     /// Launches the enclosing Storybird app without requesting capture permissions.

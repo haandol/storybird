@@ -258,6 +258,21 @@ place it at the current playhead.
   <img src="docs/images/narration-drafts.png" width="560" alt="Audio panel with a synthetic ready speech card, waveform, duration, and Listen/Add controls" />
 </div>
 
+Choose **Listen** on a sound card to hear that asset. Its button becomes **Stop**
+while playing and returns to **Listen** when playback ends. Starting another
+sound stops the previous audition.
+
+Select a placed audio layer and choose **Listen to This Layer** at the top of its
+properties panel to hear only its trimmed range, with its volume, mute and fades.
+Video playback pauses; other audio layers and source movie sound are excluded.
+Stop playback with the same button. Changing the selected layer or closing its
+panel also stops the audition without changing the project or undo history.
+
+<div align="center">
+  <img src="docs/images/audio-layer-preview.png" width="280" alt="Audio layer properties with Listen to This Layer above trim, volume, mute and fade controls" />
+  <img src="docs/images/audio-list-preview.png" width="280" alt="Project audio list showing Stop on the currently playing sound" />
+</div>
+
 Choose **Follow scene** when speech should move with a clip, or **Fixed time**
 for an exact time, including title/closing cards. Moving a scene does not
 speed up or stretch the speech. Narrations may overlap, but cannot extend beyond the project. If placement fails,

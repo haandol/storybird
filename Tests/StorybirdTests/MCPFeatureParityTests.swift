@@ -6,6 +6,14 @@ import XCTest
 
 @MainActor
 final class MCPFeatureParityTests: XCTestCase {
+    func test_audioPreview_exposesOptionalSoloLayerWithoutChangingRangeContract() throws {
+        let schema = try schemaObject(for: "storybird_render_audio_preview")
+        XCTAssertEqual(Set(schema["required"] as? [String] ?? []), ["project_id", "start_time", "duration"])
+        XCTAssertEqual(try propertyNames(for: "storybird_render_audio_preview"),
+                       ["project_id", "start_time", "duration", "layer_id"])
+        XCTAssertEqual(schema["additionalProperties"] as? Bool, false)
+    }
+
     /// Checks each profile's unique names and complete documentation of their union.
     func test_toolInventory_matchesGuideAndFeatureCoverage() throws {
         let names = Set(StorybirdMCPToolProfile.allCases.flatMap { profile in

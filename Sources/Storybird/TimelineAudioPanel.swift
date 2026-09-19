@@ -1,5 +1,4 @@
 import AppKit
-import AVFAudio
 import StorybirdCore
 import SwiftUI
 import UniformTypeIdentifiers
@@ -7,15 +6,16 @@ import UniformTypeIdentifiers
 struct TimelineAudioPanel: View {
     @ObservedObject var store: AppStore
     @ObservedObject var model: TimelineAudioModel
+    @ObservedObject var audition: AudioAuditionPlayer
     let projectID: UUID
     let playhead: Double
+    var onListen: () -> Void = {}
     @State private var profileID: UUID?
     @State private var text = ""
     @State private var language: VoiceLanguage = .korean
     @State private var showGenerator = false
     @State private var showRecorder = false
     @State private var isImporting = false
-    @State private var player: AVAudioPlayer?
     @State private var errorMessage: String?
 
     var body: some View {
@@ -53,7 +53,7 @@ struct TimelineAudioPanel: View {
                     Text("Fixed time").tag(LayerTimingMode.project)
                 }
                 .font(.caption)
-                if let error = errorMessage ?? model.errorMessage {
+                if let error = errorMessage ?? audition.errorMessage ?? model.errorMessage {
                     Text(error).font(.callout).foregroundStyle(.red)
                         .accessibilityIdentifier("timeline-audio-error")
                 }
@@ -68,7 +68,7 @@ struct TimelineAudioPanel: View {
             profileID = profileID ?? store.voiceProfiles.first?.id
         }
         .sheet(isPresented: $showRecorder) { ProjectAudioRecordingView(store: store, projectID: projectID) }
-        .onDisappear { player?.stop() }
+        .onDisappear { audition.stopItems() }
     }
 
     private var generator: some View {
@@ -116,13 +116,17 @@ struct TimelineAudioPanel: View {
             AudioWaveformView(url: store.repository.assetURL(projectID: projectID, filename: filename))
                 .frame(height: 28)
             HStack {
-                Button { listen(filename) } label: { Label("Listen", systemImage: "play.fill") }
+                Button { listen(filename, id: itemID) } label: {
+                    Label(audition.activeID == .item(itemID) ? "Stop" : "Listen",
+                          systemImage: audition.activeID == .item(itemID) ? "stop.fill" : "play.fill")
+                }
+                .accessibilityIdentifier("timeline-audio-listen-\(itemID)")
                 Spacer(minLength: 0)
                 Button {
                     let reference = TimelineAudioReference(
                         projectID: projectID, itemID: itemID, kind: kind, revision: project.revision, token: UUID()
                     )
-                    player?.stop()
+                    audition.stopItems()
                     Task { await model.place(reference, at: playhead, in: store) }
                 } label: { Label("Add", systemImage: "plus") }
                 .help("Add at playhead")
@@ -135,7 +139,7 @@ struct TimelineAudioPanel: View {
         .background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
         .contentShape(Rectangle())
         .onDrag {
-            player?.stop()
+            audition.stopItems()
             return model.beginDrag(itemID: itemID, kind: kind, project: project)
         }
         .accessibilityIdentifier("timeline-audio-card-\(itemID)")
@@ -185,11 +189,9 @@ struct TimelineAudioPanel: View {
     }
 
     /// Auditions only project-owned media selected by the user.
-    private func listen(_ filename: String) {
-        do {
-            player?.stop()
-            player = try AVAudioPlayer(contentsOf: store.repository.assetURL(projectID: projectID, filename: filename))
-            player?.play()
-        } catch { errorMessage = error.localizedDescription }
+    private func listen(_ filename: String, id: UUID) {
+        if audition.activeID != .item(id) { onListen() }
+        errorMessage = nil
+        audition.toggleFile(id: id, url: store.repository.assetURL(projectID: projectID, filename: filename))
     }
 }

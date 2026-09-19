@@ -92,8 +92,8 @@
       "adrs": [
         {
           "path": "docs/adr/authoring/0001-timeline-overlay-editor.md",
-          "status": "Accepted (2026-09-12)",
-          "summary": "Space 재생과 탐색 시각 안내, 휠·핀치 가로 확대를 프로젝트와 독립된 보기 상태로 제공한다"
+          "status": "Accepted (2026-09-19)",
+          "summary": "영상·타임라인 탐색과 선택 오디오 단독 미리듣기를 프로젝트 편집과 독립된 상태로 제공한다"
         }
       ],
       "dependsOn": [

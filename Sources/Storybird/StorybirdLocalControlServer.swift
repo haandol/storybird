@@ -5,9 +5,16 @@ import StorybirdCore
 
 actor StorybirdOrderedRequestGate {
     private var nextSequence: UInt64 = 0
+    private var nextReservation: UInt64 = 0
     private var waiters: [
         UInt64: CheckedContinuation<Void, Never>
     ] = [:]
+
+    /// Admission happens only after a complete authenticated request arrives.
+    func reserve() -> UInt64 {
+        defer { nextReservation &+= 1 }
+        return nextReservation
+    }
 
     /// Waits until every earlier accepted pointer-lifecycle request has completed.
     func wait(for sequence: UInt64) async {
@@ -32,6 +39,7 @@ final class StorybirdLocalControlServer: @unchecked Sendable {
 
     private let socketPath: String
     private let handler: Handler
+    private let authorizePeer: @Sendable (Int32) -> Bool
     private let queue = DispatchQueue(
         label: "io.storybird.local-control",
         qos: .userInitiated
@@ -39,10 +47,16 @@ final class StorybirdLocalControlServer: @unchecked Sendable {
     private let lock = NSLock()
     private let orderedRequests = StorybirdOrderedRequestGate()
     private var listener: Int32 = -1
+    private var connections: [UUID: StorybirdControlConnection] = [:]
 
-    init(rootURL: URL, handler: @escaping Handler) {
+    init(
+        rootURL: URL,
+        authorizePeer: (@Sendable (Int32) -> Bool)? = nil,
+        handler: @escaping Handler
+    ) {
         socketPath = rootURL.appendingPathComponent("control.sock").path
         self.handler = handler
+        self.authorizePeer = authorizePeer ?? Self.isAuthorizedPeer
     }
 
     /// Starts the user-only local listener without opening a TCP port.
@@ -91,12 +105,16 @@ final class StorybirdLocalControlServer: @unchecked Sendable {
 
     /// Stops accepting commands and removes the socket path.
     func stop() {
-        let fd = lock.withLock {
+        let (fd, clients) = lock.withLock {
             let fd = listener
             listener = -1
-            return fd
+            let clients = Array(connections.values)
+            connections.removeAll()
+            return (fd, clients)
         }
+        clients.forEach { $0.close() }
         if fd >= 0 {
+            Darwin.shutdown(fd, SHUT_RDWR)
             Darwin.close(fd)
         }
         unlink(socketPath)
@@ -104,57 +122,54 @@ final class StorybirdLocalControlServer: @unchecked Sendable {
 
     /// Accepts one request per authenticated companion connection.
     private func acceptLoop(fd: Int32) {
-        var nextOrderedSequence: UInt64 = 0
         while lock.withLock({ listener == fd }) {
             let client = Darwin.accept(fd, nil, nil)
             guard client >= 0 else { continue }
-            guard Self.isAuthorizedPeer(client) else {
-                try? StorybirdControlWire.send(
-                    StorybirdControlResponse(
-                        text: "Storybird rejected the unsigned or untrusted MCP companion.",
-                        isError: true
-                    ),
-                    fileDescriptor: client
-                )
-                Darwin.close(client)
-                continue
-            }
-            let request: StorybirdControlRequest
+            let connection: StorybirdControlConnection
             do {
-                request = try StorybirdControlWire.receive(
-                    StorybirdControlRequest.self,
-                    fileDescriptor: client
-                )
+                connection = try StorybirdControlConnection(fileDescriptor: client)
             } catch {
-                try? StorybirdControlWire.send(
-                    StorybirdControlResponse(
-                        text: error.localizedDescription,
-                        isError: true
-                    ),
-                    fileDescriptor: client
-                )
-                Darwin.close(client)
                 continue
             }
-            let orderedSequence: UInt64? =
-                Self.requiresOrderedHandling(request.name)
-                ? nextOrderedSequence
-                : nil
-            if orderedSequence != nil {
-                nextOrderedSequence &+= 1
+            let authorized = authorizePeer(client)
+            let id = UUID()
+            let retained = lock.withLock {
+                guard listener == fd else { return false }
+                connections[id] = connection
+                return true
             }
-            Task { [handler, orderedRequests] in
-                if let orderedSequence {
-                    await orderedRequests.wait(for: orderedSequence)
+            guard retained else { connection.close(); continue }
+            Task { [weak self, handler, orderedRequests] in
+                defer {
+                    connection.close()
+                    _ = self?.lock.withLock { self?.connections.removeValue(forKey: id) }
                 }
-                let response = await handler(request)
-                try? StorybirdControlWire.send(
-                    response,
-                    fileDescriptor: client
-                )
-                Darwin.close(client)
-                if let orderedSequence {
-                    await orderedRequests.complete(orderedSequence)
+                guard authorized else {
+                    try? await connection.send(StorybirdControlResponse(
+                        text: "Storybird rejected the unsigned or untrusted MCP companion.", isError: true
+                    ))
+                    return
+                }
+                do {
+                    let request = try await connection.receive(StorybirdControlRequest.self)
+                    let orderedSequence: UInt64?
+                    if Self.requiresOrderedHandling(request.name) {
+                        let sequence = await orderedRequests.reserve()
+                        await orderedRequests.wait(for: sequence)
+                        orderedSequence = sequence
+                    } else {
+                        orderedSequence = nil
+                    }
+                    let active = self?.lock.withLock { self?.connections[id] != nil } ?? false
+                    let response = active
+                        ? await handler(request)
+                        : StorybirdControlResponse(text: "Storybird control stopped.", isError: true)
+                    // A peer that stops reading must not delay an already
+                    // completed pointer command or the following Stop request.
+                    if let orderedSequence { await orderedRequests.complete(orderedSequence) }
+                    try await connection.send(response)
+                } catch {
+                    try? await connection.send(StorybirdControlResponse(text: error.localizedDescription, isError: true))
                 }
             }
         }

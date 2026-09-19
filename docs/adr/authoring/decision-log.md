@@ -3,6 +3,14 @@
 이 문서는 authoring 카테고리의 주요 결정 변경 이력이다. ADR 본문은 현재 상태만
 서술하고, 주요 전환의 시간축은 여기에 최신 순으로 남긴다.
 
+## 2026-09-19 — 레이어 단독 청취와 미리듣기 상태 표시
+
+- **Current ADR**: [timeline-overlay-editor](./0001-timeline-overlay-editor.md)
+- **Change type**: requirement rule change
+- **What**: 원본 자산 미리듣기와 전체 오디오 믹스에 선택 레이어의 편집 구간 단독 청취를 추가한다.
+  목록과 속성 패널은 한 미리듣기를 공유하고 재생 중에는 중지, 종료 뒤에는 다시 재생 동작을 표시한다.
+- **Why**: 겹친 소리를 따로 확인하고, 재생 중인 항목을 같은 위치에서 중지할 수 있어야 한다.
+
 ## 2026-09-12 — 트랙패드 핀치로 타임라인 확대
 
 - **Current ADR**: [timeline-overlay-editor](./0001-timeline-overlay-editor.md)

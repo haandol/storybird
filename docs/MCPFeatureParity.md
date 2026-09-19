@@ -74,6 +74,8 @@ profiles of `AuthoringMCPProtocolTests`/`MCPAudioProtocolTests` cover these path
 | Split, duplicate or delete audio blocks | `storybird_split_audio_layer`, `storybird_duplicate_audio_layer`, `storybird_delete_audio_layer` | Shared audio editor and retained source assets; `ProjectAudioTests`, `MCPAudioProtocolTests` |
 | Change original movie gain/mute | `storybird_set_source_audio` | Shared project validation and mix; `ProjectAudioTests`, `MCPAudioProtocolTests` |
 | Inspect a composited frame or mixed audio range | `storybird_render_preview`, `storybird_render_audio_preview` | Shared composition/mix and local renderers; `AgentProductionTests`, `ProjectAudioTests`, `MCPAudioProtocolTests` |
+| Listen to only the selected audio layer from its trimmed start in the properties panel | `storybird_render_audio_preview` (`project_id`, `start_time`, `duration`, optional `layer_id`) | App host → shared audio preview renderer → selected layer's project-owned source and existing gain/mute/fade mix. UI plays/stops the returned temporary WAV; MCP receives the same local file metadata. `ProjectAudioTests`, `MCPAudioProtocolTests`, `AudioAuditionTests` cover isolation, trim/gain/mute/fades, unchanged revision/undo and playback lifecycle. |
+| Start/stop a completed asset or ready draft from Project audio; reset Listen when it finishes | Existing asset/draft metadata and audio preview cover audio inspection; native playback button state is a local presentation control under the authoring ADR | One editor-owned audition player coordinates the list and layer inspector. Existing raw-asset listening remains distinct from edited-layer listening. |
 | Start, inspect, cancel or await MP4 export | `storybird_start_export`, `storybird_get_export`, `storybird_cancel_export`, `storybird_export_project` | Shared exporter and export lease; `VideoPipelineTests`, `AppStoreTests`, `AgentProductionTests`, `MCPAudioProtocolTests` |
 
 ### Shared performance paths
@@ -120,6 +122,14 @@ cover Cue/subtitle/audio/effect fields and require revision envelopes on edit
 commands, including each compact branch's nested property contract. Existing host and protocol suites check behavior, including failure
 and undo. These automated checks cannot detect a new UI action omitted from
 both the inventory and MCP; review of the changed UI remains mandatory.
+
+Socket transport regression coverage lives in `ControlConnectionTests` and
+`LocalControlSocketTests`: fragmented requests, disconnects, cancellation,
+parallel preview/audio/draft queries and production signature rejection.
+`ProductionExportRegressionTests` exercises six narrated clips with fractional
+boundaries, speed changes and normal-speed trims through the shared exporter.
+These are synthetic checks; they do not claim microphone or capture permission
+verification.
 
 ## Native-only boundaries and local presentation
 

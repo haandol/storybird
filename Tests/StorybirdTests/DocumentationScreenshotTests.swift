@@ -6,6 +6,47 @@ import XCTest
 
 @MainActor
 final class DocumentationScreenshotTests: XCTestCase {
+    func test_generateAudioAuditionScreenshots() async throws {
+        guard ProcessInfo.processInfo.environment["STORYBIRD_UPDATE_DOC_SCREENSHOTS"] == "1" else {
+            throw XCTSkip("Set STORYBIRD_UPDATE_DOC_SCREENSHOTS=1 to update the audition screenshots.")
+        }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repository = ProjectRepository(rootURL: root)
+        try repository.prepare()
+        let asset = ProjectAudioAsset(filename: "intro.wav", name: "Introduction", duration: 3, origin: .imported)
+        var project = DemoProject(name: "Audio preview", recording: VideoRecordingAsset(
+            filename: "video.mp4", duration: 8, width: 1280, height: 720))
+        project.audioAssets = [asset]
+        _ = try repository.prepareVideoRecordingURL(projectID: project.id)
+        try TestVideoFactory.makeToneWAV(
+            at: repository.assetURL(projectID: project.id, filename: asset.filename), duration: 3
+        )
+        project = try AudioLayerEditor.place(assetID: asset.id, in: project, startTime: 1,
+                                             sourceStart: 0.5, duration: 2, timingMode: .project)
+        project.narrations[0].fadeIn = 0.2
+        project.narrations[0].fadeOut = 0.3
+        try repository.saveProjects([project])
+        let store = AppStore(repository: repository)
+        let audition = AudioAuditionPlayer { _ in AuditionTestPlayback() }
+        defer { audition.stop() }
+        let layer = project.narrations[0]
+        try await render(
+            NarrationLayerInspector(narration: .constant(layer), audition: audition, onListen: {},
+                                    onSplit: {}, onDuplicate: {}, onRegenerate: { _, _ in }, onDelete: {}),
+            size: CGSize(width: 320, height: 670),
+            to: imageDirectory.appendingPathComponent("audio-layer-preview.png"), hostedInWindow: true
+        )
+        audition.toggleFile(id: asset.id,
+                            url: repository.assetURL(projectID: project.id, filename: asset.filename))
+        try await render(
+            TimelineAudioPanel(store: store, model: TimelineAudioModel(), audition: audition,
+                               projectID: project.id, playhead: 1),
+            size: CGSize(width: 320, height: 520),
+            to: imageDirectory.appendingPathComponent("audio-list-preview.png"), hostedInWindow: true
+        )
+    }
+
     /// Refreshes only the editor illustration using owned synthetic media and native controls.
     func test_generateTimelineNavigationScreenshot() async throws {
         guard ProcessInfo.processInfo.environment["STORYBIRD_UPDATE_DOC_SCREENSHOTS"] == "1" else {
@@ -211,7 +252,8 @@ final class DocumentationScreenshotTests: XCTestCase {
         let narrationStore = AppStore(repository: store.repository, voiceService: DocumentationVoiceService())
         await narrationStore.refreshVoiceRuntimeState()
         try await render(
-            TimelineAudioPanel(store: narrationStore, model: TimelineAudioModel(), projectID: project.id, playhead: 2),
+            TimelineAudioPanel(store: narrationStore, model: TimelineAudioModel(), audition: AudioAuditionPlayer(),
+                               projectID: project.id, playhead: 2),
             size: CGSize(width: 680, height: 680),
             to: imageDirectory.appendingPathComponent("narration-drafts.png")
         )

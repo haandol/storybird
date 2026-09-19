@@ -58,8 +58,8 @@ enum NarrationCompositionBuilder {
                     throw LayeredVideoExportError.recordingMetadataMismatch
                 }
                 let start = CMTime(seconds: narration.startTime, preferredTimescale: 48_000)
-                let duration = CMTime(seconds: narration.duration, preferredTimescale: 48_000)
-                let end = start + duration
+                let end = CMTime(seconds: narration.endTime, preferredTimescale: 48_000)
+                let duration = end - start
                 try insertSilence(from: .zero, to: start, source: silenceTrack, destination: track)
                 try track.insertTimeRange(CMTimeRange(
                     start: range.start + CMTime(seconds: narration.sourceStart, preferredTimescale: 48_000),

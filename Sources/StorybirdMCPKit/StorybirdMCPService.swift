@@ -185,8 +185,8 @@ public struct StorybirdMCPService: Sendable {
                  inputSchema: objectSchema(properties: revision.merging(["volume": number, "muted": .object(["type": "boolean"])]) { _, new in new }, required: ["project_id", "expected_revision"]),
                  annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false)),
             Tool(name: "storybird_render_audio_preview", title: "Render an audio mix preview",
-                 description: "Render a project range to a new local WAV using the export mix. Returns path, measured duration, peak and waveform; no audio bytes. Peaks above 1 indicate gain should be reduced. File creation alone does not verify pronunciation or naturalness.",
-                 inputSchema: objectSchema(properties: project.merging(["start_time": number, "duration": duration]) { _, new in new }, required: ["project_id", "start_time", "duration"]),
+                 description: "Render a project range to a new local WAV using the export mix. Optional layer_id includes only that audio layer with its trim, gain, mute and fades, excluding source movie audio. Omit layer_id for the full mix. Returns path, measured duration, peak and waveform; no audio bytes. Peaks above 1 indicate gain should be reduced. File creation alone does not verify pronunciation or naturalness.",
+                 inputSchema: objectSchema(properties: project.merging(["start_time": number, "duration": duration, "layer_id": .object(["type": "string"])]) { _, new in new }, required: ["project_id", "start_time", "duration"]),
                  annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false)),
         ]
     }

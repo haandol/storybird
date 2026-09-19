@@ -162,6 +162,12 @@ final class VideoPlaybackModel: ObservableObject {
         }
     }
 
+    /// Stops video sound before a separate audio audition begins.
+    func pause() {
+        player.pause()
+        isPlaying = false
+    }
+
     /// Toggles the raw recording while keeping the overlay clock tied to player time.
     func togglePlayback() {
         if player.rate == 0 {

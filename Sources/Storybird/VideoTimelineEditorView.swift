@@ -52,6 +52,7 @@ struct VideoTimelineEditorView: View {
     @State private var previewLayout = TimelinePreviewLayout()
     @State private var showAudioComposer = false
     @StateObject private var audioModel = TimelineAudioModel()
+    @StateObject private var audition = AudioAuditionPlayer()
     @State private var editingNarration: NarrationClip?
     @StateObject private var layerDrag = TimelineLayerDragModel()
     @GestureState private var isDraggingLayer = false
@@ -145,8 +146,12 @@ struct VideoTimelineEditorView: View {
                 .frame(width: 360, height: 520)
         }
         .onReceive(playback.$errorMessage.removeDuplicates()) { playbackError = $0 }
+        .onReceive(playback.$isPlaying.removeDuplicates()) { playing in
+            if playing { audition.stop() }
+        }
         .onDisappear {
             playback.player.pause()
+            audition.stop()
             layerDrag.cancel()
             audioModel.cancel()
             dragRows = nil
@@ -155,6 +160,7 @@ struct VideoTimelineEditorView: View {
             isScrubbingSlider = false
         }
         .onChange(of: project.id) { _, _ in
+            audition.stop()
             layerDrag.cancel()
             audioModel.cancel()
             dragRows = nil
@@ -182,8 +188,9 @@ struct VideoTimelineEditorView: View {
         .onReceive(NotificationCenter.default.publisher(for: .storybirdOpenProjectAudio)) { notification in
             if notification.object as? UUID == project.id { showAudioComposer = true }
         }
-        .onChange(of: selection) { _, _ in
+        .onChange(of: selection) { previous, _ in
             audioModel.cancelAdjustment()
+            if case let .narration(id) = previous { audition.stop(id: .layer(id)) }
         }
         .onChange(of: project.timelineDuration) { _, duration in
             if duration > 0 { setTimelineZoom(timelineZoom.pointsPerSecond) }
@@ -230,7 +237,9 @@ struct VideoTimelineEditorView: View {
 
     private var audioPanel: some View {
         PlaybackDrivenView(playback: playback) { playback in
-            TimelineAudioPanel(store: store, model: audioModel, projectID: project.id, playhead: playback.currentTime)
+            TimelineAudioPanel(store: store, model: audioModel, audition: audition,
+                               projectID: project.id, playhead: playback.currentTime,
+                               onListen: { playback.pause() })
         }
     }
 
@@ -1086,6 +1095,12 @@ struct VideoTimelineEditorView: View {
                 )
                 NarrationLayerInspector(
                     narration: $project.narrations[index],
+                    audition: audition,
+                    onListen: {
+                        let layer = project.narrations[index]
+                        if audition.activeID != .layer(layer.id) { playback.pause() }
+                        audition.toggleLayer(layer, project: project, sourceURL: videoURL)
+                    },
                     onSplit: {
                         do { project = try AudioLayerEditor.split(layerID: project.narrations[index].id, in: project, at: playback.currentTime) }
                         catch { store.errorMessage = error.localizedDescription }
@@ -2187,8 +2202,10 @@ private struct SubtitleLayerInspector: View {
     }
 }
 
-private struct NarrationLayerInspector: View {
+struct NarrationLayerInspector: View {
     @Binding var narration: NarrationClip
+    @ObservedObject var audition: AudioAuditionPlayer
+    let onListen: () -> Void
     let onSplit: () -> Void
     let onDuplicate: () -> Void
     let onRegenerate: (String, String) async -> Void
@@ -2201,11 +2218,15 @@ private struct NarrationLayerInspector: View {
 
     init(
         narration: Binding<NarrationClip>,
+        audition: AudioAuditionPlayer,
+        onListen: @escaping () -> Void,
         onSplit: @escaping () -> Void, onDuplicate: @escaping () -> Void,
         onRegenerate: @escaping (String, String) async -> Void,
         onDelete: @escaping () -> Void
     ) {
         _narration = narration
+        self.audition = audition
+        self.onListen = onListen
         self.onSplit = onSplit
         self.onDuplicate = onDuplicate
         _trimStart = State(initialValue: narration.wrappedValue.sourceStart)
@@ -2221,6 +2242,20 @@ private struct NarrationLayerInspector: View {
     var body: some View {
         Form {
             Section("Audio Layer") {
+                Button(action: onListen) {
+                    Label(audition.activeID == .layer(narration.id) ? "Stop" : "Listen to This Layer",
+                          systemImage: audition.activeID == .layer(narration.id) ? "stop.fill" : "play.fill")
+                }
+                .accessibilityIdentifier("audio-layer-listen")
+                if audition.activeID == .layer(narration.id), audition.isPreparing {
+                    ProgressView().controlSize(.small)
+                }
+                if narration.isMuted {
+                    Text("This layer is muted.").font(.caption).foregroundStyle(.secondary)
+                }
+                if let error = audition.errorMessage {
+                    Text(error).font(.caption).foregroundStyle(.red)
+                }
                 TextField("Name", text: $narration.name)
                 if narration.voiceProfileID != nil {
                 TextField(
@@ -2288,6 +2323,8 @@ private struct NarrationLayerInspector: View {
             }
         }
         .formStyle(.grouped)
+        .onDisappear { audition.stop(id: .layer(narration.id)) }
+        .onChange(of: narration) { previous, _ in audition.stop(id: .layer(previous.id)) }
         .onChange(of: narration.id) { _, _ in
             trimStart = narration.sourceStart; trimDuration = narration.duration
             replacementText = narration.text; replacementLanguage = narration.language

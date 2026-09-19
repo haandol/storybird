@@ -61,6 +61,10 @@ fade-in. Preserve source audio and assets required for undo.
 Render meaningful ranges with `storybird_render_audio_preview`. It returns a local
 WAV path, measured duration, peak and waveform, not embedded audio bytes. Inspect
 or audition through authorized tools. A peak above 1 calls for reduced gain.
+When the advertised schema includes `layer_id`, set it to audition only that
+layer with its trim, gain, mute and fades. Use its project start and duration for
+the entire layer; omit `layer_id` to inspect the full mix. Neither preview changes
+revision or undo history.
 Waveform/peak inspection cannot establish pronunciation, resemblance or naturalness.
 Keep narration, instructional text and emphasis consistent and inspect the edited
 scene with `storybird_render_preview` before the main skill's export checks.

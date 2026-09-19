@@ -6,6 +6,65 @@ import XCTest
 
 @MainActor
 final class ProjectAudioTests: XCTestCase {
+    func test_soloPreview_preservesTrimGainFadesAndMuteWithoutMixingOtherSources() async throws {
+        let (root, store, initial) = try await fixture(includeAudio: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let firstURL = root.appendingPathComponent("selected.wav")
+        let secondURL = root.appendingPathComponent("other.wav")
+        let format = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1)!
+        do {
+            let file = try AVAudioFile(forWriting: firstURL, settings: format.settings)
+            let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 144_000)!
+            buffer.frameLength = 144_000
+            for frame in 0..<144_000 {
+                buffer.floatChannelData![0][frame] = frame < 33_600 ? 0 :
+                    Float(0.2 * sin(2 * .pi * 880 * Double(frame) / 48_000))
+            }
+            try file.write(from: buffer)
+        }
+        try TestVideoFactory.makeToneWAV(at: secondURL, duration: 2, frequency: 660)
+        let firstAsset = try await store.importProjectAudio(projectID: initial.id, sourceURL: firstURL)
+        let secondAsset = try await store.importProjectAudio(projectID: initial.id, sourceURL: secondURL)
+        var project = try store.placeAudioAsset(projectID: initial.id, assetID: firstAsset.id,
+            expectedRevision: 0, startTime: 1, sourceStart: 0.7, duration: 1)
+        project = try store.placeAudioAsset(projectID: initial.id, assetID: secondAsset.id,
+            expectedRevision: project.revision, startTime: 1, duration: 1)
+        project.narrations[0].volume = 0.5
+        project.narrations[0].fadeIn = 0.2
+        project.narrations[0].fadeOut = 0.3
+        project = try store.saveProject(project, expectedRevision: project.revision)
+        var selected = project.narrations[0]
+        let before = project
+        let source = store.repository.assetURL(projectID: project.id, filename: project.recording!.filename)
+        let solo = try await AudioPreviewRenderer.render(
+            project: project, sourceURL: source, startTime: 1, duration: 1, layerID: selected.id
+        )
+        defer { try? FileManager.default.removeItem(atPath: solo.path) }
+        XCTAssertEqual(solo.startTime, 1)
+        XCTAssertEqual(solo.duration, 1, accuracy: 0.001)
+        let samples = try readSamples(URL(fileURLWithPath: solo.path))
+        XCTAssertEqual(toneAmplitude(samples, frequency: 880, start: 0.3, end: 0.6), 0.1, accuracy: 0.01)
+        for excluded in [440.0, 660.0] {
+            XCTAssertLessThan(toneAmplitude(samples, frequency: excluded, start: 0.3, end: 0.6), 0.001)
+        }
+        XCTAssertLessThan(rms(samples, start: 0, end: 0.05), rms(samples, start: 0.3, end: 0.6) * 0.5)
+        XCTAssertLessThan(rms(samples, start: 0.95, end: 1), rms(samples, start: 0.3, end: 0.6) * 0.5)
+        selected.isMuted = true
+        project.narrations[0] = selected
+        let muted = try await AudioPreviewRenderer.render(
+            project: project, sourceURL: source, startTime: 1, duration: 1, layerID: selected.id
+        )
+        defer { try? FileManager.default.removeItem(atPath: muted.path) }
+        XCTAssertEqual(muted.peak, 0, accuracy: 0.0001)
+        do {
+            _ = try await AudioPreviewRenderer.render(
+                project: project, sourceURL: source, startTime: 1, duration: 1, layerID: UUID()
+            )
+            XCTFail("Unknown layer must fail")
+        } catch {}
+        XCTAssertEqual(store.project(id: initial.id), before)
+    }
+
     func test_longSilence_preservesLateSoundAndRangePreviewTiming() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

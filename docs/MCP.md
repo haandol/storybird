@@ -89,6 +89,13 @@ constraint before IPC; legacy schemas and rejection behavior remain unchanged.
 
 ### Operation-specific reference
 
+The companion and app use independent, cancellable socket exchanges. A stalled
+peer's partial request or unread response does not block unrelated exchanges.
+This does not set an operation timeout or make mutations automatically
+retryable: reconcile the current revision, draft or job after losing a response.
+Reader/writer export failures include their phase, snapshot revision and
+available underlying error codes in the existing error text.
+
 The table and detailed examples below use legacy names. In compact, use the
 matching grouped tool above and move operation fields into `input`; the other
 44 tool names and argument shapes are unchanged.
@@ -421,6 +428,11 @@ the layer. Source ranges must fit the full asset; project ranges must fit the pi
 and timing mode. Registered assets are separate from unplaced TTS drafts.
 
 `storybird_render_audio_preview` takes `project_id`, `start_time` and `duration`.
+Optional `layer_id` includes only that audio layer in the requested project-time
+range, applying its source trim, volume, mute and fades. Other layers and source
+movie audio are excluded. For the properties panel's full-layer audition, use
+the layer's `startTime` and `duration`. Omitting `layer_id` keeps the full mix;
+an unknown layer fails without changing the project.
 It returns a new local float WAV path, actual duration, peak and waveform. Peaks
 above 1 indicate overload before final encoding; lower the appropriate layer gains.
 Audio bytes are not returned. Preview does not change revision. A waveform or a

@@ -14,20 +14,44 @@ enum AudioPreviewRenderer {
     /// Renders a selected mix range to a new local float WAV. The shared
     /// composition applies the same source trims, overlaps, gain and fades as MP4.
     static func render(
-        project: DemoProject, sourceURL: URL, startTime: Double, duration: Double
+        project: DemoProject, sourceURL: URL, startTime: Double, duration: Double,
+        layerID: UUID? = nil
     ) async throws -> AudioPreviewResult {
         try VideoProjectValidator.validate(project)
         guard startTime.isFinite, duration.isFinite, startTime >= 0, duration > 0,
               startTime + duration <= project.timelineDuration else {
             throw AgentEditError.invalidField("preview_range")
         }
-        let built = try await EditedVideoAssetBuilder.build(project: project, sourceURL: sourceURL)
-        let tracks = try await built.asset.loadTracks(withMediaType: .audio)
+        let asset: AVAsset
+        let tracks: [AVAssetTrack]
+        let mix: AVAudioMix?
+        if let layerID {
+            guard let layer = project.narrations.first(where: { $0.id == layerID }) else {
+                throw AgentEditError.invalidField("layer_id")
+            }
+            // A transient selection reuses the export mix without muting or
+            // removing anything in the stored project, or loading other media.
+            var selected = project
+            selected.narrations = [layer]
+            let composition = AVMutableComposition()
+            let audio = try await NarrationCompositionBuilder.addNarrations(
+                project: selected, assetsDirectory: sourceURL.deletingLastPathComponent(),
+                composition: composition, sourceAudioTrack: nil
+            )
+            asset = composition
+            tracks = audio.tracks
+            mix = audio.audioMix
+        } else {
+            let built = try await EditedVideoAssetBuilder.build(project: project, sourceURL: sourceURL)
+            asset = built.asset
+            tracks = try await built.asset.loadTracks(withMediaType: .audio)
+            mix = built.audioMix
+        }
         let destination = FileManager.default.temporaryDirectory
             .appendingPathComponent("storybird-audio-preview-\(UUID().uuidString).wav")
         do {
             try write(
-                asset: built.asset, tracks: tracks, mix: built.audioMix,
+                asset: asset, tracks: tracks, mix: mix,
                 startTime: startTime, duration: duration, destination: destination
             )
             let summary = try ProjectAudioFiles.inspect(destination)

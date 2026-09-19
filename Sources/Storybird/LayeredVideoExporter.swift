@@ -16,6 +16,7 @@ enum LayeredVideoExportError: LocalizedError {
     case recordingMetadataMismatch
     case incompleteClickCue([UUID])
     case exportFailed(String)
+    case mediaFailure(stage: String, revision: Int, underlying: NSError)
 
     var errorDescription: String? {
         switch self {
@@ -34,6 +35,14 @@ enum LayeredVideoExportError: LocalizedError {
             return "Complete the description and subtitle for Click Cues: \(values)."
         case let .exportFailed(message):
             return "Storybird could not export the video: \(message)"
+        case let .mediaFailure(stage, revision, underlying):
+            var details: [String] = []
+            var current: NSError? = underlying
+            while let error = current, details.count < 8 {
+                details.append("\(error.domain) \(error.code): \(error.localizedDescription)")
+                current = error.userInfo[NSUnderlyingErrorKey] as? NSError
+            }
+            return "Storybird export failed during \(stage) (revision \(revision)): \(details.joined(separator: " → "))"
         }
     }
 }
@@ -258,10 +267,18 @@ actor LayeredVideoExporter {
                 kCVPixelBufferCGBitmapContextCompatibilityKey as String: true,
             ]
         )
-        guard writer.startWriting(), reader.startReading() else {
-            throw writer.error
-                ?? reader.error
-                ?? LayeredVideoExportError.cannotCreateWriter
+        guard writer.startWriting() else {
+            throw LayeredVideoExportError.mediaFailure(
+                stage: "writer startup", revision: project.revision,
+                underlying: (writer.error ?? LayeredVideoExportError.cannotCreateWriter) as NSError
+            )
+        }
+        guard reader.startReading() else {
+            writer.cancelWriting()
+            throw LayeredVideoExportError.mediaFailure(
+                stage: "reader startup", revision: project.revision,
+                underlying: (reader.error ?? LayeredVideoExportError.cannotReadVideo) as NSError
+            )
         }
         writer.startSession(atSourceTime: .zero)
 
@@ -283,7 +300,10 @@ actor LayeredVideoExporter {
         } catch {
             reader.cancelReading()
             writer.cancelWriting()
-            throw error
+            if error is CancellationError { throw error }
+            throw LayeredVideoExportError.mediaFailure(
+                stage: "media encoding", revision: project.revision, underlying: error as NSError
+            )
         }
 
         writer.endSession(atSourceTime: duration)
@@ -294,10 +314,12 @@ actor LayeredVideoExporter {
             }
         }
         guard writer.status == .completed else {
-            throw writer.error
-                ?? LayeredVideoExportError.exportFailed(
+            throw LayeredVideoExportError.mediaFailure(
+                stage: "writer finalization", revision: project.revision,
+                underlying: (writer.error ?? LayeredVideoExportError.exportFailed(
                     "The video writer did not finish."
-                )
+                )) as NSError
+            )
         }
         try installCompletedFile(
             temporaryURL,

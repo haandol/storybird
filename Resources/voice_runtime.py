@@ -9,6 +9,7 @@ from pathlib import Path
 import mlx.core as mx
 import numpy as np
 import soundfile as sf
+from mlx_audio.tts.models.qwen3_tts import speech_tokenizer
 from mlx_audio.tts.utils import load_model
 
 MODEL_ID = "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit"
@@ -18,9 +19,36 @@ MODEL_IDS = (
 )
 
 
+def decoder_window_mask(query_length, *, offset, window):
+    """Keep causal keys inside the decoder checkpoint's attention window."""
+    return [
+        [offset + query - window < key <= offset + query
+         for key in range(offset + query_length)]
+        for query in range(query_length)
+    ]
+
+
+class WindowedDecoder(speech_tokenizer.DecoderTransformer):
+    """Restore local attention omitted by MLX Audio 0.5.3's codec decoder."""
+
+    def __call__(self, inputs_embeds, mask=None, cache=None):
+        offset = cache[0].offset if cache is not None else 0
+        allowed = mx.array(decoder_window_mask(
+            inputs_embeds.shape[1],
+            offset=offset,
+            window=self.config.sliding_window,
+        ))
+        local = mx.where(allowed, 0.0, -mx.inf).astype(inputs_embeds.dtype)
+        if mask is not None:
+            local = mx.where(mask, local, -mx.inf) if mask.dtype == mx.bool_ else local + mask
+        return super().__call__(inputs_embeds, mask=local, cache=cache)
+
+
 def load(model_id):
     """Load the explicitly selected, allowlisted local MLX model."""
     started = time.perf_counter()
+    # Install before load_model compiles the vocoder and captures its call graph.
+    speech_tokenizer.DecoderTransformer = WindowedDecoder
     model = load_model(model_id)
     return model, time.perf_counter() - started
 

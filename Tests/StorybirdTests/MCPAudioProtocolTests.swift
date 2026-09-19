@@ -8,6 +8,46 @@ import XCTest
 
 @MainActor
 final class MCPAudioProtocolTests: XCTestCase {
+    func test_soloAudioPreview_bothProfilesPreserveMixRevisionAndUndo() async throws {
+        for profile in StorybirdMCPToolProfile.allCases {
+            try await withClient(profile: profile) { client, store, initial, _, _ in
+                let input = store.repository.rootURL.appendingPathComponent("fixture.wav")
+                try TestVideoFactory.makeToneWAV(at: input, duration: 2)
+                let asset = try await store.importProjectAudio(projectID: initial.id, sourceURL: input)
+                var project = try store.placeAudioAsset(projectID: initial.id, assetID: asset.id,
+                    expectedRevision: 0, startTime: 1, duration: 1)
+                project = try store.placeAudioAsset(projectID: initial.id, assetID: asset.id,
+                    expectedRevision: project.revision, startTime: 1, duration: 1)
+                project.narrations[0].isMuted = true
+                project = try store.saveProject(project, expectedRevision: project.revision)
+                let before = project
+                let base: [String: Value] = ["project_id": .string(project.id.uuidString), "start_time": 1, "duration": 1]
+                let mixed = try await client.callTool(name: "storybird_render_audio_preview", arguments: base)
+                XCTAssertNotEqual(mixed.isError, true)
+                let mix: AudioPreviewResult = try decode(mixed.content)
+                defer { try? FileManager.default.removeItem(atPath: mix.path) }
+                XCTAssertGreaterThan(mix.peak, 0.01)
+                var soloArguments = base
+                soloArguments["layer_id"] = .string(project.narrations[0].id.uuidString)
+                let soloResponse = try await client.callTool(name: "storybird_render_audio_preview", arguments: soloArguments)
+                XCTAssertNotEqual(soloResponse.isError, true)
+                let solo: AudioPreviewResult = try decode(soloResponse.content)
+                defer { try? FileManager.default.removeItem(atPath: solo.path) }
+                XCTAssertEqual(solo.duration, 1, accuracy: 0.001)
+                XCTAssertEqual(solo.startTime, 1)
+                XCTAssertEqual(solo.peak, 0, accuracy: 0.0001)
+                for invalid: Value in [.string(UUID().uuidString), .string("invalid"), true] {
+                    soloArguments["layer_id"] = invalid
+                    let rejected = try await client.callTool(name: "storybird_render_audio_preview", arguments: soloArguments)
+                    XCTAssertEqual(rejected.isError, true)
+                }
+                XCTAssertEqual(store.project(id: initial.id), before)
+                let undone = try store.undo(projectID: project.id)
+                XCTAssertFalse(undone.narrations[0].isMuted, "Preview must not add an undo operation")
+            }
+        }
+    }
+
     func test_mcpDiscovery_exposesProductionWorkflowAndMatchingAudioConstraints() async throws {
         try await withClient { client, _, _, probe, initialization in
             XCTAssertEqual(initialization.serverInfo.title, "Storybird Video Production")

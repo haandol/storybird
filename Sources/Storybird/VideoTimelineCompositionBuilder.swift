@@ -44,7 +44,7 @@ enum VideoTimelineCompositionBuilder {
             case let .card(card):
                 try insertStillFrame(
                     at: mediaStartTime + card.sourceFrameTime,
-                    duration: card.projectEnd - card.projectStart,
+                    endTime: card.projectEnd,
                     sourceTrack: sourceTrack,
                     compositionTrack: track,
                     cursor: &cursor,
@@ -61,11 +61,11 @@ enum VideoTimelineCompositionBuilder {
                     of: sourceTrack,
                     at: cursor
                 )
-                let outputDuration = CMTime(
-                    seconds: scheduled.projectEnd
-                        - scheduled.projectStart,
-                    preferredTimescale: 600
-                )
+                // Convert absolute boundaries on the same clock as narration.
+                // Summing separately truncated 600 Hz durations shortened the
+                // six-scene 59.96 s fixture by 3.33 ms and caused -11841.
+                let outputEnd = CMTime(seconds: scheduled.projectEnd, preferredTimescale: 48_000)
+                let outputDuration = outputEnd - cursor
                 track.scaleTimeRange(
                     CMTimeRange(
                         start: cursor,
@@ -88,22 +88,21 @@ enum VideoTimelineCompositionBuilder {
                     let sourceOffset = CMTimeGetSeconds(
                         audioSourceRange.start - sourceRange.start
                     )
-                    let destination = cursor + CMTime(
-                        seconds: sourceOffset
-                            / scheduled.clip.playbackRate,
-                        preferredTimescale: 600
+                    let destination = CMTime(
+                        seconds: scheduled.projectStart + sourceOffset / scheduled.clip.playbackRate,
+                        preferredTimescale: 48_000
                     )
                     try audioTrack.insertTimeRange(
                         audioSourceRange,
                         of: sourceAudioTrack,
                         at: destination
                     )
-                    let audioOutputDuration = CMTime(
-                        seconds: CMTimeGetSeconds(
-                            audioSourceRange.duration
-                        ) / scheduled.clip.playbackRate,
-                        preferredTimescale: 600
-                    )
+                    let audioEnd = min(outputEnd, CMTime(
+                        seconds: scheduled.projectStart
+                            + (sourceOffset + audioSourceRange.duration.seconds) / scheduled.clip.playbackRate,
+                        preferredTimescale: 48_000
+                    ))
+                    let audioOutputDuration = audioEnd - destination
                     audioTrack.scaleTimeRange(
                         CMTimeRange(
                             start: destination,
@@ -130,15 +129,11 @@ enum VideoTimelineCompositionBuilder {
     ) -> CMTimeRange {
         switch clip.kind {
         case .video:
+            let start = CMTime(seconds: mediaStartTime + clip.sourceStart, preferredTimescale: 48_000)
+            let end = CMTime(seconds: mediaStartTime + clip.sourceEnd, preferredTimescale: 48_000)
             return CMTimeRange(
-                start: CMTime(
-                    seconds: mediaStartTime + clip.sourceStart,
-                    preferredTimescale: 600
-                ),
-                duration: CMTime(
-                    seconds: clip.sourceEnd - clip.sourceStart,
-                    preferredTimescale: 600
-                )
+                start: start,
+                duration: end - start
             )
         case .freeze:
             return CMTimeRange(
@@ -154,7 +149,7 @@ enum VideoTimelineCompositionBuilder {
     /// Inserts a stretched source frame behind a full-screen title or CTA card.
     private static func insertStillFrame(
         at sourceTime: Double,
-        duration: Double,
+        endTime: Double,
         sourceTrack: AVAssetTrack,
         compositionTrack: AVMutableCompositionTrack,
         cursor: inout CMTime,
@@ -177,10 +172,7 @@ enum VideoTimelineCompositionBuilder {
             of: sourceTrack,
             at: cursor
         )
-        let outputDuration = CMTime(
-            seconds: duration,
-            preferredTimescale: 600
-        )
+        let outputDuration = CMTime(seconds: endTime, preferredTimescale: 48_000) - cursor
         compositionTrack.scaleTimeRange(
             CMTimeRange(start: cursor, duration: sourceRange.duration),
             toDuration: outputDuration

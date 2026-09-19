@@ -486,6 +486,23 @@ native pass.
 
 ### Voice model selection and preparation
 
+The worker checks also cover the codec's causal attention window, its exact
+boundary, cached query offsets, and existing boolean/additive masks. The
+compatibility class must be installed before model loading compiles the vocoder.
+For changes here, compare identical codec tokens and weights against the original
+Qwen decoder as well as checking a fresh synthesis; waveform parity is not a
+substitute for listening to the generated voice.
+
+`python3 scripts/test-voice-waveform-metrics.py` checks the probe's length,
+sample-rate, finite-sample and non-silent-input guards (requires NumPy).
+For a cached-model check, run `scripts/probe-voice-decoder.py` with that model's
+runtime Python, `HF_HOME` pointing to its cache, and `HF_HUB_OFFLINE=1` plus
+`TRANSFORMERS_OFFLINE=1`. Supply `--codes`, a float NumPy `--reference`,
+`--reference-sample-rate`, `--model` and `--output`; compare runs with and without
+`--original`. The reference must come from the original Qwen decoder with the
+same tokens and weights. Do not crop arrays to equal length or compare an
+unquantized candidate against a PCM WAV without reporting the precision difference.
+
 Run `swift test --filter 'VoiceModelTests|MCPVoiceModelProtocolTests|MCPFeatureParityTests'`
 and `python3 scripts/test-voice-runtime.py`. These tests use temporary model
 markers, controlled providers and actual MCP production handlers, without model
@@ -493,6 +510,33 @@ downloads or user voice profiles. Cover persistent selection, independent readin
 legacy 1.7B reuse, duplicate preparation, busy selection, pollable failure/retry,
 invalid model IDs, chosen-provider generation, both Python worker model arguments,
 and project revision preservation. Keep real model-download/speech checks distinct.
+
+### MCP socket and fractional export regressions
+
+Run `swift test --filter 'ControlConnectionTests|LocalControlSocketTests|ProductionExportRegressionTests'`
+and then the full suite. Socket tests use temporary Unix sockets and synthetic
+projects. They cover fragmented requests, a disconnected peer, cancelled reads
+and blocked writes, and concurrent frame/audio previews plus ready-draft polling.
+The production peer-signature check is retained; the unsigned test process is
+rejected, and only isolated fixture servers inject an authorizer.
+
+The export fixture uses six clips and synthetic tones at the reported fractional
+boundaries, with speed changes and normal-speed trims. It checks that the same
+project end is used for video and audio, exports all six narration intervals,
+and includes independent subtitles. A single unedited clip cannot detect the
+per-clip rounding regression.
+
+### Audio audition verification
+
+For audio audition changes, run `swift test --filter 'AudioAuditionTests|MCPAudioProtocolTests|ProjectAudioTests'`.
+The audition fixtures verify Listen/Stop transitions, natural completion, cancelled
+preparation, late callbacks, temporary-file cleanup and selected-layer mix isolation.
+`STORYBIRD_RUN_AUDIO_AUDITION=1 swift test --filter AudioAuditionTests/test_silentNativePlayback`
+checks the real audio completion callback using a short silent file; it does not
+record a microphone or assess voice quality.
+Regenerate the two controls with
+`STORYBIRD_UPDATE_DOC_SCREENSHOTS=1 swift test --filter DocumentationScreenshotTests/test_generateAudioAuditionScreenshots`
+and inspect `audio-layer-preview.png` and `audio-list-preview.png`.
 
 ### MCP local-media import verification
 

@@ -250,7 +250,8 @@ final class StorybirdExternalControlHost {
             let result = try await AudioPreviewRenderer.render(
                 project: project,
                 sourceURL: store.repository.assetURL(projectID: project.id, filename: recording.filename),
-                startTime: a.number("start_time"), duration: a.number("duration")
+                startTime: a.number("start_time"), duration: a.number("duration"),
+                layerID: a.has("layer_id") ? Self.uuid("layer_id", in: arguments) : nil
             )
             return try Self.jsonResponse(result)
         }

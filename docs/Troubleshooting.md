@@ -130,6 +130,33 @@ For imported videos, confirm the source contains a readable primary audio track.
 Storybird preserves that track in preview and exports it as one AAC track.
 Original movie audio stays silent during freeze frames, title cards, and CTA cards; independent audio layers can play across those sections.
 
+## An edited, narrated project fails with AVFoundation error -11841
+
+Update to a build containing the shared composition-clock fix. Earlier builds
+rounded each clip's duration independently, which could make the video end
+slightly before the narration mix. A six-clip 59.96-second reproduction left
+3.33 milliseconds uncovered and failed in the video reader. Both speed changes
+and normal-speed trims could trigger it. The fix preserves the saved edit and
+uses absolute project boundaries for the video and audio composition.
+
+Retry the existing project with the updated app. Reader/writer failures now
+include the export phase, snapshot revision, error domain/code and available
+underlying errors. Preserve that message when reporting a remaining failure;
+the error number alone does not establish the same cause.
+
+## An MCP request stalls or loses its response
+
+The local socket transport keeps each connection's I/O independent. A partial
+request must not block other project queries, and cancelling a pending exchange
+closes its socket. A disconnected client must not terminate Storybird when the
+app tries to return a response.
+
+After a lost response, read the current project revision and relevant draft or
+export job before repeating a mutation. Sending a request may already have
+changed the project even if its response was lost. Do not automatically repeat
+pointer commands. Reconnect with the updated companion and retain the command
+name and observed result when reporting a stall.
+
 ## The local voice model is not ready
 
 Open **Settings › Voice** and choose **Prepare Model**. Storybird requires `uv`,
@@ -147,6 +174,14 @@ device or choose the current **(System Default)** device, then start a new guide
 Changing the picker does not switch a recording already in progress.
 
 ## Voice cloning fails or sounds unlike the reference
+
+If the reference is clean but generated speech sounds muffled, check that the
+app includes the codec attention-window fix. MLX-Audio 0.5.3 reads the Qwen codec's
+sliding-window setting but its decoder applies full causal attention instead.
+Storybird restores the checkpoint's local attention window before MLX compiles
+the decoder. This uses the existing model weights and voice profile; it does not
+apply EQ or change pitch. Rebuild the app to update its bundled worker, then
+compare a newly generated short sentence. Previously generated audio is unchanged.
 
 To rename a saved profile, open **Settings › Voice**, click its pencil button,
 and save the new name. A name cannot be blank. If saving fails, the dialog keeps
