@@ -69,15 +69,34 @@ Read these before changing capture, persistence, or export behavior.
   not exist. Never delete or move the legacy copy.
 - **Video exports preserve the original.** Read the raw project MP4 and timed
   layers, render an H.264 MP4 to a sibling temporary file, and preserve one
-  imported primary audio track plus project-owned cloned-voice narration as one
+  imported primary audio track plus project-owned audio, including cloned and built-in narration, as one
   synchronized AAC track when present. Replace the chosen destination only after
   successful completion.
-- **Voice cloning is local and user-authorized.** The approved PoC uses MLX
-  Qwen3-TTS 1.7B or 0.6B Base, both 8-bit, on 24GB+ Apple Silicon. UI and MCP share
-  model status, persistent selection and preparation. The UI preparation button
-  or authenticated MCP preparation request starts download without another approval.
+- **Speech generation is local.** The approved PoC uses MLX Qwen3-TTS 1.7B Base
+  8-bit for cloning and 1.7B CustomVoice 8-bit for built-in speakers on 24GB+
+  Apple Silicon. UI and MCP share model status, persistent selection, installation
+  and removal. Settings **Install Model** or authenticated MCP preparation starts
+  download without another approval; prepared synthesis runs without network access.
+  Reject new 0.6B selection, installation and synthesis. Migrate its stored
+  selection to Base and expose retained files only for status and cleanup.
+  Settings and authenticated MCP can remove a model without another approval; only
+  that model’s app-owned runtime/downloads are removed. Keep selection, other models,
+  profiles, audio and project history, and reject conflicting voice/model work.
+  Removal moves through `removing` to `not_prepared` or `failed`; require
+  reinstallation before generating with a removed model.
   Microphone capture, voice-profile reference-file selection and profile deletion
   retain native user action. MCP may use existing profiles but never register or delete them.
+- **Generation retains exactly one voice source.** UI and MCP accept an existing
+  consented profile for Base cloning or a CustomVoice speaker with optional
+  instructions and no profile. Reject mixed inputs without saving. The saved source
+  determines the generation model. Drafts, assets and layers preserve `customVoice`
+  speaker/instruction metadata or the clone profile alongside text and language
+  through placement, reuse, split, duplicate, undo and reopen. Both the editing
+  sheet and inspector expose CustomVoice speaker/instruction controls.
+  Speaker/instruction updates apply only to existing CustomVoice narration;
+  instruction-only regeneration keeps text/language, and an empty string clears
+  instructions. Revision validation, atomic save and undo match text regeneration;
+  stale revisions and failed synthesis/save preserve previous audio and settings.
 - **Narration timing is explicit.** Existing layers remain at fixed project
   times; new scene-linked narration and subtitles follow their start frame through
   clip edits without changing speech or display duration. Removing the start or
@@ -107,9 +126,10 @@ Read these before changing capture, persistence, or export behavior.
 - **Duplicated projects own their media.** Copy and validate the source video and
   placed narration before publishing revision zero. Preserve the source, and do
   not copy unplaced drafts or undo history.
-- **Shared voice assets live in Settings.** Model preparation, voice-profile
+- **Shared voice assets live in Settings.** Model installation/removal, voice-profile
   creation/renaming/deletion, and the guided-recording input device are managed in
-  Settings. Project UI uses existing profiles only for narration generation.
+  Settings. Project UI generates narration from existing consented profiles or
+  built-in speakers; CustomVoice needs no profile, reference audio or microphone.
   Persist a selected microphone by stable UID; if it is absent, keep the choice
   and use the system default for that recording. Never switch an active sample.
 - **Profile renaming changes display metadata only.** Native Settings trims the

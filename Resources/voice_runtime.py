@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local MLX voice-cloning worker for Storybird."""
+"""Local MLX voice-cloning and built-in-speaker worker for Storybird."""
 
 import argparse
 import json
@@ -13,9 +13,11 @@ from mlx_audio.tts.models.qwen3_tts import speech_tokenizer
 from mlx_audio.tts.utils import load_model
 
 MODEL_ID = "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit"
-MODEL_IDS = (
-    MODEL_ID,
-    "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit",
+CUSTOM_VOICE_MODEL_ID = "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit"
+MODEL_IDS = (MODEL_ID, CUSTOM_VOICE_MODEL_ID)
+CUSTOM_VOICE_SPEAKERS = (
+    "vivian", "serena", "uncle_fu", "dylan", "eric",
+    "ryan", "aiden", "ono_anna", "sohee",
 )
 
 
@@ -62,11 +64,27 @@ def main():
     generate = sub.add_parser("generate")
     generate.add_argument("--model", choices=MODEL_IDS, default=MODEL_ID)
     generate.add_argument("--text", required=True)
-    generate.add_argument("--ref-audio", required=True)
-    generate.add_argument("--ref-text", required=True)
+    generate.add_argument("--ref-audio")
+    generate.add_argument("--ref-text")
+    generate.add_argument("--speaker")
+    # None distinguishes omission from an explicitly supplied empty instruction,
+    # which still must be rejected when mixed with clone inputs.
+    generate.add_argument("--instruct")
     generate.add_argument("--language", default="korean")
     generate.add_argument("--output", required=True)
     args = parser.parse_args()
+
+    if args.command == "generate":
+        if args.model == CUSTOM_VOICE_MODEL_ID:
+            if args.ref_audio is not None or args.ref_text is not None:
+                parser.error("CustomVoice does not accept clone reference inputs")
+            if args.speaker is None or args.speaker.lower() not in CUSTOM_VOICE_SPEAKERS:
+                parser.error("CustomVoice requires a supported --speaker")
+        else:
+            if args.speaker is not None or args.instruct is not None:
+                parser.error("Base cloning does not accept --speaker or --instruct")
+            if not args.ref_audio or not args.ref_text or not args.ref_text.strip():
+                parser.error("Base cloning requires --ref-audio and --ref-text")
 
     model, load_seconds = load(args.model)
     if args.command == "prepare":
@@ -79,13 +97,22 @@ def main():
         return
 
     started = time.perf_counter()
-    results = list(model.generate(
-        text=args.text,
-        ref_audio=args.ref_audio,
-        ref_text=args.ref_text,
-        lang_code=args.language,
-        verbose=False,
-    ))
+    if args.model == CUSTOM_VOICE_MODEL_ID:
+        # mlx-audio v0.5.3 exposes language (not lang_code) on this method.
+        results = list(model.generate_custom_voice(
+            text=args.text,
+            speaker=args.speaker,
+            language=args.language,
+            instruct=args.instruct if args.instruct is not None else "",
+        ))
+    else:
+        results = list(model.generate(
+            text=args.text,
+            ref_audio=args.ref_audio,
+            ref_text=args.ref_text,
+            lang_code=args.language,
+            verbose=False,
+        ))
     if not results:
         raise RuntimeError("No audio generated")
     audio = np.concatenate([

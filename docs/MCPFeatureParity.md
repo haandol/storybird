@@ -18,10 +18,10 @@ Every name below is advertised in its stated profile. Read IDs and the current `
 
 ### Connection profiles
 
-The default `legacy` profile preserves the 71 operation-specific tools below.
-Launch with `--tool-profile compact` to advertise 53 tools for the same actions.
+The default `legacy` profile preserves the 72 operation-specific tools below.
+Launch with `--tool-profile compact` to advertise 54 tools for the same actions.
 The selected list is fixed for that connection. Compact replaces 27 names with
-the following nine tools; the other 44 tools retain their schemas and handlers.
+the following nine tools; the other 45 tools are shared by both profiles.
 There are no hidden aliases or batch edits.
 
 | Compact tool | Selector and matching legacy actions | Shared implementation and evidence |
@@ -33,7 +33,7 @@ There are no hidden aliases or batch edits.
 | `storybird_insert_card` | `kind`: title, cta | Existing card insertion rules and linked timing |
 | `storybird_edit_effect` | `action`: update, delete | Existing effect validation and card reconciliation |
 | `storybird_edit_suggestion` | `action`: update, apply, reject | Existing suggestion commands; update/reject preserve output revision |
-| `storybird_edit_audio_layer` | `action`: update, split, duplicate, delete | Existing audio commands; delete also covers narration deletion using `layer_id`; text regeneration remains separate |
+| `storybird_edit_audio_layer` | `action`: update, split, duplicate, delete | Existing audio commands; delete also covers narration deletion using `layer_id`; text/speaker/instruction regeneration remains separate |
 | `storybird_edit_history` | `action`: undo, redo | Existing app history and revision validation |
 
 All nine require `project_id`, `expected_revision`, their selector, and `input`.
@@ -41,8 +41,9 @@ All nine require `project_id`, `expected_revision`, their selector, and `input`.
 input is explicit `{}`. Required fields, units, optional-field behavior, and return
 values come from the corresponding legacy command. The companion rejects invalid
 branch input before IPC, including the app's positive spotlight width/height rule
-for creation, effect updates and nested suggestion patches. Legacy schemas stay
-unchanged. App-owned validation, atomic writes and undo still apply.
+for creation, effect updates and nested suggestion patches. Grouping preserves
+the corresponding legacy operation's schema. App-owned validation, atomic writes
+and undo still apply.
 `MCPCompactToolTests`, the profile coverage in `MCPFeatureParityTests`, and both
 profiles of `AuthoringMCPProtocolTests`/`MCPAudioProtocolTests` cover these paths.
 
@@ -66,8 +67,12 @@ profiles of `AuthoringMCPProtocolTests`/`MCPAudioProtocolTests` cover these path
 | Add spotlight and pan/zoom | `storybird_create_spotlight`, `storybird_create_pan_zoom` | Agent project editor and content anchoring; core effect tests, `AgentProductionTests` |
 | Insert title/CTA; edit/delete effects and card text/style | `storybird_insert_title`, `storybird_insert_cta`, `storybird_update_effect`, `storybird_delete_effect` | Shared card reconciliation/effect validation; `AgentProductionTests`, `MCPFeatureParityTests` |
 | Inspect/edit/apply/reject generated click suggestions | `storybird_get_edit_context`, `storybird_update_suggestion`, `storybird_apply_suggestion`, `storybird_reject_suggestion` | Shared suggestion editor; `MCPFeatureParityTests`, `AgentProductionTests` |
-| Pick an existing voice profile; generate/edit/delete narration | `storybird_list_voice_profiles`, `storybird_generate_narration`, `storybird_update_narration`, `storybird_delete_narration` | App-owned local synthesis; `AppStoreTests`, `AgentProductionTests`, `MCPAudioProtocolTests` |
-| Inspect, select and prepare a voice model | `storybird_list_voice_models`, `storybird_get_voice_model`, `storybird_select_voice_model`, `storybird_prepare_voice_model` | App-owned persistent selection and per-model async preparation; `model_id`; no extra approval, no project revision/undo change; `VoiceModelTests`, `MCPVoiceModelProtocolTests` |
+| Pick an existing voice profile; generate/edit/delete cloned narration | `storybird_list_voice_profiles`, `storybird_generate_narration`, `storybird_update_narration`, `storybird_delete_narration` | Clone my voice → app host → Base synthesis with a consented `voice_profile_id`; reject `speaker`/`instruct`, including empty instructions. App-owned local synthesis; `AppStoreTests`, `AgentProductionTests`, `MCPAudioProtocolTests` |
+| Generate CustomVoice speech without a profile | `storybird_start_narration_draft`, `storybird_generate_narration`; speakers via `storybird_list_voice_models` | Built-in voice + speaker + optional instructions → app host → shared input validation → local CustomVoice runtime → persisted draft/asset/layer `customVoice` metadata. MCP requires `speaker`, accepts optional `instruct`, and omits `voice_profile_id`; mixed or missing sources fail without saving. |
+| Change a CustomVoice speaker or instructions in the editing sheet or inspector | `storybird_update_narration` (`project_id`, `expected_revision`, `narration_id`, optional `speaker`, `instruct`) | Both controls → app host → existing CustomVoice layer validation → local regeneration → atomic save and undo. Instruction-only changes retain text/language; empty `instruct` clears instructions. Reject use on cloned/imported layers; stale revision, synthesis/save failure preserve prior audio/settings. |
+| Preserve generation settings when placing/reusing/splitting/duplicating audio, copying a project or undoing/reopening | Existing draft placement, audio asset placement, audio split/duplicate, project duplicate, history and read tools | App-owned draft/asset/layer metadata and shared audio editor retain `customVoice` speaker/instructions with text/language, or the cloned profile. `CustomVoiceMetadataTests` provides synthetic metadata regression coverage; this inventory does not assert real synthesis verification. |
+| Inspect, select, install and remove a voice model | `storybird_list_voice_models`, `storybird_get_voice_model`, `storybird_select_voice_model`, `storybird_prepare_voice_model`, `storybird_remove_voice_model` | Settings Install Model / Remove Model buttons → app host → shared model commands → model-owned runtime files; required `model_id`; poll preparing/removing to ready/not_prepared/failed; busy guard, repeated removal, failure/retry; no extra approval or project revision/undo change; preserve selection, other models, profiles and audio; `VoiceModelTests`, `MCPVoiceModelProtocolTests` |
+| Inspect supported generation models and clean up retained 0.6B files | `storybird_list_voice_models`, `storybird_get_voice_model`, `storybird_remove_voice_model` | Snapshots expose boolean `supports_generation` and speaker ID array `speakers`. Base/CustomVoice 1.7B 8-bit support generation; legacy 0.6B does not. Stored legacy selection migrates to Base; retained files appear for cleanup without automatic deletion. Reject new legacy selection/install/generation. |
 | Generate, list, inspect, cancel and place a reusable TTS draft | `storybird_start_narration_draft`, `storybird_list_narration_drafts`, `storybird_get_narration_draft`, `storybird_cancel_narration_draft`, `storybird_place_narration_draft` | Persisted draft lifecycle; `AgentProductionTests`, `MCPAudioProtocolTests` |
 | List audio cards/assets and place them at a chosen time | `storybird_list_audio_assets`, `storybird_place_audio_asset` | App-owned assets and shared audio editor; `ProjectAudioTests`, `MCPAudioProtocolTests`, `TimelineAudioTests` |
 | Move, trim, rename, fade, gain-adjust, mute or scene-link audio | `storybird_update_audio_layer` | Shared `AudioLayerEditor`; `ProjectAudioTests`, `TimelineAudioTests`, `MCPAudioProtocolTests` |

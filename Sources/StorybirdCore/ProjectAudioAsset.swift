@@ -13,6 +13,7 @@ public struct ProjectAudioAsset: Codable, Identifiable, Hashable, Sendable {
     public var duration: Double
     public var origin: Origin
     public var voiceProfileID: UUID?
+    public var customVoice: CustomVoiceOptions?
     public var text: String
     public var language: String
 
@@ -21,7 +22,7 @@ public struct ProjectAudioAsset: Codable, Identifiable, Hashable, Sendable {
     public init(
         id: UUID = UUID(), filename: String, name: String, duration: Double,
         origin: Origin, voiceProfileID: UUID? = nil, text: String = "",
-        language: String = "korean"
+        language: String = "korean", customVoice: CustomVoiceOptions? = nil
     ) {
         self.id = id
         self.filename = filename
@@ -29,6 +30,7 @@ public struct ProjectAudioAsset: Codable, Identifiable, Hashable, Sendable {
         self.duration = duration
         self.origin = origin
         self.voiceProfileID = voiceProfileID
+        self.customVoice = customVoice
         self.text = text
         self.language = language
     }
@@ -42,8 +44,10 @@ extension DemoProject {
         for layer in narrations where !result.contains(where: { $0.filename == layer.filename }) {
             result.append(ProjectAudioAsset(
                 id: layer.assetID, filename: layer.filename, name: layer.name,
-                duration: layer.sourceDuration, origin: layer.voiceProfileID == nil ? .imported : .generated,
-                voiceProfileID: layer.voiceProfileID, text: layer.text, language: layer.language
+                duration: layer.sourceDuration,
+                origin: layer.voiceProfileID != nil || layer.customVoice != nil ? .generated : .imported,
+                voiceProfileID: layer.voiceProfileID, text: layer.text, language: layer.language,
+                customVoice: layer.customVoice
             ))
         }
         return result

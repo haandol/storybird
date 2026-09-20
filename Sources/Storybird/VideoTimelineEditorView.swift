@@ -752,7 +752,7 @@ struct VideoTimelineEditorView: View {
                         selection = .narration(layer.id)
                     },
                     onEditText: {
-                        if layer.voiceProfileID != nil { editingNarration = layer }
+                        if layer.voiceProfileID != nil || layer.customVoice != nil { editingNarration = layer }
                         else { isInspectorPresented = true }
                     },
                     onBegin: { dragRows = timelineRows; playback.player.pause() },
@@ -1131,7 +1131,7 @@ struct VideoTimelineEditorView: View {
                         do { project = try AudioLayerEditor.duplicate(layerID: project.narrations[index].id, in: project) }
                         catch { store.errorMessage = error.localizedDescription }
                     },
-                    onRegenerate: { replacementText, replacementLanguage in
+                    onRegenerate: { replacementText, replacementLanguage, customVoice in
                         let narrationID = project.narrations[index].id
                         let expectedRevision = project.revision
                         do {
@@ -1140,7 +1140,8 @@ struct VideoTimelineEditorView: View {
                                 narrationID: narrationID,
                                 expectedRevision: expectedRevision,
                                 text: replacementText,
-                                language: replacementLanguage
+                                language: replacementLanguage,
+                                speaker: customVoice?.speaker, instruct: customVoice?.instruct
                             )
                         } catch {
                             store.errorMessage = error.localizedDescription

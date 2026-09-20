@@ -11,12 +11,28 @@ struct TimelineAudioPanel: View {
     let playhead: Double
     var onListen: () -> Void = {}
     @State private var profileID: UUID?
+    @State private var useCustomVoice = false
+    @State private var speaker: CustomVoiceSpeaker = .sohee
+    @State private var instruct = ""
     @State private var text = ""
     @State private var language: VoiceLanguage = .korean
     @State private var showGenerator = false
     @State private var showRecorder = false
     @State private var isImporting = false
     @State private var errorMessage: String?
+
+    /// Allows callers to reveal a generation mode initially, including isolated
+    /// documentation renders; normal panels begin with generation collapsed.
+    init(
+        store: AppStore, model: TimelineAudioModel, audition: AudioAuditionPlayer,
+        projectID: UUID, playhead: Double, onListen: @escaping () -> Void = {},
+        showGenerator: Bool = false, useCustomVoice: Bool = false
+    ) {
+        self.store = store; self.model = model; self.audition = audition
+        self.projectID = projectID; self.playhead = playhead; self.onListen = onListen
+        _showGenerator = State(initialValue: showGenerator)
+        _useCustomVoice = State(initialValue: useCustomVoice)
+    }
 
     var body: some View {
         ScrollView {
@@ -73,9 +89,18 @@ struct TimelineAudioPanel: View {
 
     private var generator: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Picker("Voice", selection: $profileID) {
-                Text("Choose a voice").tag(UUID?.none)
-                ForEach(store.voiceProfiles) { Text($0.name).tag(Optional($0.id)) }
+            Picker("Voice source", selection: $useCustomVoice) {
+                Text("Clone my voice").tag(false)
+                Text("Built-in voice").tag(true)
+            }
+            .pickerStyle(.segmented)
+            if useCustomVoice {
+                CustomVoiceControls(speaker: $speaker, instruct: $instruct)
+            } else {
+                Picker("Voice profile", selection: $profileID) {
+                    Text("Choose a voice profile").tag(UUID?.none)
+                    ForEach(store.voiceProfiles) { Text($0.name).tag(Optional($0.id)) }
+                }
             }
             Picker("Language", selection: $language) {
                 ForEach(VoiceLanguage.allCases, id: \.self) { Text($0.displayName).tag($0) }
@@ -84,22 +109,25 @@ struct TimelineAudioPanel: View {
                 .lineLimit(3...6)
                 .textFieldStyle(.roundedBorder)
             Button("Generate audio") {
-                guard let profileID else { return }
                 do {
                     _ = try store.startNarrationDraft(
-                        projectID: projectID, voiceProfileID: profileID, text: text, language: language.rawValue
+                        projectID: projectID, voiceProfileID: useCustomVoice ? nil : profileID,
+                        text: text, language: language.rawValue,
+                        customVoice: useCustomVoice ? CustomVoiceOptions(speaker: speaker, instruct: instruct) : nil
                     )
                     text = ""
                     errorMessage = nil
                 } catch { errorMessage = error.localizedDescription }
             }
-            .disabled(profileID == nil || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                || store.voiceRuntimeState != .ready)
-            if store.voiceRuntimeState != .ready {
-                Text("Prepare the voice model in Settings first.").font(.caption).foregroundStyle(.secondary)
+            .disabled((!useCustomVoice && profileID == nil) || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || store.voiceModelStates[generationModel] != .ready || store.isVoiceModelBusy)
+            if store.voiceModelStates[generationModel] != .ready {
+                Text("Install \(generationModel.displayName) in Voice settings first.").font(.caption).foregroundStyle(.secondary)
             }
         }
     }
+
+    private var generationModel: VoiceModel { useCustomVoice ? .customVoice1_7B : .base1_7B }
 
     /// A ready card shows the real waveform and supports both dragging and
     /// playhead placement through the same revision-checked operation.

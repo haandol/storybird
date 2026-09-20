@@ -52,7 +52,7 @@ struct TimelineAudioToolbar: View {
                 .accessibilityLabel("Audio volume")
                 .accessibilityIdentifier("audio-volume")
                 Text(volume, format: .percent.precision(.fractionLength(0))).monospacedDigit().font(.caption)
-                if layer.voiceProfileID != nil {
+                if layer.voiceProfileID != nil || layer.customVoice != nil {
                     Button("Edit speech", action: onEditText)
                 }
                 Button(action: onInspector) { Label("Details", systemImage: "slider.horizontal.3") }
@@ -108,7 +108,7 @@ struct TimelineAudioBlock: View {
             TimelineAudioActions(layer: layer, playhead: playhead) {
                 model.perform($0, layerID: layer.id, at: playhead, project: project, store: store)
             }
-            if layer.voiceProfileID != nil { Button("Edit speech", action: onEditText) }
+            if layer.voiceProfileID != nil || layer.customVoice != nil { Button("Edit speech", action: onEditText) }
         }
         .accessibilityIdentifier("timeline-layer-\(layer.id.uuidString)")
         .help("\(layer.name) · Drag to move · Drag edges to trim · Double-click to edit")
@@ -280,6 +280,8 @@ struct TimelineNarrationEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State private var text: String
     @State private var language: String
+    @State private var speaker: CustomVoiceSpeaker
+    @State private var instruct: String
     @State private var isWorking = false
     @State private var errorMessage: String?
 
@@ -288,6 +290,8 @@ struct TimelineNarrationEditor: View {
         self.store = store; self.projectID = projectID; self.layer = layer
         _text = State(initialValue: layer.text)
         _language = State(initialValue: layer.language)
+        _speaker = State(initialValue: layer.customVoice?.speaker ?? .sohee)
+        _instruct = State(initialValue: layer.customVoice?.instruct ?? "")
     }
 
     var body: some View {
@@ -297,6 +301,9 @@ struct TimelineNarrationEditor: View {
                 Picker("Language", selection: $language) {
                     ForEach(VoiceLanguage.allCases, id: \.self) { Text($0.displayName).tag($0.rawValue) }
                     if VoiceLanguage(rawValue: language) == nil { Text(language).tag(language) }
+                }
+                if layer.customVoice != nil {
+                    CustomVoiceControls(speaker: $speaker, instruct: $instruct)
                 }
                 Text("Only this audio layer is replaced after successful generation.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -314,7 +321,7 @@ struct TimelineNarrationEditor: View {
                 }
             }
         }
-        .frame(width: 440, height: 360)
+        .frame(width: 440, height: layer.customVoice == nil ? 360 : 520)
         .interactiveDismissDisabled(isWorking)
     }
 
@@ -327,7 +334,9 @@ struct TimelineNarrationEditor: View {
             defer { isWorking = false }
             do {
                 _ = try await store.updateNarration(projectID: projectID, narrationID: layer.id,
-                    expectedRevision: current.revision, text: text, language: language)
+                    expectedRevision: current.revision, text: text, language: language,
+                    speaker: layer.customVoice == nil ? nil : speaker,
+                    instruct: layer.customVoice == nil ? nil : instruct)
                 dismiss()
             } catch { errorMessage = error.localizedDescription }
         }

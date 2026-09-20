@@ -4,6 +4,20 @@ This document is the **major decision-change history** of the voice-narration ca
 Each ADR body describes only the current state, while the timeline of "what changed and
 why" accumulates here, newest first. Git preserves the individual diffs.
 
+## 2026-09-20 — 복제와 내장 화자 생성을 함께 지원한다
+
+- **Current ADR**: [local-cloned-voice-narration](./0001-local-cloned-voice-narration.md)
+- **Change type**: provider and requirement rule change
+- **What**: 0.6B Base 신규 지원을 제외하고 1.7B CustomVoice 8비트의 프로필 없는 생성과 UI/MCP 화자·지시어 제어를 제공한다. 기존 0.6B 선택은 1.7B Base로 전환하고 파일 정리 경로를 유지한다.
+- **Why**: 사용자가 자기 목소리를 복제하거나 프로필 없이 내장 목소리로 바로 생성하고, 같은 조건으로 원고를 재생성할 수 있어야 한다.
+
+## 2026-09-20 — UI와 MCP에서 모델을 설치·제거한다
+
+- **Current ADR**: [local-cloned-voice-narration](./0001-local-cloned-voice-narration.md)
+- **Change type**: requirement rule change
+- **What**: 모델 준비만 제공 → 설정의 설치·제거 버튼과 인증된 MCP의 추가 승인 없는 모델 제거.
+- **Why**: 사용자가 모델별 저장 공간을 회수하고 다시 설치할 수 있어야 한다. 제거는 해당 모델에 한정하며 기존 음성과 프로젝트를 보존한다.
+
 ## 2026-09-11 — 두 8비트 모델과 무인 준비를 지원한다
 
 - **Current ADR**: [local-cloned-voice-narration](./0001-local-cloned-voice-narration.md)

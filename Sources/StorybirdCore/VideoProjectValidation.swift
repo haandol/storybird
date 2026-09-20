@@ -49,6 +49,14 @@ public enum VideoProjectValidator {
         var assetIDs = Set<UUID>()
         var assetFiles = Set<String>()
         for asset in project.audioAssets {
+            guard asset.customVoice == nil || (
+                asset.voiceProfileID == nil
+                    && !asset.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ) else {
+                throw VideoProjectValidationError.invalidNarration(
+                    asset.id, "A built-in speaker requires text and cannot be combined with a voice profile."
+                )
+            }
             guard assetIDs.insert(asset.id).inserted, assetFiles.insert(asset.filename).inserted,
                   isSimpleFilename(asset.filename), asset.filename.pathExtension.lowercased() == "wav",
                   asset.duration.isFinite, asset.duration > 0,
@@ -196,7 +204,9 @@ public enum VideoProjectValidator {
             guard layerIDs.insert(narration.id).inserted,
                   isSimpleFilename(narration.filename),
                   narration.filename.pathExtension.lowercased() == "wav",
-                  (narration.voiceProfileID == nil || !narration.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty),
+                  (narration.voiceProfileID == nil || narration.customVoice == nil),
+                  ((narration.voiceProfileID == nil && narration.customVoice == nil)
+                    || !narration.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty),
                   !narration.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                   narration.sourceStart.isFinite, narration.sourceStart >= 0,
                   narration.sourceDuration.isFinite, narration.sourceDuration > 0,

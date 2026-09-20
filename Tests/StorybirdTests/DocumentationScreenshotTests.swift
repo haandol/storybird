@@ -6,6 +6,66 @@ import XCTest
 
 @MainActor
 final class DocumentationScreenshotTests: XCTestCase {
+    func test_generateCustomVoiceScreenshots() async throws {
+        guard ProcessInfo.processInfo.environment["STORYBIRD_UPDATE_DOC_SCREENSHOTS"] == "1" else {
+            throw XCTSkip("Set STORYBIRD_UPDATE_DOC_SCREENSHOTS=1 to update CustomVoice screenshots.")
+        }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("customvoice-docs-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repository = ProjectRepository(rootURL: root)
+        let id = UUID()
+        let media = try repository.prepareVideoRecordingURL(projectID: id)
+        let video = try await TestVideoFactory.makeMovie(at: media.url, includeAudio: false, duration: 3)
+        let project = DemoProject(id: id, name: "Synthetic CustomVoice", recording: VideoRecordingAsset(
+            filename: media.filename, duration: video.duration, width: video.width, height: video.height))
+        try repository.saveProjects([project])
+        let store = AppStore(repository: repository, voiceService: DocumentationVoiceService())
+        await store.refreshVoiceRuntimeState()
+        try store.selectVoiceModel(.customVoice1_7B)
+        try await render(
+            VoiceStudioView(store: store, refreshRuntimeOnAppear: false, inputDevices: []),
+            size: CGSize(width: 680, height: 720),
+            to: imageDirectory.appendingPathComponent("custom-voice-settings.png"), hostedInWindow: true)
+        try await render(
+            TimelineAudioPanel(store: store, model: TimelineAudioModel(), audition: AudioAuditionPlayer(),
+                               projectID: id, playhead: 0, showGenerator: true, useCustomVoice: true),
+            size: CGSize(width: 440, height: 740),
+            to: imageDirectory.appendingPathComponent("custom-voice-generation.png"), hostedInWindow: true)
+        let layer = NarrationClip(filename: "synthetic.wav", text: "Welcome to the product tour.",
+                                  language: "english", startTime: 0, duration: 1,
+                                  customVoice: CustomVoiceOptions(speaker: .sohee, instruct: "Warm, calm narration with short pauses."))
+        try await render(
+            TimelineNarrationEditor(store: store, projectID: id, layer: layer),
+            size: CGSize(width: 440, height: 520),
+            to: imageDirectory.appendingPathComponent("custom-voice-editing.png"), hostedInWindow: true)
+    }
+
+    func test_generateVoiceModelSettingsScreenshots() async throws {
+        guard ProcessInfo.processInfo.environment["STORYBIRD_UPDATE_DOC_SCREENSHOTS"] == "1" else {
+            throw XCTSkip("Set STORYBIRD_UPDATE_DOC_SCREENSHOTS=1 to update voice model settings screenshots.")
+        }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("model-docs-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        for (filename, includeProfile) in [("voice-settings-app.png", false), ("voice-narration.png", true)] {
+            let repository = ProjectRepository(rootURL: root.appendingPathComponent(filename))
+            if includeProfile {
+                try repository.saveVoiceProfiles([VoiceProfile(
+                    name: "Demo narrator", referenceFilename: "reference.wav",
+                    referenceText: "Synthetic reference.", language: "english", consentConfirmed: true
+                )])
+            }
+            let store = AppStore(repository: repository, voiceService: DocumentationVoiceService())
+            await store.refreshVoiceRuntimeState()
+            try await render(
+                VoiceStudioView(store: store, refreshRuntimeOnAppear: false,
+                                inputDevices: [VoiceInputDevice(uid: "documentation-input", name: "Built-in Microphone")]),
+                size: CGSize(width: 680, height: 720),
+                to: imageDirectory.appendingPathComponent(filename),
+                hostedInWindow: true
+            )
+        }
+    }
+
     func test_generateVideoLoadingScreenshot() async throws {
         guard ProcessInfo.processInfo.environment["STORYBIRD_UPDATE_DOC_SCREENSHOTS"] == "1" else {
             throw XCTSkip("Set STORYBIRD_UPDATE_DOC_SCREENSHOTS=1 to update the video loading screenshot.")
@@ -43,7 +103,7 @@ final class DocumentationScreenshotTests: XCTestCase {
         let layer = project.narrations[0]
         try await render(
             NarrationLayerInspector(narration: .constant(layer), audition: audition, onListen: {},
-                                    onSplit: {}, onDuplicate: {}, onRegenerate: { _, _ in }, onDelete: {}),
+                                    onSplit: {}, onDuplicate: {}, onRegenerate: { _, _, _ in }, onDelete: {}),
             size: CGSize(width: 320, height: 670),
             to: imageDirectory.appendingPathComponent("audio-layer-preview.png"), hostedInWindow: true
         )

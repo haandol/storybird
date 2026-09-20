@@ -106,7 +106,7 @@ Each folder has a separate library. Open **Settings › General › Storage** an
 select the previous folder. **Use Default** selects `~/Documents/Storybird`.
 For projects saved at the previous default, select
 `~/Library/Application Support/Storybird`. Storybird does not move, delete, or merge projects
-when changing the folder. Shared voice profiles and the prepared model stay in
+when changing the folder. Shared voice profiles and prepared models stay in
 Application Support.
 
 ## The selected project folder is unavailable
@@ -167,10 +167,48 @@ name and observed result when reporting a stall.
 
 ## The local voice model is not ready
 
-Open **Settings › Voice** and choose **Prepare Model**. Storybird requires `uv`,
-installs a private MLX-Audio runtime, and downloads the Qwen3-TTS 1.7B Base
-8-bit model after confirmation. Check free disk space and network access. Once
-prepared, voice synthesis works offline.
+Open **Settings › Voice**, choose Qwen3-TTS 1.7B Base 8-bit for **Clone my voice**
+or 1.7B CustomVoice 8-bit for **Built-in voice**, then choose **Install Model**.
+Storybird requires `uv`, installs a private MLX-Audio runtime, and downloads the
+chosen model without another confirmation. Check free disk space and network
+access. Once prepared, voice synthesis works offline. Selection alone does not
+install a model, and another model's ready state does not prepare the one needed
+by your voice source.
+
+**Remove Model** removes only the selected model's app-owned runtime and downloads.
+Existing audio and profiles remain usable. Reinstall before generating new speech.
+If removal fails, read the status error and retry **Remove Model**; finish active
+voice work before changing models. An interrupted cleanup can also be retried
+after restart, even when the model shows **Not installed**.
+
+For MCP, call `storybird_prepare_voice_model` with the required `model_id` and
+poll `storybird_get_voice_model` until `ready` or `failed`. For removal, call
+`storybird_remove_voice_model` and poll through `removing` until `not_prepared`
+or `failed`. Model removal retains selection, other models, ready drafts,
+completed audio and project history.
+
+### The old 0.6B model is unavailable
+
+0.6B Base is retired for new selection, installation and generation. Stored
+selections migrate to 1.7B Base; existing files are not automatically deleted.
+Retained files appear only for cleanup in Settings and MCP. Use the legacy ID
+`qwen3-tts-0.6b-base-8bit` with the status/removal tools, not selection/preparation.
+Its snapshot has `supports_generation: false`.
+
+### Built-in speech asks for a profile or rejects instructions
+
+Choose **Built-in voice**, install CustomVoice, then select a speaker and enter
+optional instructions. A profile, reference recording and microphone access are
+not required. In MCP, use a speaker ID from the model snapshot's `speakers` array,
+such as `sohee`, and omit `voice_profile_id` entirely. Clone requests must omit
+both `speaker` and `instruct`, even when instructions would be empty.
+
+For an existing CustomVoice layer, both the editing sheet and inspector allow
+speaker/instruction changes. MCP uses `storybird_update_narration` with the current
+revision and narration ID. An instruction-only update keeps text and language;
+`instruct: ""` clears instructions. These fields cannot convert a clone or imported
+audio layer to CustomVoice. A rejected or failed update preserves previous audio
+and settings; read the current revision before retrying a revision conflict.
 
 ## The guided recording uses the wrong microphone
 
@@ -239,9 +277,11 @@ If the connection works but an action is missing, check the
 recording, voice-profile management, project-folder selection and shortcut Settings
 require native interaction. Recording auto-approval is available in both General
 Settings and MCP.
-Model list/status, selection and preparation are available through MCP. Query
-the selected model's state and prepare it if needed; neither another model's
-ready state nor an existing profile means the selected model is prepared.
+Model list/status, selection, installation and removal are available through MCP.
+Query and prepare the model required by the voice source: Base for a profile,
+CustomVoice for a built-in speaker. Neither another model's ready state nor an
+existing profile means the required model is prepared. `supports_generation: true`
+describes model support; check `state` separately for readiness.
 After installing a build with new tools, restart Storybird and reconnect the
 MCP client to refresh discovery. A missing project-editing action should be
 reported with the app version, tool name and expected property.
@@ -344,7 +384,8 @@ Audio overlap is allowed.
 
 Interrupted draft jobs are marked failed and do not automatically run again.
 Create a new draft explicitly. Ready drafts are retained. Check the native Voice
-Settings if the model is not prepared; MCP cannot install the model or register
+Settings if the model is not installed, or use `storybird_prepare_voice_model`
+and poll `storybird_get_voice_model` until ready or failed. MCP cannot register
 a voice profile.
 
 ## Audio layers and TTS production

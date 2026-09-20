@@ -56,7 +56,7 @@ final class MCPInitializationTests: XCTestCase {
             let tools = try XCTUnwrap(toolsResult["tools"] as? [[String: Any]])
             XCTAssertEqual(Set(tools.compactMap { $0["name"] as? String }),
                            Set(StorybirdMCPService.toolDefinitions(for: profile).map(\.name)))
-            XCTAssertEqual(tools.count, profile == .legacy ? 71 : 53)
+            XCTAssertEqual(tools.count, profile == .legacy ? 72 : 54)
             try await pair.client.send(Data(#"{"jsonrpc":"2.0","id":3,"method":"initialize","params":{}}"#.utf8))
             let repeatedInitialization = try await responses.next()
             XCTAssertNotNil(try decode(XCTUnwrap(repeatedInitialization))["error"],

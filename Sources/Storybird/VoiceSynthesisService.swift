@@ -77,7 +77,32 @@ protocol VoiceSynthesisProviding: Sendable {
     ) async throws -> VoiceSynthesisResult
 }
 
-actor VoiceSynthesisService: VoiceSynthesisProviding {
+protocol VoiceModelRemoving: VoiceSynthesisProviding {
+    /// Includes incomplete installs and interrupted cleanup, not just ready models.
+    func hasInstalledFiles() async -> Bool
+    /// Removes only this model's owned runtime/downloads, or throws for retry.
+    func remove() async throws
+}
+
+extension VoiceModelRemoving {
+    /// Minimal providers without filesystem state use readiness as their
+    /// installed-file approximation; the real runtime overrides this query.
+    func hasInstalledFiles() async -> Bool { await prepared() }
+}
+
+protocol CustomVoiceSynthesisProviding: VoiceSynthesisProviding {
+    /// Writes one complete local WAV from a built-in speaker and optional style
+    /// instructions, without requiring or accessing a voice profile.
+    func generateCustomVoice(
+        text: String,
+        speaker: String,
+        instruct: String,
+        language: String,
+        outputURL: URL
+    ) async throws -> VoiceSynthesisResult
+}
+
+actor VoiceSynthesisService: CustomVoiceSynthesisProviding, VoiceModelRemoving {
     static let modelID = VoiceModel.base1_7B.repositoryID
 
     private let rootURL: URL
@@ -91,7 +116,7 @@ actor VoiceSynthesisService: VoiceSynthesisProviding {
     }
 
     var isPrepared: Bool {
-        FileManager.default.isExecutableFile(
+        model.isSupported && FileManager.default.isExecutableFile(
             atPath: pythonURL.path
         ) && (try? String(contentsOf: modelMarkerURL, encoding: .utf8))
             == model.repositoryID
@@ -101,9 +126,57 @@ actor VoiceSynthesisService: VoiceSynthesisProviding {
     /// the studio never initiates a model-provider request.
     func prepared() -> Bool { isPrepared }
 
+    /// Includes incomplete installs and interrupted removals, even when a
+    /// dangling symlink makes fileExists report false.
+    func hasInstalledFiles() async -> Bool {
+        Self.itemExists(at: runtimeRootURL) ||
+            Self.itemExists(at: Self.removalURL(for: runtimeRootURL))
+    }
+
+    /// Detaches the runtime before deleting its files so an interrupted cleanup
+    /// can never leave a partially removed installation reporting ready.
+    /// The fixed cleanup location also lets a later remove request retry it.
+    func remove() throws {
+        guard Self.workerSlot.acquireIfAvailable() else {
+            throw VoiceSynthesisError.processFailed("Finish the active voice operation before removing a model.")
+        }
+        defer { Self.workerSlot.release() }
+        try Self.removeRuntime(at: runtimeRootURL)
+    }
+
+    /// File operations are injectable for deterministic cleanup-failure tests.
+    static func removeRuntime(at active: URL, files: FileManager = .default) throws {
+        let removed = removalURL(for: active)
+        if itemExists(at: removed, files: files) {
+            try files.removeItem(at: removed)
+        }
+        if itemExists(at: active, files: files) {
+            try files.moveItem(at: active, to: removed)
+            try files.removeItem(at: removed)
+        }
+    }
+
+    /// A deterministic sibling makes interrupted cleanup discoverable on restart.
+    private static func removalURL(for active: URL) -> URL {
+        active.deletingLastPathComponent().appendingPathComponent(
+            "\(active.lastPathComponent).removing", isDirectory: true
+        )
+    }
+
+    /// Includes dangling links when normal existence checks cannot resolve them.
+    private static func itemExists(at url: URL, files: FileManager = .default) -> Bool {
+        files.fileExists(atPath: url.path) ||
+            (try? files.destinationOfSymbolicLink(atPath: url.path)) != nil
+    }
+
     /// Prepares the requested model from either UI or MCP, staging all files
     /// before replacing only that model's last complete installation.
     func prepare() async throws {
+        guard model.isSupported else {
+            throw VoiceSynthesisError.processFailed(
+                "The legacy 0.6B model can only be removed, not prepared."
+            )
+        }
         try await acquireWorker()
         defer { Self.workerSlot.release() }
         guard let uv = Self.executable(named: "uv") else {
@@ -170,6 +243,55 @@ actor VoiceSynthesisService: VoiceSynthesisProviding {
         language: String,
         outputURL: URL
     ) async throws -> VoiceSynthesisResult {
+        guard model == .base1_7B else {
+            throw VoiceSynthesisError.processFailed(
+                "Voice cloning requires the 1.7B Base model."
+            )
+        }
+        return try await generateAudio(
+            text: text,
+            voiceArguments: [
+                "--ref-audio", referenceAudioURL.path,
+                "--ref-text", referenceText,
+            ],
+            language: language,
+            outputURL: outputURL
+        )
+    }
+
+    /// Uses a built-in speaker without reading a voice profile or reference.
+    func generateCustomVoice(
+        text: String,
+        speaker: String,
+        instruct: String,
+        language: String,
+        outputURL: URL
+    ) async throws -> VoiceSynthesisResult {
+        guard model == .customVoice1_7B else {
+            throw VoiceSynthesisError.processFailed(
+                "Built-in speakers require the 1.7B CustomVoice model."
+            )
+        }
+        guard CustomVoiceSpeaker.allCases.contains(where: {
+            $0.rawValue.caseInsensitiveCompare(speaker) == .orderedSame
+        }) else {
+            throw VoiceSynthesisError.processFailed("Unknown CustomVoice speaker.")
+        }
+        return try await generateAudio(
+            text: text,
+            voiceArguments: ["--speaker", speaker, "--instruct", instruct],
+            language: language,
+            outputURL: outputURL
+        )
+    }
+
+    /// Both modes share serialization, offline execution and result parsing.
+    private func generateAudio(
+        text: String,
+        voiceArguments: [String],
+        language: String,
+        outputURL: URL
+    ) async throws -> VoiceSynthesisResult {
         try await acquireWorker()
         defer { Self.workerSlot.release() }
         guard isPrepared else {
@@ -188,11 +310,9 @@ actor VoiceSynthesisService: VoiceSynthesisProviding {
                 "generate",
                 "--model", model.repositoryID,
                 "--text", text,
-                "--ref-audio", referenceAudioURL.path,
-                "--ref-text", referenceText,
                 "--language", language,
                 "--output", outputURL.path,
-            ],
+            ] + voiceArguments,
             environment: environment
         )
         let outputText = String(decoding: data, as: UTF8.self)

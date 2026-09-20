@@ -17,7 +17,8 @@ public enum AudioLayerEditor {
             text: asset.text, language: asset.language, startTime: startTime,
             duration: duration ?? (asset.duration - sourceStart),
             sceneAnchor: timingMode == .scene ? try SceneTiming.anchor(at: startTime, in: project) : nil,
-            assetID: asset.id, name: asset.name, sourceStart: sourceStart, sourceDuration: asset.duration
+            assetID: asset.id, name: asset.name, sourceStart: sourceStart, sourceDuration: asset.duration,
+            customVoice: asset.customVoice
         ))
         try VideoProjectValidator.validate(result)
         return result

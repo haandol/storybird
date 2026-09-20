@@ -227,6 +227,7 @@ public struct VoiceProfile: Codable, Identifiable, Hashable, Sendable {
 public struct NarrationClip: Codable, Identifiable, Hashable, Sendable {
     public var id: UUID
     public var voiceProfileID: UUID?
+    public var customVoice: CustomVoiceOptions?
     public var filename: String
     public var text: String
     public var language: String
@@ -244,7 +245,7 @@ public struct NarrationClip: Codable, Identifiable, Hashable, Sendable {
     public var fadeEnvelope: AudioFadeEnvelope?
 
     /// Creates one project-time narration layer that references a complete
-    /// project-owned WAV and retains the profile identity used to generate it.
+    /// project-owned WAV and retains the voice settings used to generate it.
     public init(
         id: UUID = UUID(),
         voiceProfileID: UUID? = nil,
@@ -257,10 +258,12 @@ public struct NarrationClip: Codable, Identifiable, Hashable, Sendable {
         sceneAnchor: LayerSceneAnchor? = nil,
         assetID: UUID? = nil, name: String? = nil, sourceStart: Double = 0,
         sourceDuration: Double? = nil, isMuted: Bool = false,
-        fadeIn: Double = 0, fadeOut: Double = 0
+        fadeIn: Double = 0, fadeOut: Double = 0,
+        customVoice: CustomVoiceOptions? = nil
     ) {
         self.id = id
         self.voiceProfileID = voiceProfileID
+        self.customVoice = customVoice
         self.filename = filename
         self.text = text
         self.language = language
@@ -279,7 +282,7 @@ public struct NarrationClip: Codable, Identifiable, Hashable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, voiceProfileID, filename, text, language, startTime, duration, volume, sceneAnchor
+        case id, voiceProfileID, customVoice, filename, text, language, startTime, duration, volume, sceneAnchor
         case assetID, name, sourceStart, sourceDuration, isMuted, fadeIn, fadeOut, fadeEnvelope
     }
 
@@ -288,6 +291,7 @@ public struct NarrationClip: Codable, Identifiable, Hashable, Sendable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
         voiceProfileID = try c.decodeIfPresent(UUID.self, forKey: .voiceProfileID)
+        customVoice = try c.decodeIfPresent(CustomVoiceOptions.self, forKey: .customVoice)
         filename = try c.decode(String.self, forKey: .filename)
         text = try c.decode(String.self, forKey: .text)
         language = try c.decodeIfPresent(String.self, forKey: .language) ?? "korean"

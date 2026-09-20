@@ -37,6 +37,19 @@ struct VoiceStudioView: View {
             profilesSection
             inputDeviceSection
             runtimeSection
+            if store.hasLegacyVoiceModelFiles {
+                Section("Retired model") {
+                    Text("The 0.6B Base model is no longer used for speech generation.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    if let error = store.voiceModelSnapshot(.base0_6B).error {
+                        Text(error).font(.caption).foregroundStyle(.red)
+                    }
+                    Button("Remove 0.6B Model", role: .destructive) {
+                        Task { await store.removeVoiceRuntime(model: .base0_6B) }
+                    }
+                    .disabled(store.isVoiceModelBusy || isWorking)
+                }
+            }
         }
         .formStyle(.grouped)
         .sheet(isPresented: $isCreationPresented) {
@@ -91,20 +104,35 @@ struct VoiceStudioView: View {
                 }
             }
             .disabled(store.isVoiceModelBusy)
+            Text(store.selectedVoiceModel == .customVoice1_7B
+                 ? "Built-in voices with optional speaking instructions. No voice profile is needed."
+                 : "Clone a voice using a profile created in Voice settings.")
+                .font(.caption).foregroundStyle(.secondary)
             LabeledContent("Status") {
                 Text(runtimeStatus)
             }
-            Text("Estimated model download: \(ByteCountFormatter.string(fromByteCount: store.selectedVoiceModel.estimatedDownloadBytes, countStyle: .file)). Both models stay available after preparation. Speech generation stays on this Mac.")
+            Text("Estimated model download: \(ByteCountFormatter.string(fromByteCount: store.selectedVoiceModel.estimatedDownloadBytes, countStyle: .file)). Removing a model keeps voice profiles and generated audio. Install it again to generate new speech. Speech generation stays on this Mac.")
                 .font(.caption).foregroundStyle(.secondary)
-            Button("Prepare Model") {
-                let model = store.selectedVoiceModel
-                isWorking = true
-                Task {
-                    await store.prepareVoiceRuntime(model: model)
-                    isWorking = false
+            HStack {
+                Button("Install Model") {
+                    let model = store.selectedVoiceModel
+                    isWorking = true
+                    Task {
+                        await store.prepareVoiceRuntime(model: model)
+                        isWorking = false
+                    }
                 }
+                .disabled(isWorking || store.isVoiceModelBusy || store.voiceRuntimeState == .ready)
+                Button("Remove Model", role: .destructive) {
+                    let model = store.selectedVoiceModel
+                    isWorking = true
+                    Task {
+                        await store.removeVoiceRuntime(model: model)
+                        isWorking = false
+                    }
+                }
+                .disabled(isWorking || store.isVoiceModelBusy)
             }
-            .disabled(isWorking || store.isVoiceModelBusy || store.voiceRuntimeState == .ready)
         }
     }
 
@@ -199,8 +227,9 @@ struct VoiceStudioView: View {
 
     private var runtimeStatus: String {
         switch store.voiceRuntimeState {
-        case .notPrepared: "Not prepared"
-        case .preparing: "Preparing…"
+        case .notPrepared: "Not installed"
+        case .preparing: "Installing…"
+        case .removing: "Removing…"
         case .ready: "Ready"
         case let .failed(message): "Failed: \(message)"
         }

@@ -6,6 +6,21 @@ import XCTest
 
 @MainActor
 final class MCPFeatureParityTests: XCTestCase {
+    func test_customVoiceSchemas_exposeSpeakerAndInstructionsInBothProfiles() throws {
+        for profile in StorybirdMCPToolProfile.allCases {
+            let tools = StorybirdMCPService.toolDefinitions(for: profile)
+            for name in ["storybird_start_narration_draft", "storybird_generate_narration", "storybird_update_narration"] {
+                let tool = try XCTUnwrap(tools.first { $0.name == name })
+                let schema = try XCTUnwrap(tool.inputSchema.objectValue)
+                let properties = try XCTUnwrap(schema["properties"]?.objectValue)
+                XCTAssertEqual(properties["instruct"]?.objectValue?["type"]?.stringValue, "string")
+                XCTAssertEqual(properties["speaker"]?.objectValue?["enum"]?.arrayValue?.compactMap(\.stringValue),
+                               CustomVoiceSpeaker.allCases.map(\.rawValue))
+                XCTAssertFalse(schema["required"]?.arrayValue?.contains(.string("voice_profile_id")) ?? false)
+            }
+        }
+    }
+
     func test_audioPreview_exposesOptionalSoloLayerWithoutChangingRangeContract() throws {
         let schema = try schemaObject(for: "storybird_render_audio_preview")
         XCTAssertEqual(Set(schema["required"] as? [String] ?? []), ["project_id", "start_time", "duration"])
@@ -61,6 +76,7 @@ final class MCPFeatureParityTests: XCTestCase {
         XCTAssertTrue(names.contains("storybird_get_voice_model"))
         XCTAssertTrue(names.contains("storybird_select_voice_model"))
         XCTAssertTrue(names.contains("storybird_prepare_voice_model"))
+        XCTAssertTrue(names.contains("storybird_remove_voice_model"))
         XCTAssertFalse(names.contains("storybird_rename_voice_profile"))
         XCTAssertTrue(names.contains("storybird_import_video"))
         XCTAssertTrue(names.contains("storybird_import_audio"))
@@ -142,7 +158,7 @@ final class MCPFeatureParityTests: XCTestCase {
             "storybird_render_audio_preview", "storybird_start_export",
             "storybird_cancel_export", "storybird_export_project", "storybird_delete_project",
             "storybird_import_video", "storybird_import_audio", "storybird_cancel_import",
-            "storybird_select_voice_model", "storybird_prepare_voice_model",
+            "storybird_select_voice_model", "storybird_prepare_voice_model", "storybird_remove_voice_model",
             "storybird_set_recording_auto_approval",
         ]
         let tools = StorybirdMCPService.toolDefinitions

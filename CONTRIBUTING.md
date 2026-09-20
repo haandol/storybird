@@ -376,6 +376,10 @@ STORYBIRD_UPDATE_DOC_SCREENSHOTS=1 \
 
 For General Settings alone, use the same environment variable with
 `DocumentationScreenshotTests/test_generateSyntheticRecordingSettingsScreenshot`.
+For the voice model installation/removal controls, use
+`DocumentationScreenshotTests/test_generateVoiceModelSettingsScreenshots`.
+For CustomVoice Settings, generation and instruction editing, use
+`DocumentationScreenshotTests/test_generateCustomVoiceScreenshots`.
 
 The harness writes `docs/images/welcome.png`, `docs/images/voice-narration.png`,
 `docs/images/voice-profile-creation.png`, `docs/images/storage-settings.png`, and

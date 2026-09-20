@@ -12,7 +12,12 @@ struct VoiceModelPreferences {
 
     /// Missing or unrecognized preferences retain the existing 1.7B default.
     var selected: VoiceModel {
-        defaults.string(forKey: key).flatMap(VoiceModel.init(rawValue:)) ?? .base1_7B
+        let stored = defaults.string(forKey: key).flatMap(VoiceModel.init(rawValue:)) ?? .base1_7B
+        guard stored.isSupported else {
+            save(.base1_7B)
+            return .base1_7B
+        }
+        return stored
     }
 
     /// Persists only a supported model after the store has checked busy state.
@@ -31,11 +36,15 @@ struct VoiceModelSnapshot: Codable, Equatable {
     let selected: Bool
     let state: String
     let error: String?
+    let supportsGeneration: Bool
+    let speakers: [String]
 
     enum CodingKeys: String, CodingKey {
         case id, name, selected, state, error
         case repositoryID = "repository_id"
         case quantizationBits = "quantization_bits"
         case estimatedDownloadBytes = "estimated_download_bytes"
+        case supportsGeneration = "supports_generation"
+        case speakers
     }
 }

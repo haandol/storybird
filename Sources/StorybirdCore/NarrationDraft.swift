@@ -6,7 +6,8 @@ public enum NarrationDraftState: String, Codable, Sendable {
 
 public struct NarrationDraft: Codable, Identifiable, Hashable, Sendable {
     public var id: UUID
-    public var voiceProfileID: UUID
+    public var voiceProfileID: UUID?
+    public var customVoice: CustomVoiceOptions?
     public var text: String
     public var language: String
     public var filename: String
@@ -18,6 +19,11 @@ public struct NarrationDraft: Codable, Identifiable, Hashable, Sendable {
     public static func validate(_ drafts: [NarrationDraft]) throws {
         var ids = Set<UUID>()
         for draft in drafts {
+            guard (draft.voiceProfileID != nil) != (draft.customVoice != nil) else {
+                throw VideoProjectValidationError.invalidNarration(
+                    draft.id, "Choose exactly one voice profile or built-in speaker."
+                )
+            }
             guard ids.insert(draft.id).inserted,
                   !draft.filename.contains("/"), !draft.filename.contains("\\"),
                   (draft.filename as NSString).pathExtension.lowercased() == "wav",
@@ -36,16 +42,18 @@ public struct NarrationDraft: Codable, Identifiable, Hashable, Sendable {
     /// sentence can survive a failed placement without changing the edited clock.
     public init(
         id: UUID = UUID(),
-        voiceProfileID: UUID,
+        voiceProfileID: UUID? = nil,
         text: String,
         language: String,
         filename: String,
         state: NarrationDraftState = .generating,
         duration: Double? = nil,
-        error: String? = nil
+        error: String? = nil,
+        customVoice: CustomVoiceOptions? = nil
     ) {
         self.id = id
         self.voiceProfileID = voiceProfileID
+        self.customVoice = customVoice
         self.text = text
         self.language = language
         self.filename = filename

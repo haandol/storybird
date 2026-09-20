@@ -13,7 +13,7 @@
 </div>
 
 Storybird records one display or window, keeps your clicks on the video timeline,
-and lets you add captions, zooms, titles, and narration in your own voice. You can
+and lets you add captions, zooms, titles, and narration in your own or a built-in voice. You can
 also start with an existing MP4 or MOV. The result is an editable project and a
 finished MP4 you can share.
 
@@ -76,7 +76,7 @@ project data and undo history unchanged.
 | **Explain each click** | Recorded left/right clicks become timed Cues with an indicator, description, and subtitle |
 | **Edit the picture** | Split, trim, reorder, change speed, insert freezes, and undo or redo edits |
 | **Direct attention** | Add spotlights, pan and zoom, opening titles, and a closing call to action |
-| **Use your voice** | Create a local voice profile and generate Korean or English narration, one sentence at a time |
+| **Generate narration** | Use a local voice profile or a built-in speaker with optional speaking instructions to generate Korean or English narration |
 | **Layer audio** | Import WAV/MP3/M4A through the UI or MCP, optionally record voice separately, and overlap, trim, split, duplicate, mute, and fade independent audio layers |
 | **Recover import jobs** | Query or cancel import jobs and recover recorded outcomes after a lost response or restart without creating duplicates |
 | **Listen before placing** | Keep ready narration drafts, check their actual duration, and place them without generating again |
@@ -89,13 +89,17 @@ project data and undo history unchanged.
 Recording and editing require **macOS 14 or later**. Building requires Xcode 26
 or a Swift 6.2+ toolchain.
 
-Local voice cloning uses **Apple Silicon with at least 24GB of unified memory**
+Local speech generation uses **Apple Silicon with at least 24GB of unified memory**
 as its supported proof-of-concept baseline. Install [`uv`](https://docs.astral.sh/uv/),
 leave several GB of free disk space, and prepare a model in Settings or through
-MCP. Choose Qwen3-TTS 1.7B Base 8-bit (default, approximately 3.1 GB) or
-0.6B Base 8-bit (approximately 2.0 GB). Preparation starts without another
+MCP. Choose Qwen3-TTS 1.7B Base 8-bit for voice cloning (default) or
+1.7B CustomVoice 8-bit for built-in speakers. Preparation starts without another
 approval; selection alone never downloads. Both models can stay installed, and
 subsequent synthesis runs offline.
+
+The retired 0.6B Base model cannot be selected, installed or used for new speech.
+A stored 0.6B selection migrates to 1.7B Base. Retained files are not deleted
+automatically; Settings and MCP expose them only for status and cleanup.
 
 | Permission | When Storybird uses it |
 |---|---|
@@ -205,12 +209,14 @@ The source video stays intact. **Undo** and **Redo** operate on the edits. Use
 
 ### 3. Create a voice profile once (optional)
 
-Use a profile when generating narration in a cloned voice. If you are using
+Use a profile when generating narration in a cloned voice. Built-in voices need
+no profile, reference audio or microphone recording. If you are using
 existing audio files, continue to the audio step below.
 
-Open **Settings › Voice** (`⌘,`). Prepare the local model and choose your default
-microphone here. The profile list contains preview, rename, and delete controls and a
-**Create Voice Profile…** button below it.
+Open **Settings › Voice** (`⌘,`). Choose **Qwen3-TTS 1.7B Base 8-bit** and click
+**Install Model**, then choose your default microphone here. The profile list
+contains preview, rename, and delete controls and a **Create Voice Profile…**
+button below it.
 
 Use the pencil beside an existing profile to change its name, then choose **Save**.
 The new name is shared across projects and survives restarting Storybird. Renaming
@@ -221,7 +227,7 @@ preserves the reference voice and existing narration. Blank names are rejected.
 </div>
 
 <div align="center">
-  <img src="docs/images/voice-settings-app.png" width="520" alt="The running Voice settings window: profile list and creation button, microphone selection, and local model status" />
+  <img src="docs/images/voice-settings-app.png" width="520" alt="Synthetic Voice settings window with profile controls, microphone selection, and local model installation controls" />
 </div>
 
 Click **Create Voice Profile…** to open its own window:
@@ -255,10 +261,16 @@ unavailable, the next recording uses the system default while preserving your ch
 
 Open **Audio** in the app toolbar or **Add Audio** above the timeline. The audio
 panel stays beside the timeline, or above it in a compact window. Expand
-**Generate speech**, choose an existing profile and Korean or English output,
-then enter a sentence. **Generate audio** creates a draft. When ready, **Listen**
-and check its duration, then drag its card onto an Audio row or use **Add** to
-place it at the current playhead.
+**Generate speech** and choose a voice source:
+
+- **Clone my voice** uses an existing consented profile and the 1.7B Base model.
+- **Built-in voice** uses the 1.7B CustomVoice model. Choose a speaker and optionally
+  enter instructions for speaking style, emotion or pace. No profile is required.
+
+Install the matching model in **Settings › Voice** before generation. Choose Korean
+or English output and enter a sentence. **Generate audio** creates a draft. When
+ready, **Listen** and check its duration, then drag its card onto an Audio row or
+use **Add** to place it at the current playhead.
 
 <div align="center">
   <img src="docs/images/narration-drafts.png" width="560" alt="Audio panel with a synthetic ready speech card, waveform, duration, and Listen/Add controls" />
@@ -286,9 +298,15 @@ edit the picture or time and reuse the ready draft.
 Ready drafts survive restarting the app.
 
 To change one sentence, double-click its block, edit the text, and choose **Regenerate**.
-Other sentences keep their existing audio. A profile can use a Korean reference
-to generate English output. Listen to a short sample with your service name,
-numbers, and mixed-language phrases before producing a longer video.
+For built-in speech, both the editing sheet and the inspector expose speaker and
+instruction controls. Changing only instructions keeps the sentence and language;
+clearing the instructions removes the style request. Drafts, reusable audio and
+placed layers retain these settings through reuse, split, duplicate, undo and
+reopening the project. Other sentences keep their existing audio.
+
+A profile can use a Korean reference to generate English output. Listen to a short
+sample with your service name, numbers, and mixed-language phrases before
+producing a longer video.
 
 Choose **Add Audio** in the timeline to generate speech from a script, import
 WAV/MP3/M4A, or optionally record a separate voice clip. An MCP agent can import
@@ -309,7 +327,19 @@ crossfade. Original movie audio has separate volume and mute controls.
   <img src="docs/images/audio-layers.png" width="900" alt="Synthetic Storybird project with overlapping independent audio layers" />
 </p>
 
-With a prepared local model and existing voice profile, an agent can generate TTS,
+<p>
+  <img src="docs/images/custom-voice-generation.png" width="360" alt="Built-in voice generation with speaker, voice instructions, language and narration text" />
+  <img src="docs/images/custom-voice-editing.png" width="360" alt="CustomVoice narration editing with saved speaker and voice instructions" />
+</p>
+
+Use **Remove Model** to reclaim that model's runtime and download storage. The
+selection, voice profiles, completed audio and projects remain intact. Reinstall
+a removed model before generating speech with it. MCP provides the same actions
+through `storybird_prepare_voice_model` and `storybird_remove_voice_model`;
+poll `storybird_get_voice_model` for completion or failure.
+
+With the matching local model prepared and either an existing voice profile or a
+built-in speaker, an agent can generate TTS (text-to-speech),
 measure the finished speech, arrange scenes, layer the sounds and captions, inspect
 a mix preview, and export the video without a human recording step. Voice-profile setup and
 macOS recording permissions remain native user actions. Storybird's session dialog
@@ -357,8 +387,8 @@ command = "/Applications/Storybird.app/Contents/MacOS/StorybirdMCP"
 args = ["--tool-profile", "compact"]
 ```
 
-The compact profile groups related project edits into 53 tools. Existing
-configurations without arguments keep the 71-tool legacy profile; select
+The compact profile groups related project edits into 54 tools. Existing
+configurations without arguments keep the 72-tool legacy profile; select
 `--tool-profile legacy` explicitly if needed. Each connection exposes one fixed
 list. See [tool profiles and call examples](docs/MCP.md#choose-a-tool-profile)
 for the grouped actions and unchanged recording, audio-generation and export tools.
@@ -431,6 +461,13 @@ follow the saved recording approval setting, record the actions, and stop to cre
 It then edits the picture, generates speech drafts, places them using measured
 durations, checks composited previews, and waits for export to finish.
 
+For a built-in voice, replace the profile instruction with:
+
+```text
+Use the built-in speaker Sohee with calm delivery and short pauses.
+Prepare the CustomVoice model if needed.
+```
+
 **Import and edit existing footage**
 
 Give the agent the file location directly:
@@ -467,7 +504,7 @@ Check that the new speech fits, then preview the changed scene.
 ```text
 Duplicate the Korean project as "Product walkthrough — English".
 Translate its titles, subtitles, and narration into English, then regenerate
-speech using the existing profile. Adjust timing to the actual speech lengths.
+speech using each sentence's saved voice source and settings. Adjust timing to the actual speech lengths.
 Keep the Korean project intact and export the English copy separately.
 ```
 
@@ -481,7 +518,8 @@ from native-only setup and local window controls.
 ### What still needs you
 
 - For cloned speech, manage voice profiles in native Settings. Model selection,
-  status and preparation also work through MCP without additional approval.
+  status, installation and removal also work through MCP without additional approval.
+  Built-in speech does not need profile setup.
   Reference-file selection and microphone recording remain native
   actions. Importing finished project video/audio needs none of these steps.
 - Approve the selected recording source and pointer control in Storybird, or enable
@@ -521,7 +559,9 @@ folders does not reset them.
 
 ~/Library/Application Support/Storybird/
 ├── Voices/                   # Shared voice profiles and reference audio
-└── VoiceRuntime/             # Local runtime and model cache
+├── VoiceRuntime/             # 1.7B Base runtime and model cache
+├── VoiceRuntime-CustomVoice-1.7B-8bit/ # CustomVoice runtime and model cache
+└── VoiceRuntime-0.6B-8bit/    # Retired model files, if retained for cleanup
 ```
 
 Change the project folder in **Settings › General › Storage**. Each folder keeps
@@ -530,7 +570,7 @@ projects. **Use Default** returns to `~/Documents/Storybird`. An unavailable or
 damaged folder reports an error instead of silently writing elsewhere. Folder
 changes are disabled during recording, import, export, and voice work.
 
-Shared profiles, the model, and the local MCP socket stay in Application Support.
+Shared profiles, models, and the local MCP socket stay in Application Support.
 Older Application Support projects are not moved; choose that folder in Settings
 to access them. Legacy OpenLane data is copied only when the Storybird Application
 Support folder does not exist, and its original is preserved.
@@ -558,7 +598,7 @@ Replaying a completed import does not recreate a project that was later deleted.
   jobs report their state; progress percentages and time estimates are not provided.
 - Minimized/off-screen windows are not listed as capture sources.
 - Screen recording captures neither audio nor keyboard input.
-- Voice cloning uses the 24GB+ Apple Silicon baseline above.
+- Local speech generation uses the 24GB+ Apple Silicon baseline above.
 - Storybird has no cloud project service or built-in text-generation/translation
   service. The connected agent supplies the script and translations.
 

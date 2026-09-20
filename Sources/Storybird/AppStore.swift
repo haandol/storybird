@@ -6,6 +6,7 @@ import StorybirdCore
 enum VoiceRuntimeState: Equatable {
     case notPrepared
     case preparing
+    case removing
     case ready
     case failed(String)
 }
@@ -28,6 +29,10 @@ final class AppStore: ObservableObject {
     @Published private(set) var voiceProfiles: [VoiceProfile] = []
     @Published private(set) var selectedVoiceModel: VoiceModel = .base1_7B
     @Published private(set) var voiceModelStates: [VoiceModel: VoiceRuntimeState] = [:]
+    @Published private(set) var hasLegacyVoiceModelFiles = false
+    var listedVoiceModels: [VoiceModel] {
+        VoiceModel.allCases + (hasLegacyVoiceModelFiles ? [.base0_6B] : [])
+    }
     var voiceRuntimeState: VoiceRuntimeState {
         voiceModelStates[selectedVoiceModel] ?? .notPrepared
     }
@@ -51,12 +56,13 @@ final class AppStore: ObservableObject {
     private let voiceModelPreferences: VoiceModelPreferences?
     private var voiceModelServices: [VoiceModel: any VoiceSynthesisProviding] = [:]
     private var voiceModelPreparationTasks: [VoiceModel: Task<Void, Never>] = [:]
-    private var voiceService: any VoiceSynthesisProviding { service(for: selectedVoiceModel) }
+    private var voiceModelRemovalTasks: [VoiceModel: Task<Void, Never>] = [:]
+    private var voiceModelOperationRevisions: [VoiceModel: UInt64] = [:]
 
     /// Reuses one provider per model so readiness and generation target the same
     /// installation; test overrides never reach the user's runtime.
     private func service(for model: VoiceModel) -> any VoiceSynthesisProviding {
-        if let provider = voiceModelServiceOverrides[model] ?? voiceServiceOverride { return provider }
+        if let provider = voiceModelServiceOverrides[model] ?? (model.isSupported ? voiceServiceOverride : nil) { return provider }
         if let provider = voiceModelServices[model] { return provider }
         let provider = VoiceSynthesisService(rootURL: repository.sharedRootURL, model: model)
         voiceModelServices[model] = provider
@@ -244,14 +250,20 @@ final class AppStore: ObservableObject {
     /// Restores the visible runtime state from local executable and model-cache
     /// markers without contacting the model provider.
     func refreshVoiceRuntimeState() async {
-        for model in VoiceModel.allCases {
+        for model in VoiceModel.manageableModels {
             let previous = voiceModelStates[model] ?? .notPrepared
-            guard previous != .preparing else { continue }
+            guard previous != .preparing, previous != .removing else { continue }
             if case .failed = previous { continue }
+            let operationRevision = voiceModelOperationRevisions[model, default: 0]
             let ready = await service(for: model).prepared()
-            guard (voiceModelStates[model] ?? .notPrepared) == previous else { continue }
+            guard voiceModelOperationRevisions[model, default: 0] == operationRevision,
+                  (voiceModelStates[model] ?? .notPrepared) == previous else { continue }
             let current: VoiceRuntimeState = ready ? .ready : .notPrepared
             if current != previous { voiceModelStates[model] = current }
+            if model == .base0_6B, let provider = service(for: model) as? any VoiceModelRemoving {
+                let exists = await provider.hasInstalledFiles()
+                if voiceModelOperationRevisions[model, default: 0] == operationRevision { hasLegacyVoiceModelFiles = exists }
+            }
         }
     }
 
@@ -262,6 +274,9 @@ final class AppStore: ObservableObject {
 
     /// UI and MCP share one persistent selection; an active voice job owns it.
     func selectVoiceModel(_ model: VoiceModel) throws {
+        guard model.isSupported else {
+            throw VoiceSynthesisError.processFailed("The 0.6B model is available for removal only. Use 1.7B Base or CustomVoice.")
+        }
         guard model != selectedVoiceModel else { return }
         guard !isVoiceModelBusy else {
             throw VoiceSynthesisError.processFailed("Finish the active voice operation before changing models.")
@@ -277,13 +292,16 @@ final class AppStore: ObservableObject {
         switch voiceModelStates[model] ?? .notPrepared {
         case .notPrepared: state = "not_prepared"
         case .preparing: state = "preparing"
+        case .removing: state = "removing"
         case .ready: state = "ready"
         case let .failed(message): state = "failed"; error = message
         }
         return VoiceModelSnapshot(
             id: model.rawValue, name: model.displayName, repositoryID: model.repositoryID,
             quantizationBits: 8, estimatedDownloadBytes: model.estimatedDownloadBytes,
-            selected: model == selectedVoiceModel, state: state, error: error
+            selected: model == selectedVoiceModel, state: state, error: error,
+            supportsGeneration: model.isSupported,
+            speakers: model == .customVoice1_7B ? CustomVoiceSpeaker.allCases.map(\.rawValue) : []
         )
     }
 
@@ -291,6 +309,9 @@ final class AppStore: ObservableObject {
     /// launch duplicate downloads. Publication remains owned by the provider.
     @discardableResult
     func startVoiceModelPreparation(_ model: VoiceModel) throws -> VoiceModelSnapshot {
+        guard model.isSupported else {
+            throw VoiceSynthesisError.processFailed("The 0.6B model is available for removal only.")
+        }
         if voiceModelStates[model] == .preparing || voiceModelStates[model] == .ready {
             return voiceModelSnapshot(model)
         }
@@ -299,6 +320,7 @@ final class AppStore: ObservableObject {
         }
         let operation = beginStorageOperation(.voice)
         let provider = service(for: model)
+        voiceModelOperationRevisions[model, default: 0] &+= 1
         voiceModelStates[model] = .preparing
         voiceModelPreparationTasks[model] = Task {
             defer {
@@ -313,6 +335,97 @@ final class AppStore: ObservableObject {
             }
         }
         return voiceModelSnapshot(model)
+    }
+
+    /// UI and MCP join the same removal job. Selection and project history are
+    /// deliberately independent of whether the selected runtime is installed.
+    func removeVoiceRuntime(model: VoiceModel? = nil) async {
+        let target = model ?? selectedVoiceModel
+        do {
+            _ = try startVoiceModelRemoval(target)
+            await voiceModelRemovalTasks[target]?.value
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Reserves one removal job before returning. Repeats join that job; busy
+    /// voice work is rejected and failure leaves a retryable model state.
+    @discardableResult
+    func startVoiceModelRemoval(_ model: VoiceModel) throws -> VoiceModelSnapshot {
+        if voiceModelStates[model] == .removing {
+            return voiceModelSnapshot(model)
+        }
+        guard !isVoiceModelBusy else {
+            throw VoiceSynthesisError.processFailed("Finish the active voice operation before removing a model.")
+        }
+        guard let provider = service(for: model) as? any VoiceModelRemoving else {
+            throw VoiceSynthesisError.processFailed("This voice provider does not support model removal.")
+        }
+        let operation = beginStorageOperation(.voice)
+        voiceModelOperationRevisions[model, default: 0] &+= 1
+        voiceModelStates[model] = .removing
+        voiceModelRemovalTasks[model] = Task {
+            defer {
+                self.endStorageOperation(operation)
+                self.voiceModelRemovalTasks[model] = nil
+            }
+            do {
+                try await provider.remove()
+                self.voiceModelStates[model] = .notPrepared
+                if model == .base0_6B { self.hasLegacyVoiceModelFiles = false }
+            } catch {
+                self.voiceModelStates[model] = .failed(error.localizedDescription)
+            }
+        }
+        return voiceModelSnapshot(model)
+    }
+
+    /// Reserve model-management work before its first await; new synthesis must
+    /// not queue behind a removal and then use files the user just removed.
+    private func requireStableVoiceModel() throws {
+        guard !voiceModelStates.values.contains(.preparing),
+              !voiceModelStates.values.contains(.removing) else {
+            throw VoiceSynthesisError.processFailed("Finish installing or removing the voice model before generating speech.")
+        }
+    }
+
+    /// A synthesis request names exactly one voice source. Cloning still uses
+    /// consented native profiles; preset speech needs no reference asset.
+    private func voiceProfile(
+        id: UUID?, customVoice: CustomVoiceOptions?
+    ) throws -> VoiceProfile? {
+        guard (id != nil) != (customVoice != nil) else {
+            throw VoiceProfileError.invalidInput
+        }
+        guard let id else { return nil }
+        guard let profile = voiceProfiles.first(where: { $0.id == id && $0.consentConfirmed }) else {
+            throw VoiceProfileError.profileNotFound
+        }
+        return profile
+    }
+
+    /// Voice-source metadata, rather than the Settings selection, determines
+    /// the model. This keeps saved narration reproducible after model switching.
+    private func synthesize(
+        text: String, language: String, profile: VoiceProfile?,
+        customVoice: CustomVoiceOptions?, outputURL: URL
+    ) async throws -> VoiceSynthesisResult {
+        if let customVoice {
+            guard let provider = service(for: .customVoice1_7B) as? any CustomVoiceSynthesisProviding else {
+                throw VoiceSynthesisError.processFailed("CustomVoice synthesis is unavailable.")
+            }
+            return try await provider.generateCustomVoice(
+                text: text, speaker: customVoice.speaker.rawValue, instruct: customVoice.instruct,
+                language: language, outputURL: outputURL
+            )
+        }
+        guard let profile else { throw VoiceProfileError.invalidInput }
+        return try await service(for: .base1_7B).generate(
+            text: text,
+            referenceAudioURL: repository.voiceReferenceURL(profileID: profile.id, filename: profile.referenceFilename),
+            referenceText: profile.referenceText, language: language, outputURL: outputURL
+        )
     }
 
     /// Imports one user-authorized MP3/WAV into the local voice library only
@@ -410,12 +523,14 @@ final class AppStore: ObservableObject {
     func generateNarration(
         projectID: UUID,
         expectedRevision: Int,
-        voiceProfileID: UUID,
+        voiceProfileID: UUID? = nil,
         text: String,
         language: String,
         startTime: Double,
-        timingMode: LayerTimingMode = .project
+        timingMode: LayerTimingMode = .project,
+        customVoice: CustomVoiceOptions? = nil
     ) async throws -> DemoProject {
+        try requireStableVoiceModel()
         let operation = beginStorageOperation(.voice)
         defer { endStorageOperation(operation) }
         guard let project = project(id: projectID) else {
@@ -425,11 +540,7 @@ final class AppStore: ObservableObject {
             throw RecordingStoreError.revisionConflict(project.revision)
         }
         let anchor = timingMode == .scene ? try SceneTiming.anchor(at: startTime, in: project) : nil
-        guard let profile = voiceProfiles.first(
-            where: { $0.id == voiceProfileID }
-        ), profile.consentConfirmed else {
-            throw VoiceProfileError.profileNotFound
-        }
+        let profile = try voiceProfile(id: voiceProfileID, customVoice: customVoice)
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             throw VoiceProfileError.invalidInput
@@ -438,15 +549,9 @@ final class AppStore: ObservableObject {
             projectID: projectID
         )
         do {
-            let result = try await voiceService.generate(
-                text: trimmed,
-                referenceAudioURL: repository.voiceReferenceURL(
-                    profileID: profile.id,
-                    filename: profile.referenceFilename
-                ),
-                referenceText: profile.referenceText,
-                language: language,
-                outputURL: prepared.url
+            let result = try await synthesize(
+                text: trimmed, language: language, profile: profile,
+                customVoice: customVoice, outputURL: prepared.url
             )
             try Task.checkCancellation()
             let duration = try await Self.validatedNarrationDuration(
@@ -457,13 +562,13 @@ final class AppStore: ObservableObject {
             var updated = project
             updated.narrations.append(
                 NarrationClip(
-                    voiceProfileID: profile.id,
+                    voiceProfileID: voiceProfileID,
                     filename: prepared.filename,
                     text: trimmed,
                     language: language,
                     startTime: startTime,
                     duration: duration,
-                    sceneAnchor: anchor
+                    sceneAnchor: anchor, customVoice: customVoice
                 )
             )
             updated.narrations.sort { $0.startTime < $1.startTime }
@@ -539,8 +644,9 @@ final class AppStore: ObservableObject {
         return try saveProject(edited, expectedRevision: expectedRevision)
     }
 
-    /// Regenerates only the selected narration when its text changes and applies
-    /// optional timing or volume edits in the same revision-checked publication.
+    /// Regenerates on text or CustomVoice speaker/instruction input, retaining
+    /// omitted text/language. Audio and metadata publish in one revision-checked
+    /// edit; synthesis or save failure preserves the old layer and undo history.
     func updateNarration(
         projectID: UUID,
         narrationID: UUID,
@@ -549,7 +655,8 @@ final class AppStore: ObservableObject {
         language: String? = nil,
         startTime: Double? = nil,
         volume: Double? = nil,
-        timingMode: LayerTimingMode? = nil
+        timingMode: LayerTimingMode? = nil,
+        speaker: CustomVoiceSpeaker? = nil, instruct: String? = nil
     ) async throws -> DemoProject {
         let operation = beginStorageOperation(.voice)
         defer { endStorageOperation(operation) }
@@ -560,7 +667,7 @@ final class AppStore: ObservableObject {
         else {
             throw RecordingStoreError.projectNotFound
         }
-        if text == nil, language != nil {
+        if text == nil, language != nil, speaker == nil, instruct == nil {
             throw VoiceProfileError.invalidInput
         }
         guard project.revision == expectedRevision else {
@@ -573,33 +680,29 @@ final class AppStore: ObservableObject {
         }
         var replacementURL: URL?
         do {
-            if let text {
+            if text != nil || speaker != nil || instruct != nil {
+                var customVoice = project.narrations[index].customVoice
+                if speaker != nil || instruct != nil {
+                    guard customVoice != nil else { throw VoiceProfileError.invalidInput }
+                    if let speaker { customVoice?.speaker = speaker }
+                    if let instruct { customVoice?.instruct = instruct }
+                }
+                let text = text ?? project.narrations[index].text
+                try requireStableVoiceModel()
                 let trimmed = text.trimmingCharacters(
                     in: .whitespacesAndNewlines
                 )
-                guard !trimmed.isEmpty,
-                      let profile = voiceProfiles.first(where: {
-                          $0.id == project.narrations[index].voiceProfileID
-                              && $0.consentConfirmed
-                      })
-                else {
-                    throw VoiceProfileError.invalidInput
-                }
+                guard !trimmed.isEmpty else { throw VoiceProfileError.invalidInput }
+                let profile = try voiceProfile(id: project.narrations[index].voiceProfileID, customVoice: customVoice)
                 let prepared = try repository.prepareNarrationURL(
                     projectID: projectID
                 )
                 replacementURL = prepared.url
                 let resolvedLanguage = language
                     ?? project.narrations[index].language
-                let result = try await voiceService.generate(
-                    text: trimmed,
-                    referenceAudioURL: repository.voiceReferenceURL(
-                        profileID: profile.id,
-                        filename: profile.referenceFilename
-                    ),
-                    referenceText: profile.referenceText,
-                    language: resolvedLanguage,
-                    outputURL: prepared.url
+                let result = try await synthesize(
+                    text: trimmed, language: resolvedLanguage, profile: profile,
+                    customVoice: customVoice, outputURL: prepared.url
                 )
                 try Task.checkCancellation()
                 let duration = try await Self.validatedNarrationDuration(
@@ -616,6 +719,7 @@ final class AppStore: ObservableObject {
                     project.narrations[index].name = trimmed
                 }
                 project.narrations[index].text = trimmed
+                project.narrations[index].customVoice = customVoice
                 project.narrations[index].language = resolvedLanguage
                 project.narrations[index].duration = duration
             }
@@ -779,7 +883,11 @@ final class AppStore: ObservableObject {
                 $0.id == placingDraftID && $0.state == .ready
             }), let narration = comparable.narrations.first(where: { $0.id == placingDraftID }),
                 narration.filename == comparable.narrationDrafts[draftIndex].filename,
-                narration.duration == comparable.narrationDrafts[draftIndex].duration
+                narration.duration == comparable.narrationDrafts[draftIndex].duration,
+                narration.voiceProfileID == comparable.narrationDrafts[draftIndex].voiceProfileID,
+                narration.customVoice == comparable.narrationDrafts[draftIndex].customVoice,
+                narration.text == comparable.narrationDrafts[draftIndex].text,
+                narration.language == comparable.narrationDrafts[draftIndex].language
             else { throw NarrationDraftError.notReady }
             comparable.narrationDrafts[draftIndex].state = .placed
         }
@@ -875,6 +983,7 @@ final class AppStore: ObservableObject {
             let previous = updated[projectIndex].narrationDrafts[index]
             guard previous.filename == draft.filename, previous.text == draft.text,
                   previous.language == draft.language, previous.voiceProfileID == draft.voiceProfileID,
+                  previous.customVoice == draft.customVoice,
                   (previous.state == .generating && [.ready, .failed, .cancelled].contains(draft.state))
                     || (previous.state == .ready && draft.state == .cancelled)
             else { throw NarrationDraftError.notReady }
@@ -890,19 +999,21 @@ final class AppStore: ObservableObject {
     /// Starts a local sentence job after validating ownership. Its storage lease
     /// covers generation, validation and cleanup, not just the initiating call.
     func startNarrationDraft(
-        projectID: UUID, voiceProfileID: UUID, text: String, language: String
+        projectID: UUID, voiceProfileID: UUID? = nil, text: String, language: String,
+        customVoice: CustomVoiceOptions? = nil
     ) throws -> NarrationDraft {
+        try requireStableVoiceModel()
         guard project(id: projectID)?.recording != nil else {
             throw RecordingStoreError.projectNotFound
         }
-        guard let profile = voiceProfiles.first(where: { $0.id == voiceProfileID && $0.consentConfirmed }),
-              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        let profile = try voiceProfile(id: voiceProfileID, customVoice: customVoice)
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw VoiceProfileError.invalidInput
         }
         let prepared = try repository.prepareNarrationURL(projectID: projectID)
         let draft = NarrationDraft(
             voiceProfileID: voiceProfileID, text: text.trimmingCharacters(in: .whitespacesAndNewlines),
-            language: language, filename: prepared.filename
+            language: language, filename: prepared.filename, customVoice: customVoice
         )
         try saveNarrationDraft(draft, projectID: projectID)
         let operation = beginStorageOperation(.voice)
@@ -913,12 +1024,9 @@ final class AppStore: ObservableObject {
             }
             do {
                 try Task.checkCancellation()
-                let result = try await voiceService.generate(
-                    text: draft.text,
-                    referenceAudioURL: repository.voiceReferenceURL(profileID: profile.id, filename: profile.referenceFilename),
-                    referenceText: profile.referenceText,
-                    language: language,
-                    outputURL: prepared.url
+                let result = try await synthesize(
+                    text: draft.text, language: language, profile: profile,
+                    customVoice: customVoice, outputURL: prepared.url
                 )
                 try Task.checkCancellation()
                 let measured = try await Self.validatedNarrationDuration(at: prepared.url, reportedDuration: result.duration)
@@ -1036,7 +1144,8 @@ final class AppStore: ObservableObject {
         project.narrations.append(NarrationClip(
             id: draft.id, voiceProfileID: draft.voiceProfileID, filename: draft.filename,
             text: draft.text, language: draft.language, startTime: startTime, duration: duration,
-            sceneAnchor: timingMode == .scene ? try SceneTiming.anchor(at: startTime, in: project) : nil
+            sceneAnchor: timingMode == .scene ? try SceneTiming.anchor(at: startTime, in: project) : nil,
+            customVoice: draft.customVoice
         ))
         project.narrations.sort { $0.startTime < $1.startTime }
         return try saveProject(project, expectedRevision: expectedRevision, placingDraftID: draftID)

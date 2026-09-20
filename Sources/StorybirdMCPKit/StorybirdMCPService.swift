@@ -47,18 +47,21 @@ public struct StorybirdMCPService: Sendable {
             purchases, messages, uploads, account changes, or other external \
             side effects. Keyboard input and microphone recording are not provided by MCP. \
             For prompt-to-video production, prefer storybird_start_narration_draft with text \
-            and an existing voice_profile_id. Poll storybird_get_narration_draft until ready, \
+            and either an existing voice_profile_id or a CustomVoice speaker plus optional instruct. Poll storybird_get_narration_draft until ready, \
             use the measured duration to edit picture length, then place the draft once \
             with storybird_place_narration_draft. Read current project revision before mutations. \
             Use storybird_get_edit_context to find project.narrations layer IDs, and \
             storybird_list_audio_assets for reusable asset IDs. Edit or duplicate audio layers, \
             audition storybird_render_audio_preview, and poll the export job to completion. \
             Audio layers can overlap; no live microphone or repeated editing approvals are needed \
-            once a local model and voice profile are prepared. \
-            Use storybird_list_voice_models to inspect the two Base 8-bit models, \
+            once the required local model is prepared; only cloning requires a voice profile. \
+            Use storybird_list_voice_models to inspect Base/CustomVoice 8-bit models and preset speakers, \
             storybird_select_voice_model to select one, and storybird_prepare_voice_model \
             to download and prepare it without another approval. Poll \
             storybird_get_voice_model until ready or failed before synthesizing. \
+            When model removal is requested, use storybird_remove_voice_model and poll \
+            until not_prepared or failed. Removal preserves selection, profiles, ready drafts, \
+            completed audio and project history; reinstall before new synthesis. \
             Import local video or project audio by absolute path using storybird_import_video \
             or storybird_import_audio with a stable idempotency_key; no file picker or folder \
             approval is needed. Poll storybird_get_import until terminal. Replay the same \
@@ -203,7 +206,7 @@ public struct StorybirdMCPService: Sendable {
             Tool(
                 name: "storybird_generate_narration",
                 title: "Generate and place speech",
-                description: "Generate and place in one call using an existing profile. Prefer storybird_start_narration_draft for production: its ready audio survives a placement conflict.",
+                description: "Generate and place using either voice_profile_id (Base clone) or speaker plus optional instruct (CustomVoice, no profile). Prefer storybird_start_narration_draft for production: its ready audio survives a placement conflict.",
                 inputSchema: Self.objectSchema(
                     properties: [
                         "project_id": .object(["type": "string"]),
@@ -213,11 +216,10 @@ public struct StorybirdMCPService: Sendable {
                         "language": .object(["type": "string"]),
                         "timing_mode": .object(["type": "string", "enum": ["project", "scene"]]),
                         "start_time": .object(["type": "number", "minimum": 0]),
-                    ],
+                    ].merging(Self.customVoiceProperties) { _, new in new },
                     required: [
                         "project_id",
                         "expected_revision",
-                        "voice_profile_id",
                         "text",
                         "start_time",
                     ]
@@ -227,7 +229,7 @@ public struct StorybirdMCPService: Sendable {
             Tool(
                 name: "storybird_update_narration",
                 title: "Update or regenerate narration",
-                description: "Update timing or volume, or regenerate only this narration WAV when text is supplied, against the current project revision.",
+                description: "Update timing or volume, or regenerate only this narration WAV when text, speaker or instruct is supplied. Instruction-only changes keep the saved text and language; speaker/instruct apply only to existing CustomVoice layers, against the current project revision.",
                 inputSchema: Self.objectSchema(
                     properties: [
                         "project_id": .object(["type": "string"]),
@@ -238,7 +240,7 @@ public struct StorybirdMCPService: Sendable {
                         "timing_mode": .object(["type": "string", "enum": ["project", "scene"]]),
                         "start_time": .object(["type": "number", "minimum": 0]),
                         "volume": .object(["type": "number", "minimum": 0, "description": "Gain multiplier; 1 is the original volume. No automatic normalization."]),
-                    ],
+                    ].merging(Self.customVoiceProperties) { _, new in new },
                     required: [
                         "project_id",
                         "expected_revision",
@@ -345,11 +347,11 @@ public struct StorybirdMCPService: Sendable {
         let identified = project.merging(["draft_id": .object(["type": "string"])]) { _, new in new }
         return [
             Tool(name: "storybird_start_narration_draft", title: "Generate a reusable narration draft",
-                 description: "Start local sentence synthesis without placing it or changing the edit revision. Poll the draft and place its measured WAV after editing the scene length.",
+                 description: "Use voice_profile_id for Base cloning, or speaker with optional instruct for CustomVoice without a profile. Never mix these inputs. Start local sentence synthesis without placing it or changing the edit revision. Poll the draft and place its measured WAV after editing the scene length.",
                  inputSchema: objectSchema(properties: project.merging([
                     "voice_profile_id": .object(["type": "string"]), "text": .object(["type": "string"]),
                     "language": .object(["type": "string"]),
-                 ]) { _, new in new }, required: ["project_id", "voice_profile_id", "text"]),
+                 ].merging(Self.customVoiceProperties) { _, new in new }) { _, new in new }, required: ["project_id", "text"]),
                  annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false)),
             Tool(name: "storybird_list_narration_drafts", title: "List narration drafts",
                  description: "List project-owned generation jobs, states, text, languages and measured durations.",

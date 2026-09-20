@@ -30,8 +30,9 @@ names when they are absent from discovery. The legacy profile keeps direct field
 - **External video or audio file:** read [importing.md](references/importing.md).
   Use the advertised path-import tools without asking for a file picker or folder
   approval. Continue editing with the returned project or audio asset ID.
-- **Narration or audio changes:** read [audio.md](references/audio.md). Use existing
-  consented profiles for requested speech; human recording is not a prerequisite.
+- **Narration or audio changes:** use the generation rules below and
+  [MCP narration guidance](../../../docs/MCP.md#narration-and-retries).
+  Read [audio.md](references/audio.md) for generation, placement, timing and mix guidance.
 - **Another language version:** duplicate the project, then translate and edit
   the copy. Do not assume translated speech has the same duration.
 
@@ -39,6 +40,39 @@ For a new production, make a short shot list of actions, visible results and any
 requested narration. Introductions emphasize benefit and outcome; tutorials retain
 the steps viewers must reproduce. Use synthetic demo data and respect the user's
 existing external-action limits.
+
+### Choose a speech source
+
+Use Qwen3-TTS 1.7B Base 8-bit (`qwen3-tts-1.7b-base-8bit`) for **Clone my voice**
+with an existing consented profile. Use 1.7B CustomVoice 8-bit
+(`qwen3-tts-1.7b-customvoice-8bit`) for **Built-in voice** without a profile,
+reference audio or microphone recording. Query `storybird_list_voice_models`;
+snapshots expose boolean `supports_generation` and speaker ID array `speakers`.
+CustomVoice IDs are `vivian`, `serena`, `uncle_fu`, `dylan`, `eric`, `ryan`,
+`aiden`, `ono_anna`, `sohee`. Check readiness separately from generation support.
+
+Select and prepare the supported model needed by the requested voice source.
+Selection alone never downloads; both models can remain installed, and generation
+uses the model matching the source. The retired 0.6B model cannot be selected,
+installed or used for synthesis. Its saved selection migrates to Base; retained
+files are exposed only for status/removal and are not automatically deleted.
+
+Prefer `storybird_start_narration_draft` with project ID, text, explicit `korean`
+or `english`, and exactly one voice source. Clone requests use `voice_profile_id`
+and omit both `speaker` and `instruct`. CustomVoice requests use `speaker`, optional
+`instruct`, and omit `voice_profile_id` entirely. `storybird_generate_narration`
+uses the same voice fields plus current revision and placement time.
+
+Poll drafts until ready, failed or cancelled; use measured duration to arrange
+the picture, refresh revision and place a ready draft once. Ready drafts survive
+restart and placement failure. For an existing CustomVoice layer,
+`storybird_update_narration` accepts `speaker`/`instruct` with its narration ID and
+current revision. Instruction-only regeneration keeps text/language;
+`instruct: ""` clears instructions. Omitted settings remain unchanged. Do not use
+these fields to convert cloned or imported audio. Preserve saved `customVoice`
+metadata through asset reuse, split, duplicate, undo and reopen. A failed edit
+preserves prior audio/settings. The native editing sheet and inspector expose the
+same CustomVoice controls. Prepared synthesis runs locally without network access.
 
 ## Edit the requested scope
 
@@ -76,7 +110,13 @@ duration and any unverified listening/motion checks. Keep language exports disti
 ## Boundaries
 
 Use app-owned tools, never direct project-library writes. Model status, selection
-and preparation use MCP without additional approval. Profile management,
+and installation/removal use MCP without additional approval. Use
+`storybird_prepare_voice_model` to install and `storybird_remove_voice_model`
+to remove a model only when requested; poll `storybird_get_voice_model` until
+`ready`/`failed` for installation or `not_prepared`/`failed` for removal.
+Removal keeps selection, profiles, ready drafts, completed audio and project
+history. Reinstall a removed model before synthesis using that source. Model changes
+are rejected during voice work. Profile management,
 microphone input and voice-profile reference-file selection require native user
 action. Project video/audio imports accept local paths through the advertised MCP
 tools without additional consent. Do not work around the remaining boundaries.

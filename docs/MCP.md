@@ -26,8 +26,8 @@ not control every Settings or window action.
 
 ### Choose a tool profile
 
-No launch arguments selects `legacy`: the existing 71 tool names, schemas,
-responses and errors. To use 53 tools covering the same actions, configure the
+No launch arguments selects `legacy`, with 72 operation-specific tools.
+To use 54 tools covering the same actions, configure the
 companion arguments as `["--tool-profile", "compact"]` and reconnect. Explicit
 `["--tool-profile", "legacy"]` also works. Invalid arguments fail before the
 server starts; a connection never changes profiles during use.
@@ -73,8 +73,9 @@ component windows fixed. Title and CTA retain distinct insertion rules.
 
 Audio deletion uses `storybird_edit_audio_layer` with `action: "delete"` and
 `input.layer_id` for any placed audio, including narration. There is no compact
-`storybird_delete_narration` alias. Use `storybird_update_narration` for text
-regeneration; reusable asset placement and one-time draft placement remain separate.
+`storybird_delete_narration` alias. Use `storybird_update_narration` for text,
+speaker or instruction regeneration; reusable asset placement and one-time draft
+placement remain separate.
 
 One compact call invokes one app command. Unknown or cross-operation fields,
 missing inputs, invalid types and schema bounds are rejected before app IPC.
@@ -157,8 +158,8 @@ matching grouped tool above and move operation fields into `input`; the other
 | `storybird_set_source_audio` | Changes gain or mute of the original movie audio |
 | `storybird_render_audio_preview` | Renders a local mix WAV and returns path, duration, peak and waveform |
 | `storybird_list_voice_profiles` | Lists existing profile metadata without reference audio or transcripts |
-| `storybird_generate_narration` | Generates and places one local narration using an existing profile |
-| `storybird_update_narration` | Changes timing or volume, or regenerates the selected sentence when text is supplied |
+| `storybird_generate_narration` | Generates and places one local narration using a Base profile or a CustomVoice speaker with optional instructions |
+| `storybird_update_narration` | Changes timing or volume, or regenerates when text, speaker or instructions are supplied; speaker/instructions require an existing CustomVoice layer |
 | `storybird_delete_narration` | Removes a narration layer while preserving its WAV for undo |
 | `storybird_start_export` | Starts an asynchronous MP4 export and returns a job |
 | `storybird_get_export` | Returns export state and progress |
@@ -209,8 +210,10 @@ current agent has a working connection.
 
 1. Use `storybird_list_voice_models`, `storybird_select_voice_model`, then
    `storybird_prepare_voice_model` if needed. Poll `storybird_get_voice_model`
-   until ready or failed; no extra approval is needed. Use
-   `storybird_list_voice_profiles` to choose an existing consented reference profile.
+   until ready or failed; no extra approval is needed. For cloning, prepare Base
+   and use `storybird_list_voice_profiles` to choose an existing consented profile.
+   For built-in speech, prepare CustomVoice and choose a speaker from its snapshot;
+   no profile or microphone recording is required.
 2. Prepare the script and synthetic demonstration data. Choose one visible
    window or display, then start a session under the saved approval setting.
 3. Observe the selected source, perform the approved pointer actions, and verify
@@ -236,17 +239,79 @@ renders it without calling a text-generation service.
 
 ### Narration and retries
 
-`storybird_generate_narration` requires `project_id`, `expected_revision`,
-`voice_profile_id`, `text`, and `start_time` in project seconds. Specify the
-language explicitly instead of relying on its Korean default. To change the
-language of an existing sentence, send both `text` and `language` through
-`storybird_update_narration`.
+Both generation tools require exactly one voice source:
+
+| Voice source | Generation arguments | Required prepared model |
+|---|---|---|
+| Clone an existing consented voice | `voice_profile_id`; omit `speaker` and `instruct` | `qwen3-tts-1.7b-base-8bit` |
+| Use a built-in voice | `speaker` and optional `instruct`; omit `voice_profile_id` entirely | `qwen3-tts-1.7b-customvoice-8bit` |
+
+Mixed inputs, missing voice sources and unknown speakers are rejected without
+saving audio or project changes. Even an empty `instruct` must be omitted from
+clone requests. The voice source determines the model; changing the Settings
+selection does not change an existing narration's saved source.
+
+`storybird_generate_narration` also requires `project_id`, `expected_revision`,
+`text`, and `start_time` in project seconds. Specify `language` explicitly instead
+of relying on its Korean default. To change the language of an existing sentence,
+send both `text` and `language` through `storybird_update_narration`.
 
 For production work, prefer `storybird_start_narration_draft` with `project_id`,
-`voice_profile_id`, `text`, and `language`. It returns a `generating` job without
+`text`, `language`, and one voice source above. It returns a `generating` job without
 changing the timeline revision. Poll `storybird_get_narration_draft` with
 `project_id` and `draft_id` until `ready`, `failed`, or `cancelled`. Actual local
 model workers run serially to avoid loading several models at once.
+
+For example, after preparing CustomVoice, start a Korean draft without a profile.
+Replace `PROJECT_UUID` with the actual project ID:
+
+```json
+{
+  "name": "storybird_start_narration_draft",
+  "arguments": {
+    "project_id": "PROJECT_UUID",
+    "text": "새 프로젝트를 만들고 팀원을 초대하세요.",
+    "language": "korean",
+    "speaker": "sohee",
+    "instruct": "Speak calmly, with a brief pause between the two actions."
+  }
+}
+```
+
+For a clone draft, use the same project, text and language fields, replace
+`speaker` with `voice_profile_id` from `storybird_list_voice_profiles`, and remove
+`instruct`. To use the generate-and-place tool instead, change the name to
+`storybird_generate_narration` and add the current `expected_revision` and
+`start_time`.
+
+`storybird_update_narration` requires `project_id`, `expected_revision` and
+`narration_id`. On an **existing CustomVoice narration**, it also accepts `speaker`
+and `instruct`. Omitted values keep their saved settings; sending `instruct: ""`
+clears the instructions and regenerates. An instruction-only update preserves
+the saved text and language:
+
+```json
+{
+  "name": "storybird_update_narration",
+  "arguments": {
+    "project_id": "PROJECT_UUID",
+    "expected_revision": 12,
+    "narration_id": "CUSTOMVOICE_NARRATION_UUID",
+    "instruct": ""
+  }
+}
+```
+
+Read the actual revision and narration ID first. These fields cannot convert a
+cloned or imported layer into CustomVoice. Stale revisions, synthesis failures
+and save failures preserve the previous audio and generation settings; successful
+regeneration uses the same atomic save and undo rules as text regeneration.
+
+Drafts, audio assets and narration layers persist `customVoice` metadata containing
+`speaker` and `instruct`, alongside text and language. Placement, asset reuse,
+splitting, layer/project duplication, undo and reopening preserve those generation
+settings. Cloned narration retains its profile; existing completed audio remains
+playable.
 
 Ready drafts persist across app restarts. Use `storybird_place_narration_draft`
 with `project_id`, `draft_id`, `expected_revision`, `start_time`, and optional
@@ -256,7 +321,7 @@ Placement atomically creates the layer and marks the draft `placed`; undo does
 not make a consumed draft available for duplicate placement. Running jobs become
 failed with an interruption reason after restart and never auto-restart.
 
-The legacy `storybird_generate_narration` still generates and places in one call;
+The existing `storybird_generate_narration` generates and places in one call in both profiles;
 its failed placement removes the unreferenced result. Do not issue several
 revision-changing placements against the same revision. Read the current project
 after a lost response before retrying. Never blindly replay pointer actions.
@@ -378,10 +443,11 @@ sentences, then recalculate timing; translated speech is not duration-equivalent
 - Live selected-source PNGs are returned only during an approved active session.
   Authenticated project preview can separately return a composited frame from a
   stored project without starting a recording session.
-- Model status, selection and preparation are available through MCP without
+- Model status, selection, installation and removal are available through MCP without
   extra approval. Reference-file selection, microphone recording and
-  profile deletion remain native user actions. Synthesis uses existing local
+  profile management remain native user actions. Cloning uses existing local
   profiles without exposing reference audio or exact reference transcripts.
+  CustomVoice uses built-in speakers without profile or microphone access.
 - The completed raw MP4 stays in the Storybird project library unless the user
   explicitly exports it.
 
@@ -391,16 +457,42 @@ sentences, then recalculate timing; translated speech is not duration-equivalent
 
 | Tool | Result |
 |---|---|
-| `storybird_list_voice_models` | Both Base 8-bit models, selected model, estimated download bytes and local readiness; no network |
-| `storybird_get_voice_model` | One model's `not_prepared`, `preparing`, `ready` or `failed` state and failure message |
-| `storybird_select_voice_model` | Persist `model_id` for new generation/regeneration; no download, project revision or undo change |
+| `storybird_list_voice_models` | Supported Base/CustomVoice models, retained legacy files for cleanup, selection, download estimates, `supports_generation`, `speakers` and local readiness; no network |
+| `storybird_get_voice_model` | One model's `not_prepared`, `preparing`, `ready`, `removing` or `failed` state and failure message |
+| `storybird_select_voice_model` | Persist a supported `model_id` in Settings; the generation voice source determines the model; no download, project revision or undo change |
 | `storybird_prepare_voice_model` | Start runtime/model download immediately; no approval dialog. Poll status to completion |
+| `storybird_remove_voice_model` | Remove the specified model's app-owned runtime and downloads; no approval dialog. Poll until `not_prepared` or `failed` |
 
-The `model_id` values are `qwen3-tts-1.7b-base-8bit` (default) and
-`qwen3-tts-0.6b-base-8bit`. Model selection is shared with Settings and persists
-across restarts. Both installations may coexist; the existing 1.7B cache is reused.
+The supported `model_id` values are `qwen3-tts-1.7b-base-8bit` (cloning, default)
+and `qwen3-tts-1.7b-customvoice-8bit` (built-in speakers). Model selection is shared
+with Settings and persists across restarts. Both installations may coexist; the
+existing 1.7B Base cache is reused.
 A different selection is rejected during voice work. An unprepared model does
 not silently fall back to another model.
+
+Model snapshots expose `supports_generation` as a boolean and `speakers` as an
+array of speaker IDs. Supported Base has `supports_generation: true` and
+`speakers: []`; CustomVoice has `supports_generation: true` and these IDs:
+`vivian`, `serena`, `uncle_fu`, `dylan`, `eric`, `ryan`, `aiden`, `ono_anna`, `sohee`.
+Use these lowercase IDs in requests; the UI displays names such as Vivian,
+Uncle_Fu and Sohee. Generation support does not mean installation is ready.
+
+The retired `qwen3-tts-0.6b-base-8bit` has `supports_generation: false` and
+`speakers: []`. It is unavailable for new selection, installation or synthesis.
+A stored selection migrates to Base without deleting files. Retained files appear
+for cleanup in Settings and the model list; `storybird_get_voice_model` and
+`storybird_remove_voice_model` accept that ID for status and removal only.
+
+Settings › Voice provides **Install Model** and **Remove Model** buttons for the
+selected model. MCP uses the same app-owned operations with required `model_id`.
+Removal retains the selection, other models, voice profiles, reference audio,
+completed audio, ready drafts and project revision/undo. Reinstall a removed
+model before generating speech with it; existing audio remains usable.
+Repeated removal is safe, including after completion. During installation,
+synthesis or removal, conflicting model changes are rejected. Removal reports
+`removing`; poll `storybird_get_voice_model` until `not_prepared` or `failed`.
+Installation and removal failures expose an error and can be retried. A partially
+removed runtime is never treated as ready.
 
 Preparation returns immediately. Repeating a request while the same model is
 preparing or ready reuses that result. A failed request may be retried. Restart
@@ -408,11 +500,13 @@ does not automatically resume interrupted downloads; query local status again.
 Preparation failures preserve other models, profiles, completed audio and the
 last valid installation. Synthesis remains offline, and model workers are serialized.
 
-With a prepared local model and an existing consented profile, the agent can finish
-speech production without asking the user to record each sentence:
+With the matching model prepared and a consented profile or built-in speaker,
+the agent can finish speech production without asking the user to record each sentence:
 
-1. Read `storybird_get_edit_context` and `storybird_list_voice_profiles`.
-2. Start a TTS draft for each sentence with `text`, `language` and the chosen profile.
+1. Read `storybird_get_edit_context` and model readiness. For cloning, also read
+   `storybird_list_voice_profiles`; for CustomVoice, read the model's `speakers`.
+2. Start a TTS draft for each sentence with `text`, `language` and exactly one
+   voice source as described in [Narration and retries](#narration-and-retries).
 3. Poll each job to a terminal state. Use its measured duration to edit picture length.
 4. Refresh revision and place each ready draft once. Duplicate a placed layer to reuse it.
 5. Use independent audio layers for additional voices, music or effects. Overlap is legal.

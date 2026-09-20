@@ -104,8 +104,8 @@ final class StorybirdExternalControlHost {
                 return try Self.jsonResponse(["enabled": store.automaticallyApprovesMCPRecording])
             case "storybird_list_voice_models":
                 await store.refreshVoiceRuntimeState()
-                return try Self.jsonResponse(VoiceModel.allCases.map { store.voiceModelSnapshot($0) })
-            case "storybird_get_voice_model", "storybird_select_voice_model", "storybird_prepare_voice_model":
+                return try Self.jsonResponse(store.listedVoiceModels.map { store.voiceModelSnapshot($0) })
+            case "storybird_get_voice_model", "storybird_select_voice_model", "storybird_prepare_voice_model", "storybird_remove_voice_model":
                 let rawModel = try Self.string("model_id", in: arguments)
                 guard let model = VoiceModel(rawValue: rawModel) else {
                     throw VoiceSynthesisError.processFailed("Unknown voice model: \(rawModel)")
@@ -116,6 +116,9 @@ final class StorybirdExternalControlHost {
                 await store.refreshVoiceRuntimeState()
                 if request.name == "storybird_prepare_voice_model" {
                     return try Self.jsonResponse(store.startVoiceModelPreparation(model))
+                }
+                if request.name == "storybird_remove_voice_model" {
+                    return try Self.jsonResponse(store.startVoiceModelRemoval(model))
                 }
                 return try Self.jsonResponse(store.voiceModelSnapshot(model))
             case "storybird_import_video", "storybird_import_audio":
@@ -272,9 +275,10 @@ final class StorybirdExternalControlHost {
         case "storybird_start_narration_draft":
             return try Self.jsonResponse(store.startNarrationDraft(
                 projectID: Self.uuid("project_id", in: arguments),
-                voiceProfileID: Self.uuid("voice_profile_id", in: arguments),
+                voiceProfileID: values.has("voice_profile_id") ? Self.uuid("voice_profile_id", in: arguments) : nil,
                 text: Self.string("text", in: arguments),
-                language: values.text("language", default: "korean")
+                language: values.text("language", default: "korean"),
+                customVoice: Self.customVoice(in: arguments)
             ))
         case "storybird_list_narration_drafts":
             return try Self.jsonResponse(project(from: arguments).narrationDrafts)
@@ -305,10 +309,7 @@ final class StorybirdExternalControlHost {
                 "expected_revision",
                 in: arguments
             )
-            let profileID = try Self.uuid(
-                "voice_profile_id",
-                in: arguments
-            )
+            let profileID = try values.has("voice_profile_id") ? Self.uuid("voice_profile_id", in: arguments) : nil
             let text = try Self.string("text", in: arguments)
             let startTime = try values.number("start_time")
             let language = try values.text("language", default: "korean")
@@ -319,7 +320,8 @@ final class StorybirdExternalControlHost {
                 text: text,
                 language: language,
                 startTime: startTime,
-                timingMode: try Self.timingMode(arguments) ?? .project
+                timingMode: try Self.timingMode(arguments) ?? .project,
+                customVoice: try Self.customVoice(in: arguments)
             )
             return try Self.jsonResponse(saved)
         case "storybird_update_narration":
@@ -337,7 +339,9 @@ final class StorybirdExternalControlHost {
                 language: values.has("language") ? values.text("language") : nil,
                 startTime: values.has("start_time") ? values.number("start_time") : nil,
                 volume: values.has("volume") ? values.number("volume") : nil,
-                timingMode: try Self.timingMode(arguments)
+                timingMode: try Self.timingMode(arguments),
+                speaker: try Self.customVoiceSpeaker(in: arguments),
+                instruct: values.has("instruct") ? values.text("instruct") : nil
             )
             return try Self.jsonResponse(saved)
         case "storybird_delete_narration":
@@ -1051,6 +1055,30 @@ final class StorybirdExternalControlHost {
                 targetID: savedSubtitle.id,
                 value: savedSubtitle
             )
+        )
+    }
+
+    /// Accepts only advertised preset speaker identifiers; omission leaves the
+    /// caller free to use a cloned profile or retain a saved speaker.
+    private static func customVoiceSpeaker(in arguments: [String: Any]) throws -> CustomVoiceSpeaker? {
+        guard arguments["speaker"] != nil else { return nil }
+        let raw = try string("speaker", in: arguments)
+        guard let speaker = CustomVoiceSpeaker(rawValue: raw) else {
+            throw VoiceProfileError.invalidInput
+        }
+        return speaker
+    }
+
+    /// Resolves creation inputs and rejects an instruction without a preset
+    /// speaker. The store validates exclusivity with the optional profile.
+    private static func customVoice(in arguments: [String: Any]) throws -> CustomVoiceOptions? {
+        guard let speaker = try customVoiceSpeaker(in: arguments) else {
+            guard arguments["instruct"] == nil else { throw VoiceProfileError.invalidInput }
+            return nil
+        }
+        return CustomVoiceOptions(
+            speaker: speaker,
+            instruct: try AgentEditArguments(values: arguments).text("instruct", default: "")
         )
     }
 

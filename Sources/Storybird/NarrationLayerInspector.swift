@@ -7,20 +7,24 @@ struct NarrationLayerInspector: View {
     let onListen: () -> Void
     let onSplit: () -> Void
     let onDuplicate: () -> Void
-    let onRegenerate: (String, String) async -> Void
+    let onRegenerate: (String, String, CustomVoiceOptions?) async -> Void
     let onDelete: () -> Void
     @State private var replacementText: String
     @State private var replacementLanguage: String
+    @State private var speaker: CustomVoiceSpeaker
+    @State private var instruct: String
     @State private var isRegenerating = false
     @State private var trimStart: Double
     @State private var trimDuration: Double
 
+    /// Keeps replacement text, language and preset instructions separate from
+    /// saved audio so a failed regeneration leaves the user's draft available.
     init(
         narration: Binding<NarrationClip>,
         audition: AudioAuditionPlayer,
         onListen: @escaping () -> Void,
         onSplit: @escaping () -> Void, onDuplicate: @escaping () -> Void,
-        onRegenerate: @escaping (String, String) async -> Void,
+        onRegenerate: @escaping (String, String, CustomVoiceOptions?) async -> Void,
         onDelete: @escaping () -> Void
     ) {
         _narration = narration
@@ -33,6 +37,8 @@ struct NarrationLayerInspector: View {
         self.onRegenerate = onRegenerate
         self.onDelete = onDelete
         _replacementLanguage = State(initialValue: narration.wrappedValue.language)
+        _speaker = State(initialValue: narration.wrappedValue.customVoice?.speaker ?? .sohee)
+        _instruct = State(initialValue: narration.wrappedValue.customVoice?.instruct ?? "")
         _replacementText = State(
             initialValue: narration.wrappedValue.text
         )
@@ -56,7 +62,7 @@ struct NarrationLayerInspector: View {
                     Text(error).font(.caption).foregroundStyle(.red)
                 }
                 TextField("Name", text: $narration.name)
-                if narration.voiceProfileID != nil {
+                if narration.voiceProfileID != nil || narration.customVoice != nil {
                 TextField(
                     "Text",
                     text: $replacementText,
@@ -71,11 +77,15 @@ struct NarrationLayerInspector: View {
                         Text(narration.language).tag(narration.language)
                     }
                 }
+                if narration.customVoice != nil {
+                    CustomVoiceControls(speaker: $speaker, instruct: $instruct)
+                }
                 Button("Regenerate This Narration") {
                     let text = replacementText
                     isRegenerating = true
                     Task {
-                        await onRegenerate(text, replacementLanguage)
+                        await onRegenerate(text, replacementLanguage,
+                                           narration.customVoice == nil ? nil : CustomVoiceOptions(speaker: speaker, instruct: instruct))
                         isRegenerating = false
                     }
                 }
@@ -84,7 +94,8 @@ struct NarrationLayerInspector: View {
                         || replacementText.trimmingCharacters(
                             in: .whitespacesAndNewlines
                         ).isEmpty
-                        || (replacementText == narration.text && replacementLanguage == narration.language)
+                        || (replacementText == narration.text && replacementLanguage == narration.language
+                            && (narration.customVoice == nil || narration.customVoice == CustomVoiceOptions(speaker: speaker, instruct: instruct)))
                 )
                 }
                 TextField(
@@ -127,10 +138,15 @@ struct NarrationLayerInspector: View {
         .onChange(of: narration.id) { _, _ in
             trimStart = narration.sourceStart; trimDuration = narration.duration
             replacementText = narration.text; replacementLanguage = narration.language
+            speaker = narration.customVoice?.speaker ?? .sohee
+            instruct = narration.customVoice?.instruct ?? ""
         }
         .onChange(of: narration.sourceStart) { _, value in trimStart = value }
         .onChange(of: narration.duration) { _, value in trimDuration = value }
         .onChange(of: narration.language) { _, value in replacementLanguage = value }
+        .onChange(of: narration.customVoice) { _, value in
+            speaker = value?.speaker ?? .sohee; instruct = value?.instruct ?? ""
+        }
         .onChange(of: narration.text) { _, value in
             replacementText = value
         }

@@ -62,6 +62,8 @@ class VoiceRuntimeTests(unittest.TestCase):
         self.tokenizer = types.SimpleNamespace(DecoderTransformer=Decoder)
         self.model = types.SimpleNamespace(generate=Mock(return_value=[
             types.SimpleNamespace(audio=Samples(), sample_rate=24000)
+        ]), generate_custom_voice=Mock(return_value=[
+            types.SimpleNamespace(audio=Samples(), sample_rate=24000)
         ]), speech_tokenizer=types.SimpleNamespace(
             decoder=object(),
         ))
@@ -113,18 +115,121 @@ class VoiceRuntimeTests(unittest.TestCase):
 
     def test_generate_passes_selected_model_and_reference_without_changing_language(self):
         with tempfile.TemporaryDirectory() as root:
-            for model_id in self.worker.MODEL_IDS:
-                with self.subTest(model=model_id):
+            for language in ("english", "korean"):
+                with self.subTest(language=language):
                     result = self.call(
-                        "generate", "--model", model_id, "--text", "Synthetic text",
+                        "generate", "--model", self.worker.MODEL_ID, "--text", "Synthetic text",
                         "--ref-audio", str(Path(root) / "reference.wav"), "--ref-text", "Reference",
-                        "--language", "english", "--output", str(Path(root) / "generated.wav"),
+                        "--language", language, "--output", str(Path(root) / "generated.wav"),
                     )
-                    self.assertEqual(result["model"], model_id)
+                    self.assertEqual(result["model"], self.worker.MODEL_ID)
                     self.assertEqual(result["duration"], 1)
-                    self.loader.assert_called_with(model_id)
-                    self.assertEqual(self.model.generate.call_args.kwargs["lang_code"], "english")
+                    self.loader.assert_called_with(self.worker.MODEL_ID)
+                    self.model.generate.assert_called_with(
+                        text="Synthetic text", ref_audio=str(Path(root) / "reference.wav"),
+                        ref_text="Reference", lang_code=language, verbose=False,
+                    )
+                    self.model.generate_custom_voice.assert_not_called()
                     self.write.assert_called_with(Path(root) / "generated.wav", unittest.mock.ANY, 24000)
+
+    def test_custom_voice_routes_every_speaker_without_clone_references(self):
+        with tempfile.TemporaryDirectory() as root:
+            output = Path(root) / "generated.wav"
+            for speaker in self.worker.CUSTOM_VOICE_SPEAKERS:
+                for language in ("korean", "english"):
+                    with self.subTest(speaker=speaker, language=language):
+                        result = self.call(
+                            "generate", "--model", self.worker.CUSTOM_VOICE_MODEL_ID,
+                            "--text", "Synthetic text", "--speaker", speaker,
+                            "--instruct", "Calm and clear.", "--language", language,
+                            "--output", str(output),
+                        )
+                        self.loader.assert_called_with(self.worker.CUSTOM_VOICE_MODEL_ID)
+                        self.model.generate_custom_voice.assert_called_with(
+                            text="Synthetic text", speaker=speaker,
+                            language=language, instruct="Calm and clear.",
+                        )
+                        self.model.generate.assert_not_called()
+                        self.assertEqual(result["model"], self.worker.CUSTOM_VOICE_MODEL_ID)
+                        self.assertEqual(result["duration"], 1)
+                        self.assertEqual(result["sample_rate"], 24000)
+                        self.write.assert_called_with(output, unittest.mock.ANY, 24000)
+
+    def test_custom_voice_accepts_canonical_names_and_empty_or_omitted_instruction(self):
+        with tempfile.TemporaryDirectory() as root:
+            for extra in ((), ("--instruct", "")):
+                with self.subTest(extra=extra):
+                    self.call(
+                        "generate", "--model", self.worker.CUSTOM_VOICE_MODEL_ID,
+                        "--text", "안녕하세요.", "--speaker", "Sohee",
+                        "--output", str(Path(root) / "generated.wav"), *extra,
+                    )
+                    self.model.generate_custom_voice.assert_called_with(
+                        text="안녕하세요.", speaker="Sohee", language="korean", instruct="",
+                    )
+
+    def test_invalid_mode_inputs_are_rejected_before_loading_or_writing(self):
+        cases = [
+            (self.worker.MODEL_ID, ()),
+            (self.worker.MODEL_ID, ("--ref-audio", "ref.wav")),
+            (self.worker.MODEL_ID, ("--ref-text", "Reference")),
+            (self.worker.MODEL_ID, ("--ref-audio", "", "--ref-text", "Reference")),
+            (self.worker.MODEL_ID, ("--ref-audio", "ref.wav", "--ref-text", " ")),
+            (self.worker.CUSTOM_VOICE_MODEL_ID, ()),
+            (self.worker.CUSTOM_VOICE_MODEL_ID, ("--speaker", "")),
+            (self.worker.CUSTOM_VOICE_MODEL_ID, ("--speaker", "Unknown")),
+        ]
+        clone_inputs = ("--ref-audio", "ref.wav", "--ref-text", "Reference")
+        for extra in (("--speaker", "Sohee"), ("--speaker", ""),
+                      ("--instruct", "Calm"), ("--instruct", "")):
+            cases.append((self.worker.MODEL_ID, (*clone_inputs, *extra)))
+        for extra in (("--ref-audio", "ref.wav"), ("--ref-audio", ""),
+                      ("--ref-text", "Reference"), ("--ref-text", "")):
+            cases.append((self.worker.CUSTOM_VOICE_MODEL_ID, ("--speaker", "Sohee", *extra)))
+        with tempfile.TemporaryDirectory() as root:
+            for model_id, extra in cases:
+                with self.subTest(model=model_id, extra=extra):
+                    with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
+                        self.call(
+                            "generate", "--model", model_id, "--text", "Synthetic",
+                            "--output", str(Path(root) / "generated.wav"), *extra,
+                        )
+                    self.assertEqual(error.exception.code, 2)
+                    self.loader.assert_not_called()
+                    self.model.generate.assert_not_called()
+                    self.model.generate_custom_voice.assert_not_called()
+                    self.write.assert_not_called()
+
+    def test_legacy_model_is_rejected_for_prepare_and_generate_before_loading(self):
+        for command in ("prepare", "generate"):
+            with self.subTest(command=command):
+                extra = () if command == "prepare" else (
+                    "--text", "Synthetic", "--ref-audio", "ref.wav",
+                    "--ref-text", "Reference", "--output", "unused.wav",
+                )
+                with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
+                    self.call(
+                        command, "--model", "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit",
+                        *extra,
+                    )
+                self.assertEqual(error.exception.code, 2)
+                self.loader.assert_not_called()
+                self.write.assert_not_called()
+
+    def test_empty_audio_result_in_either_mode_does_not_write_output(self):
+        self.model.generate.return_value = []
+        self.model.generate_custom_voice.return_value = []
+        with tempfile.TemporaryDirectory() as root:
+            for model_id, extra in (
+                (self.worker.MODEL_ID, ("--ref-audio", "ref.wav", "--ref-text", "Reference")),
+                (self.worker.CUSTOM_VOICE_MODEL_ID, ("--speaker", "Sohee")),
+            ):
+                with self.subTest(model=model_id), self.assertRaisesRegex(RuntimeError, "No audio"):
+                    self.call(
+                        "generate", "--model", model_id, "--text", "Synthetic",
+                        "--output", str(Path(root) / "generated.wav"), *extra,
+                    )
+                self.write.assert_not_called()
 
     def test_unapproved_model_is_rejected_before_loading(self):
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
