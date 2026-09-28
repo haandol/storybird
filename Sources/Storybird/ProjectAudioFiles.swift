@@ -11,8 +11,10 @@ struct AudioFileSummary: Codable, Sendable {
 enum ProjectAudioFiles {
     /// Decodes the entire source before publication and produces a project-owned
     /// PCM WAV. Invalid input or cancellation leaves no referenced partial file.
+    /// Native microphone assets retain their validated 24 kHz mono 16-bit format.
     static func importFile(
         from source: URL, to destination: URL,
+        preserveRecordingFormat: Bool = false,
         didDecodeFrames: @Sendable (Int64) -> Void = { _ in }
     ) throws -> AudioFileSummary {
         guard source.isFileURL, ["wav", "mp3", "m4a"].contains(source.pathExtension.lowercased()) else {
@@ -24,12 +26,20 @@ enum ProjectAudioFiles {
         try LocalMediaFile.copy(from: source, to: snapshot)
         let input = try AVAudioFile(forReading: snapshot)
         let format = input.processingFormat
+        if preserveRecordingFormat {
+            guard VoiceRecordingFormat.matches(input.fileFormat) else {
+                throw VoiceSynthesisError.invalidResponse
+            }
+        }
         guard format.sampleRate > 0, format.channelCount > 0, input.length > 0,
               let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 8_192) else {
             throw VoiceSynthesisError.invalidResponse
         }
         do {
-            let output = try AVAudioFile(forWriting: destination, settings: format.settings)
+            // Reading uses Float32 processing buffers even for a 16-bit WAV.
+            // Native recordings retain their stored PCM format on publication.
+            let settings = preserveRecordingFormat ? input.fileFormat.settings : format.settings
+            let output = try AVAudioFile(forWriting: destination, settings: settings)
             while input.framePosition < input.length {
                 try Task.checkCancellation()
                 try input.read(into: buffer)

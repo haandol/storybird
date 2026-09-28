@@ -599,7 +599,11 @@ final class AppStore: ObservableObject {
         defer { if access { sourceURL.stopAccessingSecurityScopedResource() } }
         do {
             let worker = Task.detached {
-                try ProjectAudioFiles.importFile(from: sourceURL, to: prepared.url, didDecodeFrames: didDecodeFrames)
+                try ProjectAudioFiles.importFile(
+                    from: sourceURL, to: prepared.url,
+                    preserveRecordingFormat: origin == .recorded,
+                    didDecodeFrames: didDecodeFrames
+                )
             }
             let summary = try await withTaskCancellationHandler {
                 try await worker.value

@@ -4,6 +4,13 @@ This document is the **major decision-change history** of the voice-narration ca
 Each ADR body describes only the current state, while the timeline of "what changed and
 why" accumulates here, newest first. Git preserves the individual diffs.
 
+## 2026-09-28 — 녹음 입력 크기를 앱 안에서 조절한다
+
+- **Current ADR**: [local-cloned-voice-narration](./0001-local-cloned-voice-narration.md)
+- **Change type**: requirement rule and value change
+- **What**: 고정 입력 크기의 녹음에 기본 100%·0~400% 볼륨과 클리핑 표시를 제공하고, 녹음 조작·레벨·볼륨을 스크롤 밖에 고정한다.
+- **Why**: 사용자가 대본을 읽는 동안 녹음을 끝내고 입력 크기를 조절할 수 있어야 하며, macOS 장치 설정이나 다른 앱의 소리는 바꾸지 않아야 한다.
+
 ## 2026-09-20 — 복제와 내장 화자 생성을 함께 지원한다
 
 - **Current ADR**: [local-cloned-voice-narration](./0001-local-cloned-voice-narration.md)

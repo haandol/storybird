@@ -3,12 +3,28 @@ import AudioToolbox
 import Combine
 import CoreAudio
 import Foundation
+import StorybirdCore
 
 enum VoiceRecordingRequirements {
     static let minimumDuration = 10.0
 }
 
 enum VoiceRecordingFinalization {
+    /// Keeps input shutdown, writer closure and terminal state checking in one
+    /// testable boundary before a recording may become a previewable sample.
+    @MainActor
+    static func finalize(
+        stopInput: () -> Void,
+        finishFile: () -> Void,
+        snapshot: () -> VoiceCaptureSnapshot
+    ) throws -> VoiceCaptureSnapshot {
+        stopInput()
+        finishFile()
+        let final = snapshot()
+        if let failure = final.failure { throw VoiceCaptureFinalizationError(reason: failure) }
+        return final
+    }
+
     /// Publishes only the same still-active capture whose final meter check
     /// succeeded, preventing a failure cleanup from re-exposing a deleted WAV.
     static func canPublish(
@@ -19,6 +35,11 @@ enum VoiceRecordingFinalization {
     ) -> Bool {
         meteringSucceeded && activeURL == candidateURL && hasSink
     }
+}
+
+private struct VoiceCaptureFinalizationError: LocalizedError {
+    let reason: String
+    var errorDescription: String? { reason }
 }
 
 enum VoiceRecordingPresentation {
@@ -95,6 +116,9 @@ protocol VoiceSampleRecording: ObservableObject {
     var isUsingFallbackDevice: Bool { get }
     var hasSession: Bool { get }
     var canFinish: Bool { get }
+    var inputGain: Double { get }
+    var hasClipped: Bool { get }
+    func setInputGain(_ multiplier: Double) throws
     func start(preferredDeviceUID: String?) async throws
     func pause()
     func resume() throws
@@ -115,6 +139,8 @@ final class VoiceSampleRecorder: VoiceSampleRecording {
     )
     @Published private(set) var activeDeviceName: String?
     @Published private(set) var isUsingFallbackDevice = false
+    @Published private(set) var inputGain = VoiceRecordingGain.unity.multiplier
+    @Published private(set) var hasClipped = false
 
     private var engine: AVAudioEngine?
     private var sink: VoiceCaptureSink?
@@ -139,6 +165,17 @@ final class VoiceSampleRecorder: VoiceSampleRecording {
 
     var canFinish: Bool {
         elapsedTime > 0 && elapsedTime >= minimumDuration
+    }
+
+    /// Keeps recording volume local to this recorder, validating before any
+    /// change and locking completed samples and in-flight startup configuration.
+    func setInputGain(_ multiplier: Double) throws {
+        let gain = try VoiceRecordingGain(multiplier: multiplier)
+        guard recordedURL == nil, startRequestID == nil else {
+            throw VoiceProfileError.invalidInput
+        }
+        sink?.setInputGain(gain)
+        inputGain = gain.multiplier
     }
 
     /// Requests microphone access only for this explicit action, then records
@@ -258,6 +295,7 @@ final class VoiceSampleRecorder: VoiceSampleRecording {
         ) ?? "System Default"
         recordedURL = nil
         elapsedTime = sink?.snapshot().duration ?? 0
+        hasClipped = sink?.snapshot().hasClipped ?? false
         levelSamples = Array(repeating: 0, count: levelSamples.count)
         isPaused = false
         isRecording = true
@@ -305,7 +343,14 @@ final class VoiceSampleRecorder: VoiceSampleRecording {
             return false
         }
         stopMetering()
-        stopCapture()
+        do {
+            guard let final = try stopCapture() else { throw VoiceProfileError.microphoneUnavailable }
+            updateMeter(with: final)
+        } catch {
+            try? FileManager.default.removeItem(at: captureURL)
+            handleUnexpectedStop(message: error.localizedDescription)
+            return false
+        }
         recordedURL = captureURL
         isRecording = false
         isPaused = false
@@ -320,7 +365,7 @@ final class VoiceSampleRecorder: VoiceSampleRecording {
         releaseStorageOperation()
         stopMetering()
         let url = captureURL ?? recordedURL
-        stopCapture()
+        try? stopCapture()
         if let url {
             try? FileManager.default.removeItem(at: url)
         }
@@ -331,6 +376,7 @@ final class VoiceSampleRecorder: VoiceSampleRecording {
         levelSamples = Array(repeating: 0, count: levelSamples.count)
         activeDeviceName = nil
         isUsingFallbackDevice = false
+        hasClipped = false
     }
 
     private func releaseStorageOperation() {
@@ -356,13 +402,17 @@ final class VoiceSampleRecorder: VoiceSampleRecording {
             )
             return false
         }
-        elapsedTime = max(elapsedTime, snapshot.duration)
-        let level = VoiceRecordingPresentation.normalizedLevel(
-            decibels: snapshot.decibels
-        )
-        levelSamples.removeFirst()
-        levelSamples.append(level)
+        updateMeter(with: snapshot)
         return true
+    }
+
+    /// Publishes a validated capture snapshot on the main actor so the visible
+    /// meter and clipping warning describe the same adjusted audio as the WAV.
+    func updateMeter(with snapshot: VoiceCaptureSnapshot) {
+        elapsedTime = max(elapsedTime, snapshot.duration)
+        hasClipped = snapshot.hasClipped
+        levelSamples.removeFirst()
+        levelSamples.append(VoiceRecordingPresentation.normalizedLevel(decibels: snapshot.decibels))
     }
 
     /// Samples metering on the main actor so SwiftUI receives ordered waveform
@@ -396,7 +446,7 @@ final class VoiceSampleRecorder: VoiceSampleRecording {
         isRecording = false
         isPaused = false
         let url = captureURL
-        stopCapture()
+        try? stopCapture()
         if let url {
             try? FileManager.default.removeItem(at: url)
         }
@@ -424,7 +474,8 @@ final class VoiceSampleRecorder: VoiceSampleRecording {
         let file = try VoiceCaptureSink.makeFile(at: url)
         guard let sink = VoiceCaptureSink(
             file: file,
-            sourceFormat: format
+            sourceFormat: format,
+            inputGain: try VoiceRecordingGain(multiplier: inputGain)
         ) else {
             throw VoiceProfileError.microphoneUnavailable
         }
@@ -499,15 +550,25 @@ final class VoiceSampleRecorder: VoiceSampleRecording {
 
     /// Tears down the active device session while leaving a completed WAV in
     /// place only when the caller is finalizing a valid guided sample.
-    private func stopCapture() {
-        if hasInputTap {
-            engine?.inputNode.removeTap(onBus: 0)
-            hasInputTap = false
+    @discardableResult
+    private func stopCapture() throws -> VoiceCaptureSnapshot? {
+        defer {
+            engine = nil
+            sink = nil
+            captureURL = nil
         }
-        engine?.stop()
-        sink?.finish()
-        engine = nil
-        sink = nil
-        captureURL = nil
+        let stopInput = {
+            if self.hasInputTap {
+                self.engine?.inputNode.removeTap(onBus: 0)
+                self.hasInputTap = false
+            }
+            self.engine?.stop()
+        }
+        guard let sink else { stopInput(); return nil }
+        return try VoiceRecordingFinalization.finalize(
+            stopInput: stopInput,
+            finishFile: { sink.finish() },
+            snapshot: { sink.snapshot() }
+        )
     }
 }

@@ -78,10 +78,6 @@ struct VoiceProfileCreationView<Recorder: VoiceSampleRecording>: View {
                             Text("Read the full script naturally (\(model.referenceLanguage.referenceDurationDescription)). Record at least 10 seconds. You can pause, preview, and record again.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                            Button(isStarting ? "Starting…" : "Start Recording") {
-                                startRecording()
-                            }
-                            .disabled(!canStartInput)
                         }
                         if !model.consentConfirmed {
                             Label("Confirm voice ownership or permission to enable recording and file selection.", systemImage: "lock.fill")
@@ -93,12 +89,8 @@ struct VoiceProfileCreationView<Recorder: VoiceSampleRecording>: View {
                 if recorder.hasSession {
                     GuidedVoiceRecordingSection(
                         recorder: recorder,
-                        preview: preview,
                         prompt: model.referenceLanguage.referencePrompt,
-                        targetDurationDescription: model.referenceLanguage.referenceDurationDescription,
-                        isWorking: model.isSaving,
-                        onRestart: restartRecording,
-                        onError: { model.errorMessage = $0.localizedDescription }
+                        targetDurationDescription: model.referenceLanguage.referenceDurationDescription
                     )
                     if let name = recorder.activeDeviceName {
                         Label(
@@ -120,6 +112,24 @@ struct VoiceProfileCreationView<Recorder: VoiceSampleRecording>: View {
                 }
             }
             .formStyle(.grouped)
+            if model.inputMethod == .record || recorder.hasSession {
+                Divider()
+                VStack(alignment: .leading, spacing: 8) {
+                    VoiceRecordingInputPanel(
+                        recorder: recorder,
+                        isLocked: isStarting || model.isSaving,
+                        onError: { model.errorMessage = $0.localizedDescription }
+                    )
+                    HStack {
+                        recordingControls
+                        Spacer()
+                    }
+                    .frame(minHeight: 32)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .disabled(model.isSaving)
+            }
             Divider()
             HStack {
                 if model.isSaving {
@@ -154,6 +164,40 @@ struct VoiceProfileCreationView<Recorder: VoiceSampleRecording>: View {
             preview.stop()
             startTask?.cancel()
             model.cancel()
+        }
+    }
+
+    /// Keeps the primary recording action in the same fixed row while only
+    /// the profile details and script scroll above it.
+    @ViewBuilder
+    private var recordingControls: some View {
+        if recorder.isRecording || recorder.isPaused {
+            Button("Finish Recording") { recorder.finish() }
+                .buttonStyle(.borderedProminent)
+                .disabled(!recorder.canFinish)
+            if recorder.isRecording {
+                Button("Pause") { recorder.pause() }
+            } else {
+                Button("Resume") {
+                    do { try recorder.resume() }
+                    catch { model.errorMessage = error.localizedDescription }
+                }
+                Button("Record Again", role: .destructive) { restartRecording() }
+            }
+        } else if let recordedURL = recorder.recordedURL {
+            Button {
+                preview.toggle(recordedURL)
+            } label: {
+                Label(
+                    preview.playingURL == recordedURL ? "Stop Preview" : "Preview Recording",
+                    systemImage: preview.playingURL == recordedURL ? "stop.fill" : "play.fill"
+                )
+            }
+            Button("Record Again") { restartRecording() }
+        } else {
+            Button(isStarting ? "Starting…" : "Start Recording") { startRecording() }
+                .buttonStyle(.borderedProminent)
+                .disabled(!canStartInput)
         }
     }
 

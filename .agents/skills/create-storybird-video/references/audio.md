@@ -18,6 +18,9 @@ additional approval and model selection alone never downloads. Do not switch
 models during active voice work. Both prepared models remain available.
 Users create/manage profiles in native Settings; never activate a microphone,
 choose a voice-profile reference file or modify profile assets indirectly.
+Native profile/project recording offers 0–400% input volume (default 100%) and
+clipping indication. Agents do not change microphone input gain through MCP;
+use existing audio assets and timeline volume editing for automated production.
 CustomVoice requires no microphone, reference audio or profile. Retired 0.6B
 installations are removal-only; use `storybird_remove_voice_model` when cleanup
 is requested and poll until `not_prepared` or `failed`.

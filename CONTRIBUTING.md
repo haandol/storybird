@@ -283,7 +283,13 @@ steps using the matrix above; this is a catalog, not an all-changes checklist:
     and duplicate creation; a save failure preserves inputs and shows an inline error.
 15. Select **Record**, grant Microphone access, and confirm the recording sheet shows the
     full prosody prompt, recording state, live waveform, elapsed time, and the
-    10-second boundary. With AirPods/Bluetooth input, check the first start after
+    10-second boundary. Start and Finish Recording occupy the same fixed action
+    position; the input level and recording controls remain visible while scrolling
+    the script. Check Recording volume at 0%, 100%, 200% and 400%: only newly
+    recorded audio changes, mute still advances time, and clipping remains marked
+    through preview. Record Again retains volume and clears the warning; a new
+    recording window starts at 100%. Repeat volume checks in project voice recording.
+    With AirPods/Bluetooth input, check the first start after
     playback as well as Record Again: Starting must resolve to advancing recorded
     time or an error, without requiring Pause/Resume or Record Again to recover.
     Also check the built-in microphone and cancellation while Starting.
@@ -386,8 +392,8 @@ The harness writes `docs/images/welcome.png`, `docs/images/voice-narration.png`,
 `docs/images/narration-drafts.png`. Review the generated images before committing them.
 Do not replace the synthetic state with an actual recording or project library.
 
-The running-app editor and profile-dialog screenshots use a separate synthetic
-demo. See [screenshot sources and reproduction](docs/images/README.md); its
+The running-app editor screenshot uses a separate synthetic demo; the profile
+dialog uses the documentation test above. See [screenshot sources and reproduction](docs/images/README.md); the demo's
 generated video and library stay in `.build/readme-demo/`.
 
 ## Coding Style
@@ -461,7 +467,7 @@ explicit Start Recording action; verify mutual exclusion with screen/profile rec
 Run the hardware-independent checks with:
 
 ```bash
-swift test --filter 'VoiceCaptureStartupTests|VoiceCapturePipelineHarnessTests|VoiceInputDeviceTests|VoiceProfileCreationViewTests'
+swift test --filter 'VoiceCaptureStartupTests|VoiceCapturePipelineHarnessTests|VoiceCaptureContinuityTests|VoiceInputDeviceTests|VoiceProfileCreationViewTests'
 ```
 
 These tests also run in ordinary `swift test`. `VoiceCaptureStartupTests` checks
@@ -479,6 +485,21 @@ Already-arriving audio wins over a format change; the final attempt and unchange
 formats retain their full input wait. Check that recorded time advances with
 actual WAV frames, output remains
 24 kHz mono 16-bit, and failed/cancelled attempts leave no partial file.
+
+`VoiceCaptureContinuityTests` feeds the production converter and WAV writer with
+short and variable-size inputs. A successful conversion with no output must keep
+waiting for input without failing or advancing recorded time. The tests compare
+all stored samples against a continuous-input control, including a format change,
+and check metering, startup readiness and late input after finalization.
+`VoiceRecordingGainTests` verifies actual WAV samples, adjusted meter levels,
+mute, both clipping polarities, invalid values, format changes and short input.
+It also injects a last callback and final write failure at shutdown. Project audio
+tests reopen the registered microphone asset to verify 24 kHz mono 16-bit storage
+and unchanged samples. Large-buffer tests check that every converter request is
+served without dropping the remaining input frames.
+`VoiceProfileCreationViewTests` also checks the rendered positions of recording
+controls and the input-level label before and after scrolling, including pause,
+resume and completed-sample states.
 
 When changing startup, deliberately bypass the written-frame readiness check once
 and confirm the harness fails, then restore it and run the full suite.

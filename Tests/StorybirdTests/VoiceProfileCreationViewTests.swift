@@ -3,10 +3,95 @@ import Combine
 import StorybirdCore
 import SwiftUI
 import XCTest
+import Vision
 @testable import Storybird
 
 @MainActor
 final class VoiceProfileCreationViewTests: XCTestCase {
+    func test_profileAndProjectRecording_showSelectedVolumeAndRetainClippingUntilRecordAgain() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("storybird-input-ui-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = AppStore(repository: ProjectRepository(rootURL: root))
+        for isProject in [false, true] {
+            let recorder = SyntheticProfileRecorder()
+            try recorder.setInputGain(2)
+            let model = VoiceProfileCreationModel(persist: { _ in }, discardSample: { recorder.discard() })
+            model.profileName = "Synthetic narrator"
+            model.consentConfirmed = true
+            let view: AnyView = isProject
+                ? AnyView(ProjectAudioRecordingView(store: store, projectID: UUID(), recorder: recorder))
+                : AnyView(VoiceProfileCreationView(model: model, recorder: recorder))
+            let window = host(view, size: isProject ? CGSize(width: 560, height: 460) : CGSize(width: 620, height: 650))
+            defer { window.close() }
+            let content = try XCTUnwrap(window.contentView)
+            await settle()
+            let start = try textBounds(named: "Start Recording", in: content)
+            XCTAssertTrue(content.bounds.contains(try textBounds(named: "Recording volume", in: content)))
+            _ = try textBounds(named: "200%", in: content)
+            try await recorder.start(preferredDeviceUID: nil)
+            recorder.hasClipped = true
+            await settle()
+            let finish = try textBounds(named: isProject ? "Stop Recording" : "Finish Recording", in: content)
+            XCTAssertEqual(finish.minX, start.minX, accuracy: 2)
+            XCTAssertEqual(finish.midY, start.midY, accuracy: 2)
+            _ = try textBounds(named: "Audio clipped", in: content)
+            try snapshot(content, name: isProject ? "project-volume-clipped" : "profile-volume-clipped")
+            XCTAssertTrue(recorder.finish())
+            await settle()
+            _ = try textBounds(named: "Audio clipped", in: content)
+            XCTAssertThrowsError(try recorder.setInputGain(3))
+            XCTAssertEqual(recorder.inputGain, 2)
+            recorder.discard()
+            XCTAssertFalse(recorder.hasClipped)
+            XCTAssertEqual(recorder.inputGain, 2)
+        }
+    }
+
+    func test_recordingControls_keepStartPositionAndStayVisibleWhileScrolling() async throws {
+        let recorder = SyntheticProfileRecorder()
+        let model = VoiceProfileCreationModel(persist: { _ in }, discardSample: { recorder.discard() })
+        model.profileName = "Synthetic narrator"
+        model.consentConfirmed = true
+        let window = host(VoiceProfileCreationView(model: model, recorder: recorder))
+        defer { window.close() }
+        let content = try XCTUnwrap(window.contentView)
+        await settle()
+        let start = try textBounds(named: "Start Recording", in: content)
+        let visible = content.bounds
+        XCTAssertTrue(visible.contains(start))
+        let meter = try textBounds(named: "Microphone input level", in: content)
+        XCTAssertTrue(visible.contains(meter))
+
+        try await recorder.start(preferredDeviceUID: nil)
+        await settle()
+        let finishFrame = try textBounds(named: "Finish Recording", in: content)
+        XCTAssertTrue(visible.contains(finishFrame), "Finish must be visible without scrolling the script.")
+        XCTAssertEqual(finishFrame.minX, start.minX, accuracy: 2)
+        XCTAssertEqual(finishFrame.midY, start.midY, accuracy: 2)
+        for scroll in descendants(of: content).compactMap({ $0 as? NSScrollView }) {
+            guard let document = scroll.documentView else { continue }
+            document.scroll(NSPoint(x: 0, y: max(0, document.bounds.height - scroll.contentSize.height)))
+        }
+        await settle()
+        let scrolled = try textBounds(named: "Finish Recording", in: content)
+        XCTAssertEqual(scrolled.minX, finishFrame.minX, accuracy: 2)
+        XCTAssertEqual(scrolled.midY, finishFrame.midY, accuracy: 2)
+        let scrolledMeter = try textBounds(named: "Microphone input level", in: content)
+        XCTAssertEqual(scrolledMeter.midY, meter.midY, accuracy: 2)
+
+        recorder.pause()
+        await settle()
+        let paused = try textBounds(named: "Finish Recording", in: content)
+        XCTAssertEqual(paused.minX, finishFrame.minX, accuracy: 2)
+        XCTAssertEqual(paused.midY, finishFrame.midY, accuracy: 2)
+        XCTAssertTrue(visible.contains(try textBounds(named: "Resume", in: content)))
+        try recorder.resume()
+        XCTAssertTrue(recorder.finish())
+        await settle()
+        XCTAssertTrue(visible.contains(try textBounds(named: "Preview Recording", in: content)))
+        XCTAssertTrue(model.canSave(recordedURL: recorder.recordedURL))
+    }
+
     func test_languageSelection_updatesVisibleScriptAndPreservesItThroughRecordingAndSave() async throws {
         let recorder = SyntheticProfileRecorder()
         var saved: VoiceProfileCreationModel.Input?
@@ -113,9 +198,9 @@ final class VoiceProfileCreationViewTests: XCTestCase {
     }
 
     /// Mounts the real SwiftUI content in an isolated, offscreen AppKit window.
-    private func host<Content: View>(_ content: Content) -> NSWindow {
+    private func host<Content: View>(_ content: Content, size: CGSize = CGSize(width: 620, height: 650)) -> NSWindow {
         let window = NSWindow(
-            contentRect: NSRect(x: -10_000, y: -10_000, width: 620, height: 650),
+            contentRect: NSRect(origin: NSPoint(x: -10_000, y: -10_000), size: size),
             styleMask: [.titled, .closable], backing: .buffered, defer: false
         )
         window.isReleasedWhenClosed = false
@@ -146,6 +231,27 @@ final class VoiceProfileCreationViewTests: XCTestCase {
     /// Finds the scroll container used by the actual macOS form.
     private func descendants(of view: NSView) -> [NSView] {
         view.subviews.flatMap { [$0] + descendants(of: $0) }
+    }
+
+    /// Reads the actual rendered control labels, including clipping and scroll
+    /// placement. Vision uses local text recognition on synthetic UI pixels.
+    private func textBounds(named name: String, in view: NSView) throws -> CGRect {
+        view.layoutSubtreeIfNeeded()
+        let bitmap = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.recognitionLanguages = ["en-US"]
+        request.usesLanguageCorrection = false
+        try VNImageRequestHandler(cgImage: XCTUnwrap(bitmap.cgImage)).perform([request])
+        let match = try XCTUnwrap(request.results?.first {
+            $0.topCandidates(1).first?.string.contains(name) == true
+        }, "Control is not visible in the rendered sheet: \(name)")
+        let box = match.boundingBox
+        return CGRect(
+            x: box.minX * view.bounds.width, y: box.minY * view.bounds.height,
+            width: box.width * view.bounds.width, height: box.height * view.bounds.height
+        )
     }
 
     /// Selectable SwiftUI scripts expose their displayed string in native text fields.
@@ -194,6 +300,8 @@ private final class SyntheticProfileRecorder: VoiceSampleRecording {
     @Published var isRecording = false
     @Published var isPaused = false
     @Published var recordedURL: URL?
+    @Published var inputGain = 1.0
+    @Published var hasClipped = false
     let errorMessage: String? = nil
     let elapsedTime = 10.5
     let levelSamples = (0..<32).map { Double(($0 * 7) % 10) / 10 }
@@ -202,6 +310,13 @@ private final class SyntheticProfileRecorder: VoiceSampleRecording {
     var discards = 0
     var hasSession: Bool { isRecording || isPaused || recordedURL != nil }
     var canFinish: Bool { elapsedTime >= 10 }
+
+    /// Mirrors the shared gain validation without opening a microphone.
+    func setInputGain(_ multiplier: Double) throws {
+        let gain = try VoiceRecordingGain(multiplier: multiplier)
+        guard recordedURL == nil else { throw VoiceProfileError.invalidInput }
+        inputGain = gain.multiplier
+    }
 
     /// Simulates recording state without requesting microphone access.
     func start(preferredDeviceUID: String?) async throws { isRecording = true }
@@ -222,5 +337,6 @@ private final class SyntheticProfileRecorder: VoiceSampleRecording {
         isRecording = false
         isPaused = false
         recordedURL = nil
+        hasClipped = false
     }
 }

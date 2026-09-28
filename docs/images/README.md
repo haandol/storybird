@@ -7,7 +7,7 @@ these images are synthetic. Never substitute a customer recording or voice sampl
 |---|---|
 | `editor-app.png` | Running signed Storybird app, temporary Northstar demo library, Click Cue selected at 1 second |
 | `voice-settings-app.png` | Real SwiftUI Voice settings in a synthetic native window, empty profile list, Base/CustomVoice model selector and Install Model/Remove Model controls |
-| `voice-profile-dialog-app.png` | Running signed app's creation sheet, unsaved fictional name “Demo narrator”, consent off; cancelled after capture |
+| `voice-profile-dialog-app.png` | Real SwiftUI creation view with unsaved fictional name “Synthetic narrator”, consent on, fixed input meter and volume controls; microphone never started |
 | `welcome.png` | Real SwiftUI welcome view rendered by the documentation test |
 | `voice-narration.png` | Real SwiftUI Voice settings with a synthetic profile and supported Base/CustomVoice model controls |
 | `custom-voice-settings.png` | Synthetic Voice settings with CustomVoice selected and installation/removal controls |
@@ -17,8 +17,8 @@ these images are synthetic. Never substitute a customer recording or voice sampl
 | `narration-drafts.png` | Real SwiftUI composer with synthetic ready-draft metadata |
 | `storage-settings.png` | Real SwiftUI General settings with a temporary library |
 
-The live editor and creation-dialog screenshots were captured on 2026-09-10.
-Voice settings/model selection images use the synthetic test harness. They
+The live editor screenshot was captured on 2026-09-10.
+Voice settings/model selection and creation-dialog images use the synthetic test harness. They
 illustrate model controls, not successful installation or synthesis. The harness
 does not record a microphone, download a model or save a voice profile for these
 images. Model status and microphone names in a new capture depend on the fixture
@@ -62,5 +62,5 @@ STORYBIRD_UPDATE_DOC_SCREENSHOTS=1 \
 ```
 
 This renders actual SwiftUI views in an isolated test fixture, including the
-Voice settings image. It does not update the live editor or creation-dialog
-screenshots. Review all changed images before committing.
+Voice settings and creation-dialog images. It does not update the live editor
+screenshot. Review all changed images before committing.

@@ -81,7 +81,19 @@ final class MCPFeatureParityTests: XCTestCase {
         XCTAssertTrue(names.contains("storybird_import_video"))
         XCTAssertTrue(names.contains("storybird_import_audio"))
         XCTAssertFalse(names.contains("storybird_start_microphone"))
+        XCTAssertFalse(names.contains("storybird_set_microphone_gain"))
         XCTAssertFalse(names.contains("storybird_set_storage_folder"))
+    }
+
+    func test_microphoneGain_remainsNativeWhileTimelineVolumeStaysEditable() throws {
+        for profile in StorybirdMCPToolProfile.allCases {
+            for tool in StorybirdMCPService.toolDefinitions(for: profile) {
+                let properties = tool.inputSchema.objectValue?["properties"]?.objectValue ?? [:]
+                XCTAssertNil(properties["input_gain"], "Microphone input gain is native recording state.")
+                XCTAssertNil(properties["microphone_gain"])
+            }
+        }
+        XCTAssertTrue(try propertyNames(for: "storybird_update_narration").contains("volume"))
     }
 
     func test_toolDefinitions_updateNarration_supportsTextRegeneration() throws {

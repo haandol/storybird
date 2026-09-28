@@ -2,11 +2,11 @@ import AVFAudio
 import StorybirdCore
 import SwiftUI
 
-struct ProjectAudioRecordingView: View {
+struct ProjectAudioRecordingView<Recorder: VoiceSampleRecording>: View {
     @ObservedObject var store: AppStore
     let projectID: UUID
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var recorder: VoiceSampleRecorder
+    @StateObject private var recorder: Recorder
     @State private var name = "Recorded voice"
     @State private var deviceUID: String?
     @State private var isStarting = false
@@ -16,59 +16,61 @@ struct ProjectAudioRecordingView: View {
 
     /// Owns one native user-started recording, separate from voice-profile
     /// enrollment. Cancelling this sheet discards only its temporary sample.
-    init(store: AppStore, projectID: UUID) {
+    init(store: AppStore, projectID: UUID) where Recorder == VoiceSampleRecorder {
+        self.init(store: store, projectID: projectID, recorder: VoiceSampleRecorder(store: store, minimumDuration: 0))
+    }
+
+    /// Hosts the same project recording controls with either native capture or
+    /// a synthetic recorder; saving still uses the app-owned asset command.
+    init(store: AppStore, projectID: UUID, recorder: Recorder) {
         self.store = store
         self.projectID = projectID
-        _recorder = StateObject(wrappedValue: VoiceSampleRecorder(store: store, minimumDuration: 0))
+        _recorder = StateObject(wrappedValue: recorder)
         _deviceUID = State(initialValue: VoiceInputPreferences.preferredDeviceUID())
     }
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section("Project voice recording") {
-                    TextField("Name", text: $name).disabled(isSaving)
-                    Picker("Microphone", selection: $deviceUID) {
-                        ForEach(VoiceInputDeviceOption.options(
-                            availableDevices: VoiceInputDeviceCatalog.devices(),
-                            defaultUID: VoiceInputDeviceCatalog.defaultDeviceUID(), preferredUID: deviceUID
-                        )) { option in
-                            Text(option.title).tag(option.uid)
-                        }
-                    }
-                    .disabled(recorder.hasSession || isStarting || isSaving)
-                    Text("Record a separate voice clip, listen, then save it to this project's audio assets.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    VoiceInputWaveform(levels: recorder.levelSamples)
-                    Text(VoiceRecordingPresentation.formattedDuration(recorder.elapsedTime))
-                        .monospacedDigit()
-                    if let device = recorder.activeDeviceName {
-                        Text(device + (recorder.isUsingFallbackDevice ? " · fallback" : ""))
-                            .font(.caption)
-                    }
-                    HStack {
-                        if recorder.isRecording {
-                            Button("Pause") { recorder.pause() }
-                            Button("Stop Recording") { recorder.finish() }.disabled(!recorder.canFinish)
-                        } else if recorder.isPaused {
-                            Button("Resume") {
-                                do { try recorder.resume() } catch { errorMessage = error.localizedDescription }
+            VStack(spacing: 0) {
+                Form {
+                    Section("Project voice recording") {
+                        TextField("Name", text: $name).disabled(isSaving)
+                        Picker("Microphone", selection: $deviceUID) {
+                            ForEach(VoiceInputDeviceOption.options(
+                                availableDevices: VoiceInputDeviceCatalog.devices(),
+                                defaultUID: VoiceInputDeviceCatalog.defaultDeviceUID(), preferredUID: deviceUID
+                            )) { option in
+                                Text(option.title).tag(option.uid)
                             }
-                            Button("Stop Recording") { recorder.finish() }.disabled(!recorder.canFinish)
-                        } else if let url = recorder.recordedURL {
-                            Button("Listen") { listen(url) }
-                            Button("Record Again") { player?.stop(); recorder.discard() }
-                        } else {
-                            Button("Start Recording") { start() }.disabled(isStarting)
+                        }
+                        .disabled(recorder.hasSession || isStarting || isSaving)
+                        Text("Record a separate voice clip, listen, then save it to this project's audio assets.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        if let device = recorder.activeDeviceName {
+                            Text(device + (recorder.isUsingFallbackDevice ? " · fallback" : ""))
+                                .font(.caption)
                         }
                     }
+                    if let error = errorMessage ?? recorder.errorMessage {
+                        Section { Text(error).foregroundStyle(.red) }
+                    }
+                }
+                .formStyle(.grouped)
+                Divider()
+                VStack(alignment: .leading, spacing: 8) {
+                    VoiceRecordingInputPanel(
+                        recorder: recorder, isLocked: isStarting || isSaving,
+                        onError: { errorMessage = $0.localizedDescription }
+                    )
+                    HStack {
+                        recordingControls
+                        Spacer()
+                    }
+                    .frame(minHeight: 32)
                     .disabled(isSaving)
                 }
-                if let error = errorMessage ?? recorder.errorMessage {
-                    Section { Text(error).foregroundStyle(.red) }
-                }
+                .padding(20)
             }
-            .formStyle(.grouped)
             .navigationTitle("Record Voice")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -83,6 +85,31 @@ struct ProjectAudioRecordingView: View {
         .frame(width: 560, height: 460)
         .interactiveDismissDisabled(isSaving)
         .onDisappear { player?.stop(); recorder.discard() }
+    }
+
+    /// Keeps capture, pause and audition actions reachable as the form scrolls,
+    /// retaining the selected input volume when a temporary sample is discarded.
+    @ViewBuilder
+    private var recordingControls: some View {
+        if recorder.isRecording || recorder.isPaused {
+            Button("Stop Recording") { recorder.finish() }
+                .buttonStyle(.borderedProminent)
+                .disabled(!recorder.canFinish)
+            if recorder.isRecording {
+                Button("Pause") { recorder.pause() }
+            } else {
+                Button("Resume") {
+                    do { try recorder.resume() } catch { errorMessage = error.localizedDescription }
+                }
+            }
+        } else if let url = recorder.recordedURL {
+            Button("Listen") { listen(url) }
+            Button("Record Again") { player?.stop(); recorder.discard() }
+        } else {
+            Button("Start Recording") { start() }
+                .buttonStyle(.borderedProminent)
+                .disabled(isStarting)
+        }
     }
 
     /// Requests microphone input only from the explicit native button.

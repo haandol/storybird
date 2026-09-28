@@ -236,8 +236,9 @@ Click **Create Voice Profile…** to open its own window:
 2. Confirm that you own the voice or have permission to use it.
 3. Choose **Record** to read the displayed prompt, or **Import File** to select
    an MP3/WAV and enter its exact spoken transcript.
-4. For a recording, read for at least **10 seconds**. The waveform and timer show
-   progress; pause/resume, preview, and rerecord are available.
+4. For a recording, read for at least **10 seconds**, then click **Finish Recording**.
+   The fixed controls keep the input level, volume and start/finish action visible
+   while the script scrolls. Pause/resume, preview, and rerecord are available.
 5. Choose **Create Profile**. A successful save closes the window and adds the
    profile to the list. **Cancel** discards the temporary recording. A save error
    keeps your input in the window for retry.
@@ -245,8 +246,15 @@ Click **Create Voice Profile…** to open its own window:
 Recorded samples and saved voice profiles play directly inside Storybird.
 Click the preview button again to stop playback; no external music app is needed.
 
+Profile and project recordings offer **Recording volume**, from **0% to 400%**
+(default **100%**). Changes affect audio recorded afterward; earlier audio stays
+unchanged. **0%** records silence. If the audio clips, lower the volume and record
+again. The warning stays with that recording through preview. Record Again keeps
+the chosen volume; a new recording window starts at 100%. Completed recordings
+cannot change this input setting. macOS microphone volume and other apps are unaffected.
+
 <div align="center">
-  <img src="docs/images/voice-profile-dialog-app.png" width="520" alt="The profile creation modal with the name Synthetic narrator, Korean reference language, voice-use consent, a mixed-language presentation prompt, and Cancel/Create Profile buttons" />
+  <img src="docs/images/voice-profile-dialog-app.png" width="520" alt="Synthetic voice profile creation with consent, reference script, fixed input level and recording volume controls, and Cancel/Create Profile buttons" />
 </div>
 
 Both prompts are approximately 20-second presentations that begin with a greeting

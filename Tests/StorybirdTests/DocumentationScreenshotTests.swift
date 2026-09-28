@@ -261,6 +261,15 @@ final class DocumentationScreenshotTests: XCTestCase {
             size: CGSize(width: 620, height: 650),
             to: imageDirectory.appendingPathComponent("voice-profile-creation.png")
         )
+        let recorder = VoiceSampleRecorder(store: store)
+        let creation = VoiceProfileCreationModel(store: store, recorder: recorder)
+        creation.profileName = "Synthetic narrator"
+        creation.consentConfirmed = true
+        try await render(
+            VoiceProfileCreationView(model: creation, recorder: recorder),
+            size: CGSize(width: 620, height: 650),
+            to: imageDirectory.appendingPathComponent("voice-profile-dialog-app.png")
+        )
         try await render(
             WelcomeView(
                 store: store,

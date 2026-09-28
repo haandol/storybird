@@ -146,8 +146,13 @@ Read these before changing capture, persistence, or export behavior.
   microphone can change sample rate and channel count. Verify the AudioUnit
   readback, tap the selected device's input format, rebuild conversion if the
   callback format changes, and save every guided sample as 24kHz mono 16-bit
-  WAV. Meter the actual interleaved or deinterleaved capture buffer; a callback
-  alone does not prove that non-silent audio arrived.
+  WAV. Native profile and project recording use session-local 0–400% input
+  volume, defaulting to 100% in a new sheet and retained for Record Again.
+  Apply it to subsequently written samples only; completed samples are immutable.
+  Meter the adjusted audio, retain a clipping warning until re-recording, and keep
+  level/volume/recording controls outside scrolling content. Neither the device's
+  system volume nor MCP microphone permissions change. A callback alone does not
+  prove that non-silent audio arrived.
 - **Core Audio callbacks are not MainActor callbacks.** Install microphone tap
   closures from an explicit nonisolated boundary and hand audio only to
   lock-protected Sendable state. A tap closure that inherits MainActor

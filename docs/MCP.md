@@ -535,6 +535,10 @@ successfully created file does not verify pronunciation or naturalness.
 Native **Audio & TTS** also permits optional file import and separate user-started
 voice recording. MCP has no microphone-start or file-picker tool. Screen and microphone
 recording are mutually exclusive. Source movie sound continues to follow video edits.
+Native microphone recording also provides session-local **0–400% Recording volume**
+(default **100%**) with adjusted input levels and clipping warnings. This is not an
+MCP-editable setting. Existing MCP timeline volume edits remain available after
+an audio asset is imported or recorded.
 
 ### Discovery and compatible narration calls
 

@@ -363,7 +363,7 @@ final class ProjectAudioTests: XCTestCase {
         let (root, store, project) = try await fixture()
         defer { try? FileManager.default.removeItem(at: root) }
         let short = root.appendingPathComponent("short.wav")
-        try TestVideoFactory.makeToneWAV(at: short, duration: 0.2)
+        try makeRecordedWAV(at: short)
         let recorded = try await store.importProjectAudio(projectID: project.id, sourceURL: short, origin: .recorded)
         XCTAssertEqual(recorded.duration, 0.2, accuracy: 0.002)
         XCTAssertEqual(recorded.origin, .recorded)
@@ -380,6 +380,57 @@ final class ProjectAudioTests: XCTestCase {
         let importedM4A = try await store.importProjectAudio(projectID: project.id, sourceURL: m4a)
         XCTAssertEqual(importedM4A.duration, 0.2, accuracy: 0.05)
         XCTAssertEqual(store.project(id: project.id)?.revision, 0)
+    }
+
+    func test_recordedImport_preservesFinalFormatSamplesAndRevision() async throws {
+        let (root, store, project) = try await fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let input = root.appendingPathComponent("recorded.wav")
+        try makeRecordedWAV(at: input)
+        let expected = try readSamples(input, sampleRate: 24_000)
+        let asset = try await store.importProjectAudio(projectID: project.id, sourceURL: input, origin: .recorded)
+        let destination = store.repository.assetURL(projectID: project.id, filename: asset.filename)
+        let file = try AVAudioFile(forReading: destination)
+        XCTAssertEqual(file.fileFormat.sampleRate, 24_000)
+        XCTAssertEqual(file.fileFormat.channelCount, 1)
+        XCTAssertEqual(file.fileFormat.streamDescription.pointee.mBitsPerChannel, 16)
+        XCTAssertTrue(try readSamples(destination, sampleRate: 24_000) == expected)
+        XCTAssertEqual(asset.duration, 0.2, accuracy: 1 / 24_000)
+        XCTAssertEqual(store.project(id: project.id)?.revision, project.revision)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: input.path))
+    }
+
+    func test_recordedImport_invalidCaptureFormat_preservesProjectAndSource() async throws {
+        let (root, store, project) = try await fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let input = root.appendingPathComponent("not-native-format.wav")
+        try TestVideoFactory.makeToneWAV(at: input, duration: 0.2)
+        let assetDirectory = store.repository.assetURL(projectID: project.id, filename: project.recording!.filename).deletingLastPathComponent()
+        let previousFiles = Set(try FileManager.default.contentsOfDirectory(atPath: assetDirectory.path))
+        do {
+            _ = try await store.importProjectAudio(projectID: project.id, sourceURL: input, origin: .recorded)
+            XCTFail("A recorded asset must keep the native capture format.")
+        } catch VoiceSynthesisError.invalidResponse {}
+        XCTAssertEqual(store.project(id: project.id), project)
+        XCTAssertEqual(try store.repository.loadProjects(), [project])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: input.path))
+        XCTAssertEqual(Set(try FileManager.default.contentsOfDirectory(atPath: assetDirectory.path)), previousFiles)
+    }
+
+    /// Exercises the actual microphone writer and gain path without capture hardware.
+    private func makeRecordedWAV(at url: URL) throws {
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 24_000, channels: 1))
+        let sink = try XCTUnwrap(VoiceCaptureSink(
+            file: VoiceCaptureSink.makeFile(at: url), sourceFormat: format,
+            inputGain: VoiceRecordingGain(multiplier: 2)
+        ))
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4_800))
+        buffer.frameLength = 4_800
+        for frame in 0..<4_800 { buffer.floatChannelData![0][frame] = frame % 2 == 0 ? 0.125 : -0.125 }
+        sink.consume(buffer)
+        XCTAssertNil(sink.snapshot().failure)
+        XCTAssertEqual(sink.snapshot().duration, 0.2, accuracy: 1 / 24_000)
+        sink.finish()
     }
 
     func test_amplificationLease_reusesLiveFileAndDeletesAfterFinalConsumer() async throws {
@@ -502,9 +553,9 @@ final class ProjectAudioTests: XCTestCase {
     }
 
     /// Reads one test WAV in float format for signal-level assertions.
-    private func readSamples(_ url: URL) throws -> [Float] {
+    private func readSamples(_ url: URL, sampleRate: Double = 48_000) throws -> [Float] {
         let file = try AVAudioFile(forReading: url, commonFormat: .pcmFormatFloat32, interleaved: false)
-        XCTAssertEqual(file.processingFormat.sampleRate, 48_000)
+        XCTAssertEqual(file.processingFormat.sampleRate, sampleRate)
         let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.length))!
         try file.read(into: buffer)
         return Array(UnsafeBufferPointer(start: buffer.floatChannelData![0], count: Int(buffer.frameLength)))

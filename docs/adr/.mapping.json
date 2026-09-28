@@ -153,8 +153,8 @@
       "adrs": [
         {
           "path": "docs/adr/voice-narration/0001-local-cloned-voice-narration.md",
-          "status": "Accepted (2026-09-20)",
-          "summary": "UI와 MCP가 Base 음성 복제와 CustomVoice 화자·지시어 생성을 제공하고 모델 설치·제거와 생성 조건을 보존한다"
+          "status": "Accepted (2026-09-29)",
+          "summary": "네이티브 녹음의 고정 조작·입력 레벨·0~400% 볼륨과 로컬 Base·CustomVoice 생성 및 모델 관리 경계를 보존한다"
         }
       ],
       "dependsOn": [

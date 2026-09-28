@@ -2,19 +2,14 @@ import SwiftUI
 
 struct GuidedVoiceRecordingSection<Recorder: VoiceSampleRecording>: View {
     @ObservedObject var recorder: Recorder
-    @ObservedObject var preview: VoicePreviewPlayer
     let prompt: String
     let targetDurationDescription: String
-    let isWorking: Bool
-    let onRestart: () -> Void
-    let onError: (Error) -> Void
 
     var body: some View {
         Section("Guided Voice Recording") {
             VStack(alignment: .leading, spacing: 16) {
                 statusHeader
                 promptCard
-                VoiceInputWaveform(levels: recorder.levelSamples)
                 ProgressView(
                     value: min(
                         recorder.elapsedTime
@@ -23,8 +18,6 @@ struct GuidedVoiceRecordingSection<Recorder: VoiceSampleRecording>: View {
                     )
                 )
                 durationStatus
-                recordingControls
-                    .disabled(isWorking)
             }
             .padding(.vertical, 4)
         }
@@ -87,54 +80,6 @@ struct GuidedVoiceRecordingSection<Recorder: VoiceSampleRecording>: View {
         }
     }
 
-    @ViewBuilder
-    private var recordingControls: some View {
-        if recorder.isRecording {
-            HStack {
-                Button("Pause") {
-                    recorder.pause()
-                }
-                Button("Finish Recording") {
-                    recorder.finish()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(!recorder.canFinish)
-            }
-        } else if recorder.isPaused {
-            HStack {
-                Button("Resume") {
-                    do {
-                        try recorder.resume()
-                    } catch {
-                        onError(error)
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                Button("Finish Recording") {
-                    recorder.finish()
-                }
-                .disabled(!recorder.canFinish)
-                Button("Record Again", role: .destructive) {
-                    onRestart()
-                }
-            }
-        } else if let recordedURL = recorder.recordedURL {
-            HStack {
-                Button {
-                    preview.toggle(recordedURL)
-                } label: {
-                    Label(
-                        preview.playingURL == recordedURL ? "Stop Preview" : "Preview Recording",
-                        systemImage: preview.playingURL == recordedURL ? "stop.fill" : "play.fill"
-                    )
-                }
-                Button("Record Again") {
-                    onRestart()
-                }
-            }
-        }
-    }
-
     private var recordingStatusText: String {
         if recorder.isRecording {
             return "Recording"
@@ -158,6 +103,7 @@ struct GuidedVoiceRecordingSection<Recorder: VoiceSampleRecording>: View {
 
 struct VoiceInputWaveform: View {
     let levels: [Double]
+    var height: CGFloat = 64
 
     var body: some View {
         HStack(alignment: .center, spacing: 3) {
@@ -171,11 +117,11 @@ struct VoiceInputWaveform: View {
                     )
                     .frame(
                         width: 5,
-                        height: max(6, 58 * level)
+                        height: max(6, (height - 6) * CGFloat(level))
                     )
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 64)
+        .frame(maxWidth: .infinity, minHeight: height)
         .padding(.horizontal, 8)
         .background(
             RoundedRectangle(cornerRadius: 12)
