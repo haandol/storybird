@@ -6,6 +6,14 @@ import XCTest
 
 @MainActor
 final class DocumentationScreenshotTests: XCTestCase {
+    /// Synthetic renders read release metadata without constructing an app bundle or making a request.
+    private func documentationUpdateChecker() throws -> StorybirdUpdateChecker {
+        let data = try Data(contentsOf: repositoryRoot.appendingPathComponent("Resources/Info.plist"))
+        let info = try XCTUnwrap(PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])
+        return StorybirdUpdateChecker(currentVersion: info["CFBundleShortVersionString"] as? String,
+                                      buildNumber: info["CFBundleVersion"] as? String)
+    }
+
     func test_generateCustomVoiceScreenshots() async throws {
         guard ProcessInfo.processInfo.environment["STORYBIRD_UPDATE_DOC_SCREENSHOTS"] == "1" else {
             throw XCTSkip("Set STORYBIRD_UPDATE_DOC_SCREENSHOTS=1 to update CustomVoice screenshots.")
@@ -190,7 +198,8 @@ final class DocumentationScreenshotTests: XCTestCase {
             try? FileManager.default.removeItem(at: root)
         }
         let store = AppStore(repository: ProjectRepository(rootURL: root),
-                             recordingPreferences: StorybirdRecordingPreferences(defaults: defaults))
+                             recordingPreferences: StorybirdRecordingPreferences(defaults: defaults),
+                             updateChecker: try documentationUpdateChecker())
         try await render(
             StorybirdSettingsView(store: store, shortcutSettings: StorybirdShortcutSettings(defaults: defaults)).generalTab,
             size: CGSize(width: 680, height: 720),
@@ -310,7 +319,7 @@ final class DocumentationScreenshotTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: domain) }
         try await render(
             StorybirdSettingsView(
-                store: store,
+                store: AppStore(repository: store.repository, updateChecker: try documentationUpdateChecker()),
                 shortcutSettings: StorybirdShortcutSettings(defaults: defaults)
             ).generalTab,
             size: CGSize(width: 680, height: 720),

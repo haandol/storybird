@@ -18,6 +18,7 @@ enum VoiceReferenceSource {
 
 @MainActor
 final class AppStore: ObservableObject {
+    let updateChecker: StorybirdUpdateChecker
     @Published private(set) var projects: [DemoProject] = []
     @Published var selectedProjectID: UUID?
     @Published var errorMessage: String?
@@ -75,8 +76,10 @@ final class AppStore: ObservableObject {
         storagePreferences: StorybirdStoragePreferences? = nil,
         recordingPreferences: StorybirdRecordingPreferences? = nil,
         voiceModelPreferences: VoiceModelPreferences? = nil,
-        voiceModelServices: [VoiceModel: any VoiceSynthesisProviding] = [:]
+        voiceModelServices: [VoiceModel: any VoiceSynthesisProviding] = [:],
+        updateChecker: StorybirdUpdateChecker? = nil
     ) {
+        self.updateChecker = updateChecker ?? StorybirdUpdateChecker()
         voiceServiceOverride = voiceService
         voiceModelServiceOverrides = voiceModelServices
         let modelPreferences = voiceModelPreferences

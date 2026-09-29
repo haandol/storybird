@@ -127,3 +127,9 @@ the user asks to change that preference. It skips Storybird's session dialog onl
 macOS permissions, pending prompts and permanent deletion confirmation remain.
 Storybird controls only the pointer; a separately
 authorized browser may supply text input to the same captured window.
+
+For app-version troubleshooting, `storybird_get_update_status` reads cached status
+without network access. Use `storybird_check_for_updates` only for a requested
+version check, then poll status; it fetches public GitHub release metadata and
+never installs software or changes projects. Do not add update checks to ordinary
+video production.

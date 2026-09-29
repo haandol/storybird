@@ -395,8 +395,8 @@ command = "/Applications/Storybird.app/Contents/MacOS/StorybirdMCP"
 args = ["--tool-profile", "compact"]
 ```
 
-The compact profile groups related project edits into 54 tools. Existing
-configurations without arguments keep the 72-tool legacy profile; select
+The compact profile groups related project edits into 56 tools. Existing
+configurations without arguments keep the 74-tool legacy profile; select
 `--tool-profile legacy` explicitly if needed. Each connection exposes one fixed
 list. See [tool profiles and call examples](docs/MCP.md#choose-a-tool-profile)
 for the grouped actions and unchanged recording, audio-generation and export tools.
@@ -583,12 +583,25 @@ Older Application Support projects are not moved; choose that folder in Settings
 to access them. Legacy OpenLane data is copied only when the Storybird Application
 Support folder does not exist, and its original is preserved.
 
+### Check for updates
+
+Open **Settings › General** to see the running app version and build number.
+Click **Check for Updates** to compare it with the latest public Storybird release.
+If a newer version is available, **View Release** opens its GitHub page when clicked.
+A failed check can be retried with the same button. Updates are downloaded and
+installed manually.
+
 ### Network and retention
 
 Ordinary recording, media import, editing, and export have no Storybird-owned upload path.
 Model preparation downloads the selected supported runtime/model; subsequent synthesis
 uses the local cache offline. A sync service managing your chosen folder controls
 its own synchronization. MCP disclosure is described above.
+
+An explicit **Check for Updates** action in Settings or MCP fetches public GitHub
+release metadata with a 10-second timeout. It sends no project, screen, voice,
+device identifier, usage statistics, cookies or credentials. Storybird does not
+check at startup, when Settings opens, or on a timer.
 
 Deleting a voice profile removes its reference audio and transcript, while
 project-owned narration remains playable. Removed narration audio is retained for

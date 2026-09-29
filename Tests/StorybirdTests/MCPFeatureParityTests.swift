@@ -6,6 +6,21 @@ import XCTest
 
 @MainActor
 final class MCPFeatureParityTests: XCTestCase {
+    func test_updateChecks_exposeNoArgumentToolsInBothProfiles() throws {
+        for profile in StorybirdMCPToolProfile.allCases {
+            let tools = StorybirdMCPService.toolDefinitions(for: profile)
+            for name in ["storybird_check_for_updates", "storybird_get_update_status"] {
+                let tool = try XCTUnwrap(tools.first { $0.name == name })
+                let schema = try XCTUnwrap(tool.inputSchema.objectValue)
+                XCTAssertTrue(schema["properties"]?.objectValue?.isEmpty ?? true)
+                XCTAssertTrue(schema["required"]?.arrayValue?.isEmpty ?? true)
+                XCTAssertEqual(schema["additionalProperties"], .bool(false))
+                XCTAssertEqual(tool.annotations.openWorldHint, name == "storybird_check_for_updates")
+                XCTAssertEqual(tool.annotations.destructiveHint, false)
+            }
+        }
+    }
+
     func test_customVoiceSchemas_exposeSpeakerAndInstructionsInBothProfiles() throws {
         for profile in StorybirdMCPToolProfile.allCases {
             let tools = StorybirdMCPService.toolDefinitions(for: profile)

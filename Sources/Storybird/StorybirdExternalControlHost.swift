@@ -91,6 +91,10 @@ final class StorybirdExternalControlHost {
         do {
             let arguments = try Self.arguments(from: request.argumentsJSON)
             switch request.name {
+            case "storybird_check_for_updates", "storybird_get_update_status":
+                guard arguments.isEmpty else { throw StorybirdControlWireError.invalidMessage }
+                if request.name == "storybird_check_for_updates" { store.updateChecker.startCheck() }
+                return try Self.jsonResponse(store.updateChecker.status)
             case "storybird_get_recording_auto_approval":
                 guard arguments.isEmpty else { throw StorybirdControlWireError.invalidMessage }
                 return try Self.jsonResponse(["enabled": store.automaticallyApprovesMCPRecording])

@@ -58,6 +58,7 @@ struct StorybirdSettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                StorybirdUpdateSettingsView(checker: store.updateChecker)
             }
 
             Section("Storage") {

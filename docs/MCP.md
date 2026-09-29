@@ -26,8 +26,8 @@ not control every Settings or window action.
 
 ### Choose a tool profile
 
-No launch arguments selects `legacy`, with 72 operation-specific tools.
-To use 54 tools covering the same actions, configure the
+No launch arguments selects `legacy`, with 74 operation-specific tools.
+To use 56 tools covering the same actions, configure the
 companion arguments as `["--tool-profile", "compact"]` and reconnect. Explicit
 `["--tool-profile", "legacy"]` also works. Invalid arguments fail before the
 server starts; a connection never changes profiles during use.
@@ -628,3 +628,29 @@ is automatically rerun. A library write or job-journal write error must be fixed
 before the job can be reported as completed. Project folders cannot be switched
 while an import is active. Missing/unreadable files, directories, special files,
 unsupported formats, and invalid media fail without a partial project.
+
+## App version checks
+
+Both tool profiles expose these app-wide actions with no arguments:
+
+| Tool | Result |
+|---|---|
+| `storybird_check_for_updates` | Start an explicit GitHub release lookup and return `checking` immediately, or `failed` for an unreadable app version. An in-progress check is reused. |
+| `storybird_get_update_status` | Read cached status without network access. |
+
+The response contains `state`, and available `current_version`, `build_number`,
+`latest_version`, `release_url`, `error` fields; unavailable values are omitted.
+States are `idle`, `checking`, `up_to_date`, `update_available`, and `failed`.
+Current version/build come from the running Storybird app bundle. Poll the status
+reader until a terminal state; retry failures by explicitly starting another check.
+Settings › General shows the same state. Neither tool changes project revisions,
+undo, recording or storage state, and neither opens a browser or installs software.
+
+Only a requested check sends a GET to
+`https://api.github.com/repos/haandol/storybird/releases/latest`, with 10-second
+request and total response limits. It sends no body, query, credentials, cookies,
+project/voice/screen content, device identifiers or usage statistics. App launch,
+Settings opening and cached reads never check automatically. Versions use three
+numeric components (`X.Y.Z`, with optional `v` on release tags); equal or older
+public releases mean up to date. Release links must be HTTPS Storybird GitHub
+release URLs. The user can explicitly open the validated link to download a release.

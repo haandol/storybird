@@ -18,10 +18,10 @@ Every name below is advertised in its stated profile. Read IDs and the current `
 
 ### Connection profiles
 
-The default `legacy` profile preserves the 72 operation-specific tools below.
-Launch with `--tool-profile compact` to advertise 54 tools for the same actions.
+The default `legacy` profile preserves the 74 operation-specific tools below.
+Launch with `--tool-profile compact` to advertise 56 tools for the same actions.
 The selected list is fixed for that connection. Compact replaces 27 names with
-the following nine tools; the other 45 tools are shared by both profiles.
+the following nine tools; the other 47 tools are shared by both profiles.
 There are no hidden aliases or batch edits.
 
 | Compact tool | Selector and matching legacy actions | Shared implementation and evidence |
@@ -54,6 +54,7 @@ profiles of `AuthoringMCPProtocolTests`/`MCPAudioProtocolTests` cover these path
 | Import local MP4/MOV as a new project; import WAV/MP3/M4A as a reusable project asset | `storybird_import_video`, `storybird_import_audio` (`path`, `idempotency_key`; audio also `project_id`) | Production service → app host → app-owned import controller → shared video/audio validation and atomic library writer; `MCPMediaImportTests` verifies direct path import, replay, failures, cancellation, restart, placement and undo |
 | Inspect or cancel a media import | `storybird_get_import`, `storybird_cancel_import` (`job_id`) | Durable per-library jobs, cooperative cancellation and reserved result identities; `MCPMediaImportTests`; no revision change until audio placement |
 | Choose a display/window; start approved recording | `storybird_list_sources`, `storybird_start_session` (`source_id`, `project_name`) | App host applies the native auto-approval preference or waits for consent, then the shared capture session checks permissions/source and returns a frame; `MCPRecordingApprovalTests`, `StorybirdControlSessionTests`, `RecordingCoordinatorTests`; signed smoke required |
+| Check app version or read update status in General Settings | `storybird_check_for_updates`, `storybird_get_update_status` (no arguments, both profiles) | App host → shared `StorybirdUpdateChecker` → explicit GitHub GET / cached status. Returns `state`, `current_version`, `build_number`, optional `latest_version`, `release_url`, `error`; duplicate checks reuse the task; no project revision/undo/write. `UpdateCheckTests`, `MCPFeatureParityTests` |
 | Read or change MCP recording auto-approval in General Settings | `storybird_get_recording_auto_approval`, `storybird_set_recording_auto_approval` (`enabled`: required boolean) | App store persists the same user preference for UI/MCP and returns `{enabled}`; default off; no project revision or undo; `MCPRecordingApprovalTests`, `MCPFeatureParityTests` |
 | Observe captured source; move, click, scroll | `storybird_observe`, `storybird_move_pointer`, `storybird_click`, `storybird_scroll` | Control session and pointer geometry; `StorybirdControlSessionTests`; real permissions require signed smoke |
 | Stop/save or discard recording | `storybird_stop_session`, `storybird_abort_session` | Control host/coordinator; `RecordingCoordinatorTests`, `StorybirdControlSessionTests` |
@@ -149,6 +150,7 @@ project-editing tools. Changing their scope requires checking the owning ADR.
 | Listen to a voice profile's reference sample | Native preview; MCP metadata omits reference audio and exact reference transcript | [Voice](adr/voice-narration/0001-local-cloned-voice-narration.md) |
 | Select microphone, pause/resume/finalize microphone recording | Native recording UI; no MCP microphone start | [Voice](adr/voice-narration/0001-local-cloned-voice-narration.md), [permissions](adr/recording/0003-permission-and-signing.md) |
 | Adjust recording volume and inspect input level/clipping | Native profile and project microphone UI share validated 0–400% volume, default 100%, applied to subsequently written samples. Completed audio is locked. MCP cannot change microphone input gain; existing asset import and timeline volume editing remain available | [Voice](adr/voice-narration/0001-local-cloned-voice-narration.md) |
+| Open a checked Storybird release page | Explicit native link; MCP returns the validated release URL without opening a browser | [Settings](adr/application-settings/0001-native-settings-and-shortcuts.md) |
 | Change/reset project folder, open Finder, configure shortcuts | Native Settings is the entry point; MCP uses the currently selected library | [Settings](adr/application-settings/0001-native-settings-and-shortcuts.md) |
 | Grant OS permissions or accept native capture/deletion prompts | The user approves in macOS/Storybird; capture prompts are skipped only under the user's native auto-approval setting. OS permission and permanent deletion still require native approval | [Permissions](adr/recording/0003-permission-and-signing.md) |
 | Play/pause/seek the native player (including Space), automatically display available video without autoplay with a first-frame loading cover, show transient scrub time, zoom/Fit/pinch/Option-scroll the timeline, show/hide/resize preview, fold rows, scroll, select inspector tabs | Local view state has no dedicated MCP control; inspect specified times through rendered frame/audio tools and edit by stable IDs. No project revision or undo change. `TimelineNavigationTests` covers input boundaries and navigation; `TimelinePreviewLayoutTests` covers automatic display and whole-editor responsiveness; `VideoPreviewLoadingTests` covers first-frame readiness, failures and detached callbacks | [Authoring](adr/authoring/0001-timeline-overlay-editor.md) |

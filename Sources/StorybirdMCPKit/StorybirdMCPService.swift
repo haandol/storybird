@@ -105,7 +105,7 @@ public struct StorybirdMCPService: Sendable {
 
     /// Defines the public computer-use surface and its side-effect hints.
     static var toolDefinitions: [Tool] {
-        sourceTools + projectTools + layerTools + voiceTools + draftTools + audioTools + exportTools + importTools + voiceModelTools
+        sourceTools + projectTools + layerTools + voiceTools + draftTools + audioTools + exportTools + importTools + voiceModelTools + updateTools
     }
 
     private static let exposedTools = Dictionary(uniqueKeysWithValues: toolDefinitions.map { ($0.name, $0) })
@@ -373,6 +373,19 @@ public struct StorybirdMCPService: Sendable {
                     "timing_mode": .object(["type": "string", "enum": ["project", "scene"]]),
                  ]) { _, new in new }, required: ["project_id", "draft_id", "expected_revision", "start_time"]),
                  annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false)),
+        ]
+    }
+
+    private static var updateTools: [Tool] {
+        [
+            Tool(name: "storybird_check_for_updates", title: "Check for Storybird updates",
+                 description: "Check GitHub's latest public Storybird release only when requested. Returns app version/build and checking or failed state immediately; duplicate in-progress requests reuse the lookup. Poll storybird_get_update_status. No download, install or project changes.",
+                 inputSchema: objectSchema(),
+                 annotations: .init(readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true)),
+            Tool(name: "storybird_get_update_status", title: "Get Storybird update status",
+                 description: "Read the app's shared cached update status without network access: state, current_version, build_number and optional latest_version, release_url, error. States: idle, checking, up_to_date, update_available, failed.",
+                 inputSchema: objectSchema(),
+                 annotations: .init(readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false)),
         ]
     }
 

@@ -27,6 +27,12 @@ Read these before changing capture, persistence, or export behavior.
   may return only its selected source PNG through authenticated local IPC and
   stdio to the connected MCP client; that client controls any onward model or
   network disclosure.
+- **Update checks are explicit metadata requests.** Settings and authenticated MCP
+  share app-owned status and query the public Storybird GitHub latest-release
+  endpoint only on request, with 10-second request/total response limits. Never
+  send user content, identifiers, statistics, cookies or credentials. No automatic
+  check, download or installation; validate HTTPS Storybird release links before
+  offering them. Lookup failure must not affect projects, recording or storage.
 - **Exclude Storybird controls from capture.** The editor is hidden during a
   session and the floating HUD uses `NSWindowSharingNone`.
 - **Actual API results outrank permission preflight.** Attempt ScreenCaptureKit

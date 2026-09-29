@@ -2,6 +2,13 @@
 
 이 문서는 agent-project-editing 카테고리의 주요 결정 변경 이력이다.
 
+## 2026-09-29 — 두 목록에서 버전 확인 상태를 공유한다
+
+- **현재 ADR**: [versioned-mcp-project-editing](./0001-versioned-mcp-project-editing.md)
+- **변경 유형**: 승인된 설정 조회의 공개 도구 목록 반영
+- **무엇이**: 수동 조회 시작·상태 읽기 두 도구를 공통 제공해 호환 74개, 통합 56개가 된다.
+- **왜**: 설정과 MCP가 같은 버전 확인을 제공하면서 기존 편집 호출과 권한 경계를 유지한다.
+
 ## 2026-09-12 — 편집 대상별 통합 목록과 기존 호출 호환
 
 - **Current ADR**: [versioned-mcp-project-editing](./0001-versioned-mcp-project-editing.md)

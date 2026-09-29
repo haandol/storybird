@@ -215,6 +215,7 @@ Report skipped, unavailable, and failed checks separately.
 | Project actions/properties | MCP inventory, schema and app-host behavior checks; production protocol tests for public changes; relevant manual editor checks |
 | Local playback keys, scrub feedback or timeline zoom | `TimelineNavigationTests`, `TimelinePreviewLayoutTests`, `TimelineAudioTests`; regenerate the synthetic editor screenshot with `STORYBIRD_UPDATE_DOC_SCREENSHOTS=1 swift test --filter DocumentationScreenshotTests/test_generateTimelineNavigationScreenshot`; verify native rendering separately from model-only checks |
 | Capture, pointer input or permissions | Signed app/companion checks for the affected capture/control behavior, including immediate stop and rejected input |
+| App version checks | `AppVersionTests`, `UpdateCheckTests`, `MCPFeatureParityTests`; inspect General Settings in the signed bundle and explicitly check the public release; unit/protocol tests replace HTTP with synthetic responses |
 | Recording auto-approval settings | `MCPRecordingApprovalTests` and `MCPFeatureParityTests`; inspect General Settings and verify UI/MCP persistence, manual/automatic start, stop and macOS denial in the signed bundle |
 | Microphone or voice-profile behavior | Relevant native voice checks with explicit user input; synthetic tests do not prove microphone capture or speech quality |
 | Release scripts or fact collection | `python3 scripts/test-publish-release.py` and/or `python3 scripts/test-collect-release-facts.py` for the changed scripts |
