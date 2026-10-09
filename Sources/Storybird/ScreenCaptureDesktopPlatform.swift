@@ -249,7 +249,7 @@ private final class ScreenCaptureDesktopSession:
             Int(contentRect.height * CGFloat(filter.pointPixelScale)),
             2
         )
-        configuration.minimumFrameInterval = CMTime(value: 1, timescale: 15)
+        configuration.minimumFrameInterval = ScreenCaptureFrameRate.minimumFrameInterval
         configuration.pixelFormat = kCVPixelFormatType_32BGRA
         configuration.queueDepth = 3
         configuration.showsCursor = true

@@ -6,6 +6,12 @@ import StorybirdCore
 import ScreenCaptureKit
 import SwiftUI
 
+/// Upper capture rate shared by native recording and MCP sessions; 15 fps visibly stepped
+/// sliders and drags in recorded demos.
+enum ScreenCaptureFrameRate {
+    static let minimumFrameInterval = CMTime(value: 1, timescale: 60)
+}
+
 enum RecordingState: Equatable {
     case idle
     case preparing
@@ -329,7 +335,7 @@ final class RecordingCoordinator: ObservableObject {
             Int(contentRect.height * CGFloat(filter.pointPixelScale)),
             2
         )
-        configuration.minimumFrameInterval = CMTime(value: 1, timescale: 15)
+        configuration.minimumFrameInterval = ScreenCaptureFrameRate.minimumFrameInterval
         configuration.pixelFormat = kCVPixelFormatType_32BGRA
         configuration.queueDepth = 3
         configuration.showsCursor = true
