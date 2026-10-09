@@ -47,6 +47,7 @@ final class VideoPlaybackModel: ObservableObject {
 
     let player: AVPlayer
     private let timeObserver = VideoTimeObserverBox()
+    private var rateObservation: NSKeyValueObservation?
     private var rebuildTask: Task<Void, Never>?
     private var rebuildID = UUID()
 
@@ -56,6 +57,16 @@ final class VideoPlaybackModel: ObservableObject {
         player = AVPlayer()
         timeObserver.player = player
         installTimeObserver(interval: frameDuration)
+        // The player can stop after its final time callback, so button state must
+        // observe rate changes independently of the frame clock.
+        rateObservation = player.observe(\.rate, options: [.new]) { [weak self] _, _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                // Read the live rate so queued changes cannot restore an older state.
+                let isPlaying = self.player.rate != 0
+                if self.isPlaying != isPlaying { self.isPlaying = isPlaying }
+            }
+        }
         rebuild(url: url, project: project)
     }
 
@@ -75,8 +86,6 @@ final class VideoPlaybackModel: ObservableObject {
                     self.duration
                 )
                 if self.currentTime != currentTime { self.currentTime = currentTime }
-                let isPlaying = self.player.rate != 0
-                if self.isPlaying != isPlaying { self.isPlaying = isPlaying }
             }
         }
     }
