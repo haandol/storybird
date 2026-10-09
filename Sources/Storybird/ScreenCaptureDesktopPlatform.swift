@@ -514,26 +514,14 @@ private final class ScreenCaptureDesktopSession:
 
     /// Uses a moving window's live frame when the runtime exposes one.
     private func currentCaptureFrame() -> CGRect {
-        var liveFrame = windowID.flatMap {
-            CaptureFrameGeometry.currentWindowFrame(windowID: $0)
-        }
-        if #available(macOS 15.2, *) {
-            if filter.style == .window,
-               let window = filter.includedWindows.first {
-                liveFrame = window.frame
-            }
-            if filter.style == .display,
-               let display = filter.includedDisplays.first {
-                liveFrame = display.frame
-            }
-        }
-        let fallback = initialCaptureFrame.width > 0
-            && initialCaptureFrame.height > 0
-            ? initialCaptureFrame
-            : filter.contentRect
+        let fallback = ScreenCaptureFrameResolver.fallbackFrame(
+            filter: filter,
+            windowID: windowID,
+            initialCaptureFrame: initialCaptureFrame
+        )
         return CaptureFrameGeometry.preferredFrame(
             sampleFrame: frames.snapshot()?.captureFrame,
-            liveWindowFrame: liveFrame,
+            liveWindowFrame: nil,
             fallbackFrame: fallback
         )
     }

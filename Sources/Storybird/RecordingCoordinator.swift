@@ -648,28 +648,10 @@ final class RecordingCoordinator: ObservableObject {
     private nonisolated static func captureFrame(
         for source: CaptureSource
     ) -> CGRect {
-        let filter = source.filter
-        var liveFrame = source.windowID.flatMap(
-            CaptureFrameGeometry.currentWindowFrame(windowID:)
-        )
-        if #available(macOS 15.2, *) {
-            if filter.style == .window,
-               let window = filter.includedWindows.first {
-                liveFrame = window.frame
-            }
-            if filter.style == .display,
-               let display = filter.includedDisplays.first {
-                liveFrame = display.frame
-            }
-        }
-        let fallback = source.initialCaptureFrame.width > 0
-            && source.initialCaptureFrame.height > 0
-            ? source.initialCaptureFrame
-            : filter.contentRect
-        return CaptureFrameGeometry.preferredFrame(
-            sampleFrame: nil,
-            liveWindowFrame: liveFrame,
-            fallbackFrame: fallback
+        ScreenCaptureFrameResolver.fallbackFrame(
+            filter: source.filter,
+            windowID: source.windowID,
+            initialCaptureFrame: source.initialCaptureFrame
         )
     }
 

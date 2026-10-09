@@ -1202,30 +1202,27 @@ final class AppStore: ObservableObject {
         projectID: UUID,
         expectedRevision: Int? = nil
     ) throws -> DemoProject {
-        guard let current = project(id: projectID) else {
-            throw RecordingStoreError.projectNotFound
-        }
-        if let expectedRevision,
-           current.revision != expectedRevision {
-            throw RecordingStoreError.revisionConflict(current.revision)
-        }
-        guard var history = undoHistory[projectID],
-              let previous = history.popLast()
-        else {
-            throw RecordingStoreError.noUndo
-        }
-        var replacement = previous
-        replacement.revision = current.revision
-        let saved = try saveProject(replacement, expectedRevision: current.revision, recordUndo: false)
-        undoHistory[projectID] = history
-        redoHistory[projectID, default: []].append(current)
-        return saved
+        try restoreProjectHistory(.undo, projectID: projectID, expectedRevision: expectedRevision)
     }
 
     /// Reapplies one previously undone project edit.
     func redo(
         projectID: UUID,
         expectedRevision: Int? = nil
+    ) throws -> DemoProject {
+        try restoreProjectHistory(.redo, projectID: projectID, expectedRevision: expectedRevision)
+    }
+
+    private enum HistoryDirection {
+        case undo
+        case redo
+    }
+
+    /// Moves history only after the restored project is durably saved, so a failed write can be retried.
+    private func restoreProjectHistory(
+        _ direction: HistoryDirection,
+        projectID: UUID,
+        expectedRevision: Int?
     ) throws -> DemoProject {
         guard let current = project(id: projectID) else {
             throw RecordingStoreError.projectNotFound
@@ -1234,16 +1231,21 @@ final class AppStore: ObservableObject {
            current.revision != expectedRevision {
             throw RecordingStoreError.revisionConflict(current.revision)
         }
-        guard var history = redoHistory[projectID],
-              let next = history.popLast()
+        guard var history = direction == .undo ? undoHistory[projectID] : redoHistory[projectID],
+              var replacement = history.popLast()
         else {
-            throw RecordingStoreError.noRedo
+            throw direction == .undo ? RecordingStoreError.noUndo : RecordingStoreError.noRedo
         }
-        var replacement = next
         replacement.revision = current.revision
         let saved = try saveProject(replacement, expectedRevision: current.revision, recordUndo: false)
-        redoHistory[projectID] = history
-        undoHistory[projectID, default: []].append(current)
+        switch direction {
+        case .undo:
+            undoHistory[projectID] = history
+            redoHistory[projectID, default: []].append(current)
+        case .redo:
+            redoHistory[projectID] = history
+            undoHistory[projectID, default: []].append(current)
+        }
         return saved
     }
 
