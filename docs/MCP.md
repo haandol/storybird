@@ -364,6 +364,24 @@ project deletion.
 
 ### Targeted subtitle edits
 
+Use one common position, system font and `font_size` for a subtitle sequence;
+the default position is bottom-center. The same renderer uses the full safe
+frame width, wraps between words (Korean eojeol), and preserves explicit newlines
+in native preview, MCP PNG and MP4. It does not shrink individual subtitles or
+truncate them at three lines. Font size is a design value scaled to output
+resolution, so compare captions within the same video rather than raw pixels
+from differently sized previews.
+
+Preserve every requested source word and punctuation mark unless the user
+explicitly allows shortening. Split a long passage into successive timed
+subtitles using the same style, and compare the ordered saved text with the full
+source. Preview every segment, especially the longest. If a word exceeds the
+safe width or the complete text exceeds the safe height, preview/export reports
+the affected subtitle/Cue ID. The text remains editable; divide it in time or
+adjust the common sequence style before retrying. Export fails before creating
+an output job/file rather than publishing clipped text. Cue subtitles use the
+same rules through `subtitle_position` and `subtitle_font_size`.
+
 Omit `subtitle_id` to create a subtitle. Supply an existing ID to update one;
 unknown or malformed IDs are errors. `start_time` and `end_time` are required.
 Other omitted properties retain their current values on update:

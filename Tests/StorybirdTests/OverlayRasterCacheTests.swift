@@ -65,15 +65,15 @@ final class OverlayRasterCacheTests: XCTestCase {
         XCTAssertNotNil(failed.image(for: a, create: create))
     }
 
-    func test_spotlightRaster_changedRegionAndOpacityChangeRenderedPixels() {
+    func test_spotlightRaster_changedRegionAndOpacityChangeRenderedPixels() throws {
         let frame = CGRect(x: 0, y: 0, width: 64, height: 48)
         let context = CIContext()
-        func pixels(x: Double, opacity: Double) -> [UInt8] {
+        func pixels(x: Double, opacity: Double) throws -> [UInt8] {
             var project = DemoProject(name: "Raster",
                 effects: [.spotlight(SpotlightEffect(startTime: 0, endTime: 1,
                     x: x, y: 0.25, width: 0.25, height: 0.5, dimOpacity: opacity))])
             project.theme.showsBranding = false
-            let result = FrameOverlayRenderer.compositeFrameOverlays(project: project,
+            let result = try FrameOverlayRenderer.compositeFrameOverlays(project: project,
                 over: CIImage(color: .white).cropped(to: frame),
                 at: CMTime(seconds: 0.5, preferredTimescale: 600), frame: frame)
             var bytes = [UInt8](repeating: 0, count: 64 * 48 * 4)
@@ -83,11 +83,11 @@ final class OverlayRasterCacheTests: XCTestCase {
             }
             return bytes
         }
-        let original = pixels(x: 0.125, opacity: 0.6)
-        XCTAssertEqual(original, pixels(x: 0.125, opacity: 0.6))
-        let moved = pixels(x: 0.625, opacity: 0.6)
+        let original = try pixels(x: 0.125, opacity: 0.6)
+        XCTAssertEqual(original, try pixels(x: 0.125, opacity: 0.6))
+        let moved = try pixels(x: 0.625, opacity: 0.6)
         XCTAssertNotEqual(original, moved)
         XCTAssertGreaterThan(original[(24 * 64 + 12) * 4], moved[(24 * 64 + 12) * 4])
-        XCTAssertNotEqual(original, pixels(x: 0.125, opacity: 0.3))
+        XCTAssertNotEqual(original, try pixels(x: 0.125, opacity: 0.3))
     }
 }

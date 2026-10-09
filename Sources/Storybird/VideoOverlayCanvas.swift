@@ -87,7 +87,7 @@ struct VideoScreenOverlayCanvas: View {
                 VideoSubtitleOverlay(
                     subtitle: subtitle,
                     imageFrame: imageFrame,
-                    metrics: metrics
+                    renderSize: project.overlayRenderSize ?? imageFrame.size
                 )
             }
             ForEach(project.clicks.filter {
@@ -107,7 +107,7 @@ struct VideoScreenOverlayCanvas: View {
                         style: click.cueSubtitle.style
                     ),
                     imageFrame: imageFrame,
-                    metrics: metrics
+                    renderSize: project.overlayRenderSize ?? imageFrame.size
                 )
             }
             ForEach(activeEffects) { effect in
@@ -218,43 +218,32 @@ private struct SpotlightShape: Shape {
 private struct VideoSubtitleOverlay: View {
     let subtitle: TimedSubtitle
     let imageFrame: CGRect
-    let metrics: VideoOverlayMetrics
+    let renderSize: CGSize
 
     var body: some View {
-        VStack {
-            if subtitle.position == .bottom {
-                Spacer(minLength: 0)
-            }
-            VideoOverlayLabel(
-                text: subtitle.text,
-                style: subtitle.style,
-                fontSize: VideoOverlayPresentation.fontSize(
-                    style: subtitle.style,
-                    metrics: metrics
-                ),
-                metrics: metrics
-            )
-            .frame(
-                maxWidth: min(
-                    metrics.subtitleMaximumWidth,
-                    imageFrame.width - metrics.subtitleInset * 2
-                )
-            )
-            if subtitle.position == .top {
-                Spacer(minLength: 0)
-            }
+        let result = Result { try SubtitleTextRenderer.image(
+            text: subtitle.text, style: subtitle.style, frameSize: renderSize) }
+        let scale = imageFrame.width / max(renderSize.width, 1)
+        let inset = VideoOverlayMetrics(frameSize: renderSize).subtitleInset * scale
+        switch result {
+        case let .success(image):
+            let height = CGFloat(image.height) * scale
+            Image(decorative: image, scale: 1)
+                .resizable()
+                .frame(width: CGFloat(image.width) * scale, height: height)
+                .position(x: imageFrame.midX, y: subtitle.position == .bottom
+                          ? imageFrame.maxY - inset - height / 2
+                          : imageFrame.minY + inset + height / 2)
+                .accessibilityLabel(subtitle.text)
+        case let .failure(error):
+            Text(error.localizedDescription)
+                .font(.caption)
+                .foregroundStyle(.white)
+                .padding(8)
+                .background(.red.opacity(0.9))
+                .frame(maxWidth: max(0, imageFrame.width - inset * 2))
+                .position(x: imageFrame.midX, y: imageFrame.midY)
         }
-        .frame(
-            width: max(
-                imageFrame.width - metrics.subtitleInset * 2,
-                0
-            ),
-            height: max(
-                imageFrame.height - metrics.subtitleInset * 2,
-                0
-            )
-        )
-        .position(x: imageFrame.midX, y: imageFrame.midY)
     }
 }
 

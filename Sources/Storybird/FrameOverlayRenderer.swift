@@ -13,7 +13,7 @@ enum FrameOverlayRenderer {
         over source: CIImage,
         at presentationTime: CMTime,
         frame: CGRect
-    ) -> CIImage {
+    ) throws -> CIImage {
         let metrics = VideoOverlayMetrics(frameSize: frame.size)
         let time = CMTimeGetSeconds(presentationTime)
         guard time.isFinite else { return source }
@@ -139,7 +139,7 @@ enum FrameOverlayRenderer {
                 && !click.cueSubtitle.text.trimmingCharacters(
                     in: .whitespacesAndNewlines
                 ).isEmpty {
-            result = compositeSubtitleText(
+            result = try compositeSubtitleText(
                 click.cueSubtitle.text,
                 style: click.cueSubtitle.style,
                 position: click.cueSubtitle.position,
@@ -155,7 +155,7 @@ enum FrameOverlayRenderer {
                 && !subtitle.text.trimmingCharacters(
                     in: .whitespacesAndNewlines
                 ).isEmpty {
-            result = compositeSubtitleText(
+            result = try compositeSubtitleText(
                 subtitle.text,
                 style: subtitle.style,
                 position: subtitle.position,
@@ -243,37 +243,19 @@ enum FrameOverlayRenderer {
         over source: CIImage,
         frame: CGRect,
         metrics: VideoOverlayMetrics
-    ) -> CIImage {
-        let fontSize = VideoOverlayPresentation.fontSize(
-            style: style,
-            metrics: metrics
-        )
-        let geometry = labelGeometry(
-            text: text,
-            fontSize: fontSize,
-            maximumWidth: min(
-                metrics.subtitleMaximumWidth,
-                frame.width - metrics.subtitleInset * 2
-            ),
-            lineLimit: 3,
-            metrics: metrics
-        )
+    ) throws -> CIImage {
+        let image = try SubtitleTextRenderer.image(text: text, style: style, frameSize: frame.size)
         let origin = CGPoint(
-            x: (frame.width - geometry.containerSize.width) / 2,
+            x: frame.midX - CGFloat(image.width) / 2,
             y: position == .top
-                ? frame.height
-                    - geometry.containerSize.height
+                ? frame.maxY
+                    - CGFloat(image.height)
                     - metrics.subtitleInset
-                : metrics.subtitleInset
+                : frame.minY + metrics.subtitleInset
         )
-        return compositeLabel(
-            text,
-            fontSize: fontSize,
-            origin: origin,
-            geometry: geometry,
-            style: style,
-            over: source
-        )
+        return CIImage(cgImage: image)
+            .transformed(by: CGAffineTransform(translationX: origin.x, y: origin.y))
+            .composited(over: source)
     }
 
     private static func compositeLabel(

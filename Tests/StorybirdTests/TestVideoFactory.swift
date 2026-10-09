@@ -57,7 +57,9 @@ enum TestVideoFactory {
         audioStart: Double = 0,
         audioDuration: Double? = nil,
         toneFrequency: Double = 440,
-        duration: Double = 1
+        duration: Double = 1,
+        width: Int = 64,
+        height: Int = 48
     ) async throws -> ScreenVideoRecordingResult {
         let root = destinationURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(
@@ -78,7 +80,7 @@ enum TestVideoFactory {
                     presentationTime: CMTime(
                         value: CMTimeValue(frame),
                         timescale: 30
-                    )
+                    ), width: width, height: height
                 )
             )
         }
@@ -364,13 +366,15 @@ enum TestVideoFactory {
 
     /// Creates one deterministic BGRA frame accepted by the production video writer.
     private static func sampleBuffer(
-        presentationTime: CMTime
+        presentationTime: CMTime,
+        width: Int,
+        height: Int
     ) throws -> CMSampleBuffer {
         var pixelBuffer: CVPixelBuffer?
         guard CVPixelBufferCreate(
             kCFAllocatorDefault,
-            64,
-            48,
+            width,
+            height,
             kCVPixelFormatType_32BGRA,
             [
                 kCVPixelBufferCGImageCompatibilityKey: true,

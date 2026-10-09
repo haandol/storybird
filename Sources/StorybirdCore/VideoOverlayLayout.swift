@@ -32,7 +32,7 @@ public struct VideoOverlayMetrics: Sendable, Equatable {
         captionMaximumWidth = 260 * scale
         captionGap = 30 * scale
         edgeInset = 8 * scale
-        subtitleMaximumWidth = 760 * scale
+        subtitleMaximumWidth = max(0, frameSize.width - 32 * scale)
         subtitleInset = 16 * scale
         captionFontSize = 14 * scale
         subtitleFontSize = 17 * scale

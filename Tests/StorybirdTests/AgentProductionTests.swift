@@ -620,7 +620,8 @@ final class AgentProductionTests: XCTestCase {
         try repo.prepare()
         let id = UUID()
         let target = try repo.prepareVideoRecordingURL(projectID: id)
-        let media = try await TestVideoFactory.makeMovie(at: target.url, includeAudio: false, duration: 5)
+        let media = try await TestVideoFactory.makeMovie(at: target.url, includeAudio: false, duration: 5,
+                                                       width: 640, height: 480)
         let project = DemoProject(id: id, name: "Demo", recording: VideoRecordingAsset(
             filename: target.filename, duration: media.duration, width: media.width, height: media.height
         ))

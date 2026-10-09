@@ -6,6 +6,30 @@ import XCTest
 
 @MainActor
 final class DocumentationScreenshotTests: XCTestCase {
+    func test_generateSubtitleScreenshots() async throws {
+        guard ProcessInfo.processInfo.environment["STORYBIRD_UPDATE_DOC_SCREENSHOTS"] == "1" else {
+            throw XCTSkip("Set STORYBIRD_UPDATE_DOC_SCREENSHOTS=1 to update subtitle screenshots.")
+        }
+        var project = DemoProject(name: "Complete subtitles", recording: VideoRecordingAsset(
+            filename: "synthetic.mp4", duration: 3, width: 1920, height: 1080))
+        project.theme.showsBranding = false
+        project.subtitles = [TimedSubtitle(startTime: 0, endTime: 2,
+            text: "Keep one subtitle size throughout the video and use the available width.\n긴 문장은 단어 사이에서 줄을 바꾸고 모든 문구를 빠짐없이 표시합니다.\nThe font stays the same when another line is needed.\n마지막 문장까지 같은 크기로 읽을 수 있습니다.",
+            style: TextOverlayStyle(fontSize: 28))]
+        let frame = CGRect(x: 0, y: 0, width: 960, height: 540)
+        try await render(ZStack {
+            Color(red: 0.08, green: 0.15, blue: 0.23)
+            VStack(spacing: 20) {
+                Image(systemName: "captions.bubble").font(.system(size: 56))
+                Text("Complete subtitles").font(.system(size: 36, weight: .semibold))
+                Text("One size · word wrapping · full text").font(.system(size: 20))
+            }
+            .foregroundStyle(.white.opacity(0.85))
+            .offset(y: -80)
+            VideoScreenOverlayCanvas(project: project, time: 1, imageFrame: frame)
+        }, size: frame.size, to: imageDirectory.appendingPathComponent("subtitle-layout.png"))
+    }
+
     /// Synthetic renders read release metadata without constructing an app bundle or making a request.
     private func documentationUpdateChecker() throws -> StorybirdUpdateChecker {
         let data = try Data(contentsOf: repositoryRoot.appendingPathComponent("Resources/Info.plist"))

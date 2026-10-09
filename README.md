@@ -188,6 +188,14 @@ Select a Click Cue to fill in its description and subtitle, or remove it if it i
 irrelevant. **Every retained Cue needs both texts before export.** You can also
 add independent subtitles at the top or bottom of the picture.
 
+Subtitles default to bottom-center and wrap between words across the available
+frame width. Preview and MP4 use the same font and layout without shrinking long
+captions or cutting them off at three lines. Keep one subtitle size throughout
+a video and split long passages into timed segments, preserving the full text.
+An overflow message identifies a subtitle that needs adjustment before export.
+
+<img src="docs/images/subtitle-layout.png" width="900" alt="Synthetic four-line English and Korean subtitles with one font size and a fixed bottom-center anchor" />
+
 Non-overlapping Click Cues, subtitles, audio layers, and effects share rows within
 their own kind. Overlapping layers use additional rows. Click the arrow beside
 **Subtitles**, **Audio**, **Clicks**, or **Effects** to show each layer on its own

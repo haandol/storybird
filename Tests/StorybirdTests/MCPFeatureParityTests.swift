@@ -6,6 +6,24 @@ import XCTest
 
 @MainActor
 final class MCPFeatureParityTests: XCTestCase {
+    func test_subtitleSchemas_exposeSharedStyleGuidanceInBothProfiles() throws {
+        for profile in StorybirdMCPToolProfile.allCases {
+            let tools = StorybirdMCPService.toolDefinitions(for: profile)
+            let subtitleName = profile == .legacy ? "storybird_upsert_subtitle" : "storybird_edit_subtitle"
+            let subtitle = try XCTUnwrap(tools.first { $0.name == subtitleName })
+            XCTAssertTrue(subtitle.description?.contains("one font_size") ?? false)
+            let schema = String(decoding: try JSONEncoder().encode(subtitle.inputSchema), as: UTF8.self)
+            for field in ["font_size", "position", "text", "start_time", "end_time"] {
+                XCTAssertTrue(schema.contains(field))
+            }
+            let cueName = profile == .legacy ? "storybird_update_click" : "storybird_edit_click"
+            let cue = try XCTUnwrap(tools.first { $0.name == cueName })
+            let cueSchema = String(decoding: try JSONEncoder().encode(cue.inputSchema), as: UTF8.self)
+            XCTAssertTrue(cueSchema.contains("same font size"))
+            XCTAssertTrue(cueSchema.contains("subtitle_position"))
+        }
+    }
+
     func test_updateChecks_exposeNoArgumentToolsInBothProfiles() throws {
         for profile in StorybirdMCPToolProfile.allCases {
             let tools = StorybirdMCPService.toolDefinitions(for: profile)

@@ -3,6 +3,15 @@
 이 문서는 authoring 카테고리의 주요 결정 변경 이력이다. ADR 본문은 현재 상태만
 서술하고, 주요 전환의 시간축은 여기에 최신 순으로 남긴다.
 
+## 2026-10-09 — 자막의 공통 스타일과 전체 원문 보존
+
+- **Current ADR**: [timeline-overlay-editor](./0001-timeline-overlay-editor.md)
+- **Change type**: requirement rule change
+- **What**: 자막 제작의 기본을 하단 중앙·공통 글꼴과 크기·화면 폭 활용으로 정하고,
+  단어·어절 단위 줄바꿈과 원문 전체 표시를 요구한다. 화면에 들어가지 않는 자막은
+  축소·생략해 출력하지 않고 오류를 알리며, 제작자는 같은 스타일의 시간 구간으로 나눈다.
+- **Why**: 문장마다 다른 크기와 고정 줄 수에 따른 누락으로 자막의 가독성과 원문이 손상된다.
+
 ## 2026-09-19 — 영상 미리보기를 초기 화면에 자동 표시
 
 - **Current ADR**: [timeline-overlay-editor](./0001-timeline-overlay-editor.md)

@@ -84,6 +84,31 @@ profiles of `AuthoringMCPProtocolTests`/`MCPAudioProtocolTests` cover these path
 | Start/stop a completed asset or ready draft from Project audio; reset Listen when it finishes | Existing asset/draft metadata and audio preview cover audio inspection; native playback button state is a local presentation control under the authoring ADR | One editor-owned audition player coordinates the list and layer inspector. Existing raw-asset listening remains distinct from edited-layer listening. |
 | Start, inspect, cancel or await MP4 export | `storybird_start_export`, `storybird_get_export`, `storybird_cancel_export`, `storybird_export_project` | Shared exporter and export lease; `VideoPipelineTests`, `AppStoreTests`, `AgentProductionTests`, `MCPAudioProtocolTests` |
 
+### Subtitle presentation
+
+Independent subtitles (`storybird_upsert_subtitle`, compact `storybird_edit_subtitle`
+with `action: upsert`) use `text`, `position`, `font_size` and color/background
+fields. Cue subtitles use `subtitle`, `subtitle_position`, `subtitle_font_size`
+and their color/background fields through create/update click (compact
+`storybird_edit_click`). The existing app handlers retain omitted properties,
+revision checks, atomic saves and undo.
+
+Both paths feed the same subtitle layout in the native preview, MCP
+`storybird_render_preview` and MP4 exporter: bottom-center by default, full safe
+frame width, system semibold font, word/eojeol wrapping, and no text-dependent
+font shrink or three-line truncation. Export validation identifies a subtitle or
+Cue whose word/height cannot fit. Editing preserves the full text so the client
+can divide it into timed segments and retry. MCP and the production skill guide
+clients to reuse one style and verify all source text in order.
+
+`SubtitlePresentationTests` checks word preservation, full-width layout, all
+rendered lines, both native anchors and overflow. The subtitle sequence test in
+`AuthoringMCPProtocolTests` exercises both profiles through saved text/style,
+stale/invalid edits, preview, overflow rejection, undo and terminal MP4 export.
+The production skill's read-only `check-subtitles.py` compares saved text with
+the complete transcript and checks position/size; `scripts/test-subtitle-audit.py`
+covers omissions, repetition, ordering, broken words and explicit style exceptions.
+
 ### Shared performance paths
 
 Shared performance changes preserve these tool arguments and results:

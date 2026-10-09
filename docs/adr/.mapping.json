@@ -92,8 +92,8 @@
       "adrs": [
         {
           "path": "docs/adr/authoring/0001-timeline-overlay-editor.md",
-          "status": "Accepted (2026-09-19)",
-          "summary": "영상 미리보기를 자동 표시하고 탐색·선택 오디오 청취를 프로젝트 편집과 독립된 상태로 제공한다"
+          "status": "Accepted (2026-10-09)",
+          "summary": "같은 시간축의 영상·레이어를 편집하고 자막의 공통 스타일·단어 줄바꿈·전체 원문을 미리보기와 출력에 보존한다"
         }
       ],
       "dependsOn": [

@@ -76,6 +76,14 @@ public struct StorybirdMCPService: Sendable {
             then inspect storybird_render_preview using its returned actual frame time and layer IDs. \
             Updating only a Cue time preserves its component windows; to move a whole Cue, \
             supply the indicator, description and subtitle windows together. \
+            For subtitles, choose one shared position and font_size for the sequence; \
+            default to bottom-center and keep the system font and size consistent across cues. \
+            Use the full safe frame width and wrap only between words (Korean eojeol). \
+            Preserve all requested source text in order unless the user explicitly allows shortening. \
+            Split long text into successive timed subtitles with the same style; do not shrink \
+            individual captions, summarize, omit words or add ellipses to make them fit. \
+            Preview the longest subtitle and every changed segment, compare the saved sequence \
+            with the full source text, and repair reported subtitle overflow before export. \
             Use exact advertised argument names; unknown arguments are rejected without changes. \
             A ready draft survives placement failure: edit the picture or placement and reuse it. \
             Do not infer speech quality from a generated file or waveform alone.
@@ -295,6 +303,9 @@ public struct StorybirdMCPService: Sendable {
         for key in ["description_font_size", "subtitle_font_size"] {
             fields[key] = .object(["type": "number", "minimum": 1])
         }
+        fields["subtitle"] = .object(["type": "string", "description": "Full Cue subtitle text. Preserve every source word unless shortening is explicitly allowed; word/eojeol wrapping uses the full safe frame width."])
+        fields["subtitle_font_size"] = .object(["type": "number", "minimum": 1, "description": "Reuse the same font size as the other subtitles. Divide long text into timed subtitles instead of shrinking only this Cue."])
+        fields["subtitle_position"] = .object(["type": "string", "enum": ["top", "bottom"], "description": "Bottom-center by default; keep the sequence position consistent unless the user specifies otherwise."])
         return fields
     }
 
@@ -714,7 +725,7 @@ public struct StorybirdMCPService: Sendable {
             Tool(
                 name: "storybird_upsert_subtitle",
                 title: "Add or update a subtitle",
-                description: "Add or update one timed top or bottom subtitle layer and return the new project revision.",
+                description: "Add or update one timed subtitle; defaults to bottom-center. Reuse one font_size and position across the sequence. The renderer uses the full safe frame width and word/eojeol wrapping without shrinking or truncating text. Preserve the full source unless the user explicitly allows shortening; divide long text into timed segments with the same style. Preview/export reports overflow. Omitted fields preserve existing values on update. Returns the new project revision.",
                 inputSchema: Self.objectSchema(
                     properties: [
                         "project_id": .object(["type": "string"]),
@@ -723,12 +734,12 @@ public struct StorybirdMCPService: Sendable {
                         "timing_mode": .object(["type": "string", "enum": ["project", "scene"]]),
                         "start_time": .object(["type": "number", "minimum": 0.0]),
                         "end_time": .object(["type": "number", "minimum": 0.0]),
-                        "text": .object(["type": "string"]),
-                        "position": .object(["type": "string", "enum": ["top", "bottom"]]),
+                        "text": .object(["type": "string", "description": "Full text for this interval. Preserve all source words across segments unless shortening was explicitly allowed. Wrap at word boundaries; do not insert character breaks."]),
+                        "position": .object(["type": "string", "enum": ["top", "bottom"], "description": "Defaults to bottom-center on creation. Reuse the sequence position; omitted on update preserves the current position."]),
                         "background_hex": .object(["type": "string"]),
                         "background_opacity": .object(["type": "number", "minimum": 0.0, "maximum": 1.0]),
                         "foreground_hex": .object(["type": "string"]),
-                        "font_size": .object(["type": "number", "minimum": 1.0]),
+                        "font_size": .object(["type": "number", "minimum": 1.0, "description": "Shared design size, scaled to the output resolution. Keep the same value across subtitles; split long text in time instead of reducing only its size. Omitted on update preserves the current size."]),
                     ],
                     required: [
                         "project_id",

@@ -7,6 +7,8 @@ import Foundation
 final class OverlayRasterCache: @unchecked Sendable {
     enum Key: Hashable {
         case text(String, fontSize: CGFloat, width: CGFloat, height: CGFloat, color: String)
+        case subtitle(String, fontSize: Double, width: CGFloat, height: CGFloat,
+                      foreground: String, background: String, opacity: Double)
         case spotlight(
             x: Double, y: Double, width: Double, height: Double, opacity: Double,
             frameX: CGFloat, frameY: CGFloat, frameWidth: CGFloat, frameHeight: CGFloat

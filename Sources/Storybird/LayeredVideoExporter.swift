@@ -342,6 +342,7 @@ actor LayeredVideoExporter {
         guard incomplete.isEmpty else {
             throw LayeredVideoExportError.incompleteClickCue(incomplete)
         }
+        try SubtitleTextRenderer.validate(project)
     }
 
     /// Renders one read-only project-resolution PNG for external MCP inspection.
@@ -411,7 +412,8 @@ actor LayeredVideoExporter {
             width: image.width,
             height: image.height
         )
-        let composed = FrameOverlayRenderer.compositeFrameOverlays(
+        try SubtitleTextRenderer.validate(project, at: renderTime.seconds)
+        let composed = try FrameOverlayRenderer.compositeFrameOverlays(
             project: project,
             over: CIImage(cgImage: image),
             at: renderTime,
@@ -637,7 +639,7 @@ actor LayeredVideoExporter {
             width: CVPixelBufferGetWidth(writableBuffer),
             height: CVPixelBufferGetHeight(writableBuffer)
         )
-        let imageWithText = FrameOverlayRenderer.compositeFrameOverlays(
+        let imageWithText = try FrameOverlayRenderer.compositeFrameOverlays(
             project: project,
             over: CIImage(cvPixelBuffer: sourceBuffer),
             at: timestamp,

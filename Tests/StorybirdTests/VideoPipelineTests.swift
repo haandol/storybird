@@ -510,7 +510,8 @@ final class VideoPipelineTests: XCTestCase {
         let raw = root.appendingPathComponent("reference.mp4")
         let result = try await TestVideoFactory.makeMovie(
             at: raw,
-            includeAudio: false
+            includeAudio: false,
+            width: 640, height: 480
         )
 
         for index in 0..<10 {

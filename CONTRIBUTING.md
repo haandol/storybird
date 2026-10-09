@@ -211,6 +211,7 @@ Report skipped, unavailable, and failed checks separately.
 | --- | --- |
 | Documentation or agent instructions only | Check referenced paths, commands, links and consistency; render changed UI screenshots when applicable |
 | Swift code | Relevant focused tests while editing, then `swift test`; the test command also builds the debug targets |
+| Subtitle layout or production guidance | `SubtitlePresentationTests`, `MCPFeatureParityTests`, both-profile subtitle sequence in `AuthoringMCPProtocolTests`, and `python3 scripts/test-subtitle-audit.py`; regenerate `DocumentationScreenshotTests/test_generateSubtitleScreenshots` with `STORYBIRD_UPDATE_DOC_SCREENSHOTS=1` and inspect the image |
 | MCP initialization, transport or tool profiles | `MCPInitializationTests` with raw external-client JSON, `MCPCompactToolTests`, both-profile authoring/audio protocol tests, then bundled companion initialize and tools/list for legacy and compact; no native capture permission is needed |
 | Project actions/properties | MCP inventory, schema and app-host behavior checks; production protocol tests for public changes; relevant manual editor checks |
 | Local playback keys, scrub feedback or timeline zoom | `TimelineNavigationTests`, `TimelinePreviewLayoutTests`, `TimelineAudioTests`; regenerate the synthetic editor screenshot with `STORYBIRD_UPDATE_DOC_SCREENSHOTS=1 swift test --filter DocumentationScreenshotTests/test_generateTimelineNavigationScreenshot`; verify native rendering separately from model-only checks |

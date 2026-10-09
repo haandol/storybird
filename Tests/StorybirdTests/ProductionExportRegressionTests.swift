@@ -12,7 +12,7 @@ final class ProductionExportRegressionTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let source = root.appendingPathComponent("synthetic.mp4")
         let media = try await TestVideoFactory.makeMovie(
-            at: source, includeAudio: false, duration: 90
+            at: source, includeAudio: false, duration: 90, width: 320, height: 180
         )
         let lengths = [10.4, 8.9, 9.6, 9.24, 12.04, 9.78]
         let starts = [0.4, 10.8, 19.7, 29.3, 38.54, 50.58]
