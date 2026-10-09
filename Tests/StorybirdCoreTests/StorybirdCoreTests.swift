@@ -1390,6 +1390,48 @@ final class StorybirdCoreTests: XCTestCase {
         )
     }
 
+    func test_videoOverlayMetrics_narrowPreviewKeepsExportProportions() {
+        let render = CGSize(width: 1000, height: 1778)
+        let preview = CGSize(width: 300, height: 533.4)
+        let exported = VideoOverlayMetrics(frameSize: render)
+        let previewed = VideoOverlayMetrics(frameSize: preview, renderSize: render)
+
+        XCTAssertEqual(previewed.scale / preview.width, exported.scale / render.width, accuracy: 0.000_001)
+        XCTAssertEqual(
+            previewed.subtitleMaximumWidth / preview.width,
+            exported.subtitleMaximumWidth / render.width,
+            accuracy: 0.000_001
+        )
+        XCTAssertLessThan(previewed.scale, 0.75)
+    }
+
+    func test_videoOverlayMetrics_smallRenderKeepsMinimumScaleInPreview() {
+        let render = CGSize(width: 320, height: 180)
+        let preview = CGSize(width: 640, height: 360)
+        let exported = VideoOverlayMetrics(frameSize: render)
+        let previewed = VideoOverlayMetrics(frameSize: preview, renderSize: render)
+
+        XCTAssertEqual(exported.scale, 0.75, accuracy: 0.000_001)
+        XCTAssertEqual(previewed.scale, 1.5, accuracy: 0.000_001)
+    }
+
+    func test_videoOverlayMetrics_withoutRenderSizeUsesFrameSize() {
+        let frame = CGSize(width: 300, height: 533)
+        let implicit = VideoOverlayMetrics(frameSize: frame)
+        let explicit = VideoOverlayMetrics(frameSize: frame, renderSize: frame)
+
+        XCTAssertEqual(implicit.scale, 0.75, accuracy: 0.000_001)
+        XCTAssertEqual(explicit, implicit)
+    }
+
+    func test_videoOverlayMetrics_degenerateRenderSizeFallsBackToFrameSize() {
+        let frame = CGSize(width: 1440, height: 810)
+        let previewed = VideoOverlayMetrics(frameSize: frame, renderSize: .zero)
+
+        XCTAssertEqual(previewed, VideoOverlayMetrics(frameSize: frame))
+        XCTAssertEqual(VideoOverlayMetrics(frameSize: .zero).scale, 0.75, accuracy: 0.000_001)
+    }
+
     private func validVideoProject() -> DemoProject {
         DemoProject(
             name: "Video",

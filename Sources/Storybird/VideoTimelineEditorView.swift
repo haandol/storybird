@@ -1484,7 +1484,7 @@ struct VideoOverlayCanvas: View {
     var camera: VideoCameraPresentation = .identity
 
     var body: some View {
-        let metrics = VideoOverlayMetrics(frameSize: imageFrame.size)
+        let metrics = VideoOverlayMetrics(frameSize: imageFrame.size, renderSize: project.overlayRenderSize)
         ZStack(alignment: .topLeading) {
             ForEach(project.clicks.filter {
                 $0.indicator.startTime <= time
@@ -1542,13 +1542,20 @@ struct VideoOverlayCanvas: View {
     }
 }
 
+private extension DemoProject {
+    /// Exported frames are rendered at the recording size.
+    var overlayRenderSize: CGSize? {
+        recording.map { CGSize(width: $0.width, height: $0.height) }
+    }
+}
+
 struct VideoScreenOverlayCanvas: View {
     let project: DemoProject
     let time: Double
     let imageFrame: CGRect
 
     var body: some View {
-        let metrics = VideoOverlayMetrics(frameSize: imageFrame.size)
+        let metrics = VideoOverlayMetrics(frameSize: imageFrame.size, renderSize: project.overlayRenderSize)
         ZStack {
             ForEach(project.subtitles.filter {
                 $0.startTime <= time && time <= $0.endTime

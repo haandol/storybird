@@ -21,8 +21,12 @@ public struct VideoOverlayMetrics: Sendable, Equatable {
     public let cornerRadius: CGFloat
 
     /// Scales one overlay design consistently for preview points and exported pixels.
-    public init(frameSize: CGSize) {
-        scale = max(min(frameSize.width, frameSize.height) / 720, 0.75)
+    /// A preview passes the export `renderSize` so the minimum scale applies to the
+    /// exported frame and the preview stays a proportional copy of it.
+    public init(frameSize: CGSize, renderSize: CGSize? = nil) {
+        let reference = renderSize.flatMap { $0.width > 0 && $0.height > 0 ? $0 : nil } ?? frameSize
+        let previewFactor = reference.width > 0 ? frameSize.width / reference.width : 1
+        scale = max(min(reference.width, reference.height) / 720, 0.75) * previewFactor
         clickRingDiameter = 48 * scale
         captionMinimumWidth = 96 * scale
         captionMaximumWidth = 260 * scale
