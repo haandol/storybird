@@ -1,16 +1,9 @@
 import AppKit
 import Combine
 import CoreMedia
-import CoreVideo
 import StorybirdCore
 import ScreenCaptureKit
 import SwiftUI
-
-/// Upper capture rate shared by native recording and MCP sessions; 15 fps visibly stepped
-/// sliders and drags in recorded demos.
-enum ScreenCaptureFrameRate {
-    static let minimumFrameInterval = CMTime(value: 1, timescale: 60)
-}
 
 enum RecordingState: Equatable {
     case idle
@@ -322,26 +315,11 @@ final class RecordingCoordinator: ObservableObject {
         else {
             throw FlowRecordingError.invalidContentSelection
         }
-        let configuration = SCStreamConfiguration()
-        let contentRect = filter.contentRect.width > 0
-            && filter.contentRect.height > 0
-            ? filter.contentRect
-            : captureFrame
-        configuration.width = max(
-            Int(contentRect.width * CGFloat(filter.pointPixelScale)),
-            2
+        let configuration = ScreenRecordingConfiguration.make(
+            filter: filter,
+            fallbackCaptureFrame: captureFrame,
+            isWindow: source.kind == .window
         )
-        configuration.height = max(
-            Int(contentRect.height * CGFloat(filter.pointPixelScale)),
-            2
-        )
-        configuration.minimumFrameInterval = ScreenCaptureFrameRate.minimumFrameInterval
-        configuration.pixelFormat = kCVPixelFormatType_32BGRA
-        configuration.queueDepth = 3
-        configuration.showsCursor = true
-        configuration.capturesAudio = false
-        configuration.shouldBeOpaque = true
-        configuration.ignoreShadowsSingleWindow = source.kind == .window
 
         let stream = SCStream(
             filter: filter,

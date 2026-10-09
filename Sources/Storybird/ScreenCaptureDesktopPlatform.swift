@@ -2,7 +2,6 @@ import AppKit
 import CoreGraphics
 import CoreImage
 import CoreMedia
-import CoreVideo
 import Foundation
 import ScreenCaptureKit
 import StorybirdCore
@@ -236,26 +235,11 @@ private final class ScreenCaptureDesktopSession:
         guard frame.width > 0, frame.height > 0 else {
             throw StorybirdMCPError.sourceNotFound
         }
-        let configuration = SCStreamConfiguration()
-        let contentRect = filter.contentRect.width > 0
-            && filter.contentRect.height > 0
-            ? filter.contentRect
-            : frame
-        configuration.width = max(
-            Int(contentRect.width * CGFloat(filter.pointPixelScale)),
-            2
+        let configuration = ScreenRecordingConfiguration.make(
+            filter: filter,
+            fallbackCaptureFrame: frame,
+            isWindow: descriptor.kind == .window
         )
-        configuration.height = max(
-            Int(contentRect.height * CGFloat(filter.pointPixelScale)),
-            2
-        )
-        configuration.minimumFrameInterval = ScreenCaptureFrameRate.minimumFrameInterval
-        configuration.pixelFormat = kCVPixelFormatType_32BGRA
-        configuration.queueDepth = 3
-        configuration.showsCursor = true
-        configuration.capturesAudio = false
-        configuration.shouldBeOpaque = true
-        configuration.ignoreShadowsSingleWindow = descriptor.kind == .window
 
         let stream = SCStream(
             filter: filter,
