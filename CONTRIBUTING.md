@@ -245,6 +245,9 @@ steps using the matrix above; this is a catalog, not an all-changes checklist:
    previously selected project.
 7. Play the raw video and confirm every click appears at the expected time and
    normalized location.
+   After the edited preview finishes, press Play again and confirm both the video
+   and playhead restart from zero. Repeat with Space. Pausing before the end and
+   pressing Play must continue from the paused position.
 8. Add top and bottom subtitles and edit click-caption styles.
    Overlap several Click Cues, subtitles, audio layers, and different effects.
    Confirm non-overlapping layers share rows and overlapping blocks remain

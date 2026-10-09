@@ -150,9 +150,11 @@ final class VideoPlaybackModel: ObservableObject {
         isPlaying = false
     }
 
-    /// Toggles the raw recording while keeping the overlay clock tied to player time.
+    /// Toggles the edited preview while keeping the overlay clock tied to player time.
     func togglePlayback() {
         if player.rate == 0 {
+            // AVPlayer stays at the end after completion; Play must rewind first.
+            if currentTime >= duration { seek(to: 0) }
             player.play()
             isPlaying = true
         } else {
