@@ -139,7 +139,7 @@
       "adrs": [
         {
           "path": "docs/adr/video-import/0001-local-video-import.md",
-          "status": "Proposed",
+          "status": "Accepted (2026-10-17)",
           "summary": "새 영상 프로젝트와 기존 프로젝트의 영상·이미지 자산 추가를 분리해 로컬 경로로 가져온다"
         }
       ],
