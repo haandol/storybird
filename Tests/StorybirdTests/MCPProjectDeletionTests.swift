@@ -8,66 +8,62 @@ import XCTest
 @MainActor
 final class MCPProjectDeletionTests: XCTestCase {
     private typealias ProtocolResult = (content: [Tool.Content], isError: Bool?)
-    func test_agentConfirmation_bothProfilesDeleteOnlyOwnedAssetsWithoutPrompt() async throws {
-        for profile in StorybirdMCPToolProfile.allCases {
-            try await withClient(profile: profile) { client, store, project, assets, external, _ in
-                let beforeOther = store.projects.last!
-                let protected = ["Voices/profile.wav", "VoiceRuntime/model.bin", "export.mp4"].map {
-                    store.repository.rootURL.appendingPathComponent($0)
-                }
-                for url in protected {
-                    try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                        withIntermediateDirectories: true)
-                    try Data("preserve".utf8).write(to: url)
-                }
-                try FileManager.default.createSymbolicLink(at: assets.appendingPathComponent("external-link"),
-                    withDestinationURL: protected[0].deletingLastPathComponent())
-                let result = try await client.callTool(name: "storybird_delete_project", arguments: [
-                    "project_id": .string(project.id.uuidString), "confirmed": true,
-                    "expected_revision": .int(project.revision),
-                ])
-                XCTAssertNotEqual(result.isError, true)
-                let deletion = try decode(result)
-                XCTAssertEqual(deletion.status, "deleted")
-                XCTAssertTrue(deletion.projectRemoved)
-                XCTAssertTrue(deletion.assetsRemoved)
-                XCTAssertNil(store.project(id: project.id))
-                XCTAssertEqual(store.project(id: beforeOther.id), beforeOther)
-                XCTAssertNil(store.externalControlPrompt)
-                XCTAssertFalse(FileManager.default.fileExists(atPath: assets.path))
-                XCTAssertEqual(try Data(contentsOf: external), Data("external-original".utf8))
-                for url in protected { XCTAssertEqual(try Data(contentsOf: url), Data("preserve".utf8)) }
-                XCTAssertEqual(try store.repository.loadProjects(), [beforeOther])
-                XCTAssertThrowsError(try store.undo(projectID: project.id))
-                XCTAssertFalse(store.automaticallyApprovesMCPRecording)
+    func test_agentConfirmation_compactDeleteOnlyOwnedAssetsWithoutPrompt() async throws {
+        try await withClient { client, store, project, assets, external, _ in
+            let beforeOther = store.projects.last!
+            let protected = ["Voices/profile.wav", "VoiceRuntime/model.bin", "export.mp4"].map {
+                store.repository.rootURL.appendingPathComponent($0)
             }
+            for url in protected {
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                    withIntermediateDirectories: true)
+                try Data("preserve".utf8).write(to: url)
+            }
+            try FileManager.default.createSymbolicLink(at: assets.appendingPathComponent("external-link"),
+                withDestinationURL: protected[0].deletingLastPathComponent())
+            let result = try await client.callTool(name: "storybird_delete_project", arguments: [
+                "project_id": .string(project.id.uuidString), "confirmed": true,
+                "expected_revision": .int(project.revision),
+            ])
+            XCTAssertNotEqual(result.isError, true)
+            let deletion = try decode(result)
+            XCTAssertEqual(deletion.status, "deleted")
+            XCTAssertTrue(deletion.projectRemoved)
+            XCTAssertTrue(deletion.assetsRemoved)
+            XCTAssertNil(store.project(id: project.id))
+            XCTAssertEqual(store.project(id: beforeOther.id), beforeOther)
+            XCTAssertNil(store.externalControlPrompt)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: assets.path))
+            XCTAssertEqual(try Data(contentsOf: external), Data("external-original".utf8))
+            for url in protected { XCTAssertEqual(try Data(contentsOf: url), Data("preserve".utf8)) }
+            XCTAssertEqual(try store.repository.loadProjects(), [beforeOther])
+            XCTAssertThrowsError(try store.undo(projectID: project.id))
+            XCTAssertFalse(store.automaticallyApprovesMCPRecording)
         }
     }
 
-    func test_declinedAndInvalidConfirmation_bothProfilesKeepProjectWithoutPrompt() async throws {
-        for profile in StorybirdMCPToolProfile.allCases {
-            try await withClient(profile: profile) { client, store, project, assets, _, _ in
-                let cancelled = try await client.callTool(name: "storybird_delete_project", arguments: [
-                    "project_id": .string(project.id.uuidString), "confirmed": false,
-                ])
-                XCTAssertEqual(try decode(cancelled).status, "cancelled")
-                for extras: [String: Value] in [
-                    ["confirmed": true],
-                    ["confirmed": "true", "expected_revision": 0],
-                    ["confirmed": 1, "expected_revision": 0],
-                    ["confirmed": true, "expected_revision": true],
-                    ["confirmed": true, "expected_revision": 0.5],
-                    ["confirmed": true, "expected_revision": -1],
-                    ["confirmed": true, "expected_revision": 0, "force": true],
-                ] {
-                    var arguments = extras
-                    arguments["project_id"] = .string(project.id.uuidString)
-                    let result = try await client.callTool(name: "storybird_delete_project", arguments: arguments)
-                    XCTAssertEqual(result.isError, true, "\(extras)")
-                    XCTAssertEqual(store.project(id: project.id), project)
-                    XCTAssertNil(store.externalControlPrompt)
-                    XCTAssertTrue(FileManager.default.fileExists(atPath: assets.path))
-                }
+    func test_declinedAndInvalidConfirmation_compactKeepProjectWithoutPrompt() async throws {
+        try await withClient { client, store, project, assets, _, _ in
+            let cancelled = try await client.callTool(name: "storybird_delete_project", arguments: [
+                "project_id": .string(project.id.uuidString), "confirmed": false,
+            ])
+            XCTAssertEqual(try decode(cancelled).status, "cancelled")
+            for extras: [String: Value] in [
+                ["confirmed": true],
+                ["confirmed": "true", "expected_revision": 0],
+                ["confirmed": 1, "expected_revision": 0],
+                ["confirmed": true, "expected_revision": true],
+                ["confirmed": true, "expected_revision": 0.5],
+                ["confirmed": true, "expected_revision": -1],
+                ["confirmed": true, "expected_revision": 0, "force": true],
+            ] {
+                var arguments = extras
+                arguments["project_id"] = .string(project.id.uuidString)
+                let result = try await client.callTool(name: "storybird_delete_project", arguments: arguments)
+                XCTAssertEqual(result.isError, true, "\(extras)")
+                XCTAssertEqual(store.project(id: project.id), project)
+                XCTAssertNil(store.externalControlPrompt)
+                XCTAssertTrue(FileManager.default.fileExists(atPath: assets.path))
             }
         }
     }
@@ -223,7 +219,6 @@ final class MCPProjectDeletionTests: XCTestCase {
     /// Uses production MCP dispatch and app handlers with a disposable library.
     /// File faults are injected below the store, not substituted deletion results.
     private func withClient(
-        profile: StorybirdMCPToolProfile = .legacy,
         _ body: @MainActor (Client, AppStore, DemoProject, URL, URL, DeletionFileManager) async throws -> Void
     ) async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("deletion-\(UUID())")
@@ -241,7 +236,7 @@ final class MCPProjectDeletionTests: XCTestCase {
         let storedProject = try XCTUnwrap(store.project(id: project.id))
         let host = StorybirdExternalControlHost(store: store)
         let service = StorybirdMCPService(client: StorybirdAppIPCClient(sender: { await host.handle($0) },
-            launcher: { throw StorybirdControlWireError.invalidMessage }), toolProfile: profile)
+            launcher: { throw StorybirdControlWireError.invalidMessage }))
         let transports = await InMemoryTransport.createConnectedPair()
         let server = try await service.startServer(transport: transports.server)
         let client = Client(name: "Deletion protocol test", version: "1")

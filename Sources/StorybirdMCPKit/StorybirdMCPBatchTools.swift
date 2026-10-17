@@ -82,10 +82,10 @@ extension StorybirdMCPService {
                     required: ["project_id", "expected_revision", "clip_id", "duration"]),
                 annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false)),
             Tool(name: "storybird_preview_edits", title: "Preview an atomic edit",
-                description: "Validate and describe the complete prospective edit without saving, creating assets/jobs or changing undo. Generated IDs are provisional: use apply's generated IDs for follow-up edits. " + semantics,
+                description: "Validate and describe the complete prospective edit without saving, creating assets/jobs or changing undo. Generated IDs are provisional: use apply's generated IDs for follow-up edits. " + semantics + " " + subtitleGuidance,
                 inputSchema: input, annotations: .init(readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false)),
             Tool(name: "storybird_apply_edits", title: "Apply an atomic edit",
-                description: "Apply one complete edit through Storybird's writer as one revision and one undo. Return the resulting project, direct/derived changes and generated IDs. Failures include current_revision and a structured error. " + semantics,
+                description: "Apply one complete edit through Storybird's writer as one revision and one undo. Return the resulting project, direct/derived changes and generated IDs. Failures include current_revision and a structured error. " + semantics + " " + subtitleGuidance,
                 inputSchema: input, annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false)),
         ]
     }

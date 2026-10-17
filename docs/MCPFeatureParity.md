@@ -13,18 +13,18 @@ An unexplained missing editing path blocks completion.
 
 ## Supported actions
 
-Every name below is advertised in its stated profile. Read IDs and the current `revision`
+Every tool name below is advertised in the compact catalog. Read IDs and the current `revision`
 (the project's edit version) before changing an existing project.
 
-### Connection profiles
+### Compact discovery and editing
 
-The default `legacy` profile preserves the original 74 tools and adds ten tools (84 total).
-Launch with `--tool-profile compact` to advertise 63 tools for the same actions.
-The selected list is fixed for that connection. Compact replaces 30 names with
-the following nine tools; the other 54 tools are shared by both profiles.
-There are no hidden aliases. Both profiles include the same explicit atomic batch tools.
+Default launches and explicit `--tool-profile compact` launches expose the same
+63 tools. The removed legacy option fails before connection or app access.
+Nine grouped editing tools retain all branch inputs and operations; 54 other
+tools remain separately advertised. Replaced individual names are rejected,
+not executed as hidden aliases. Atomic batch preview and apply stay separate.
 
-| Compact tool | Selector and matching legacy actions | Shared implementation and evidence |
+| Compact tool | Selector and app operations | Shared implementation and evidence |
 |---|---|---|
 | `storybird_edit_clip` | `action`: split, trim, delete, move, duplicate, set_speed, insert_freeze, set_duration, place_media | Companion validates one branch → existing clip handler → `VideoTimelineEditor` → app revision/save/undo |
 | `storybird_edit_click` | `action`: create, update, delete | Existing Cue commands; all indicator/description/subtitle properties remain available |
@@ -39,36 +39,35 @@ There are no hidden aliases. Both profiles include the same explicit atomic batc
 All nine require `project_id`, `expected_revision`, their selector, and `input`.
 `input` contains only the selected operation's existing fields; even empty history
 input is explicit `{}`. Required fields, units, optional-field behavior, and return
-values come from the corresponding legacy command. The companion rejects invalid
+values come from the corresponding app command. The companion rejects invalid
 branch input before IPC, including the app's positive spotlight width/height rule
 for creation, effect updates and nested suggestion patches. Grouping preserves
-the corresponding legacy operation's schema. App-owned validation, atomic writes
+the corresponding app operation's schema. App-owned validation, atomic writes
 and undo still apply.
-`MCPCompactToolTests`, the profile coverage in `MCPFeatureParityTests`, and both
-profiles of `AuthoringMCPProtocolTests`/`MCPAudioProtocolTests` cover these paths.
+`MCPCompactToolTests`, the catalog coverage in `MCPFeatureParityTests`, and the compact workflows in `AuthoringMCPProtocolTests`/`MCPAudioProtocolTests` cover these paths.
 
-### Legacy actions and unchanged tools
+### Public actions and shared implementation
 
 | Native action or result | MCP path | Implementation and regression evidence |
 |---|---|---|
 | Import local MP4/MOV as a new project; import WAV/MP3/M4A as a reusable project asset | `storybird_import_video`, `storybird_import_audio` (`path`, `idempotency_key`; audio also `project_id`) | Production service → app host → app-owned import controller → shared video/audio validation and atomic library writer; `MCPMediaImportTests` verifies direct path import, replay, failures, cancellation, restart, placement and undo |
 | Inspect or cancel a media import | `storybird_get_import`, `storybird_cancel_import` (`job_id`) | Durable per-library jobs, cooperative cancellation and reserved result identities; `MCPMediaImportTests`; no revision change until audio placement |
 | Choose a display/window; start approved recording | `storybird_list_sources`, `storybird_start_session` (`source_id`, `project_name`) | App host applies the native auto-approval preference or waits for consent, then the shared capture session checks permissions/source and returns a frame; `MCPRecordingApprovalTests`, `StorybirdControlSessionTests`, `RecordingCoordinatorTests`; signed smoke required |
-| Check app version or read update status in General Settings | `storybird_check_for_updates`, `storybird_get_update_status` (no arguments, both profiles) | App host → shared `StorybirdUpdateChecker` → explicit GitHub GET / cached status. Returns `state`, `current_version`, `build_number`, optional `latest_version`, `release_url`, `error`; duplicate checks reuse the task; no project revision/undo/write. `UpdateCheckTests`, `MCPFeatureParityTests` |
+| Check app version or read update status in General Settings | `storybird_check_for_updates`, `storybird_get_update_status` (no arguments) | App host → shared `StorybirdUpdateChecker` → explicit GitHub GET / cached status. Returns `state`, `current_version`, `build_number`, optional `latest_version`, `release_url`, `error`; duplicate checks reuse the task; no project revision/undo/write. `UpdateCheckTests`, `MCPFeatureParityTests` |
 | Read or change MCP recording auto-approval in General Settings | `storybird_get_recording_auto_approval`, `storybird_set_recording_auto_approval` (`enabled`: required boolean) | App store persists the same user preference for UI/MCP and returns `{enabled}`; default off; no project revision or undo; `MCPRecordingApprovalTests`, `MCPFeatureParityTests` |
 | Observe captured source; move, click, scroll | `storybird_observe`, `storybird_move_pointer`, `storybird_click`, `storybird_scroll` | Control session and pointer geometry; `StorybirdControlSessionTests`; real permissions require signed smoke |
 | Stop/save or discard recording | `storybird_stop_session`, `storybird_abort_session` | Control host/coordinator; `RecordingCoordinatorTests`, `StorybirdControlSessionTests` |
 | Create, list, inspect and select projects | `storybird_create_project`, `storybird_list_projects`, `storybird_get_project`, `storybird_get_edit_context`, `storybird_preview_project` | App store, edit context and native selection; `MCPFeatureParityTests`, `AgentProductionTests` |
 | Rename, describe or independently duplicate a project | `storybird_update_project`, `storybird_duplicate_project` | App-owned saving and media copying; `AppStoreTests`, `AgentProductionTests` |
-| Permanently delete a project | `storybird_delete_project` (`project_id`; optional `confirmed`, `expected_revision`) | Omitted confirmation retains the native prompt. `confirmed: true` requires the current revision and forwards the user's agent-side confirmation without a popup; false cancels. Host rechecks identity/revision after native approval and uses app-owned deletion. Structured results distinguish index removal and asset cleanup; deletion is not undoable. `MCPProjectDeletionTests` exercises both profiles, stale/invalid/cancelled requests and persistence/cleanup failures. |
-| Split, trim, delete, reorder, speed-change and freeze video | `storybird_split_clip`, `storybird_trim_clip`, `storybird_delete_clip`, `storybird_move_clip`, `storybird_set_clip_speed`, `storybird_insert_freeze` | Shared `VideoTimelineEditor`; `MCPFeatureParityTests`, core timeline tests |
-| Undo, redo and compound model edits | `storybird_undo_project`, `storybird_redo_project`, `storybird_replace_project` | App store validation and history; `AppStoreTests`, `AgentProductionTests` |
-| Add/edit/delete Click Cues, including indicator, description and Cue subtitle | `storybird_create_click`, `storybird_update_click`, `storybird_delete_click` | Agent project editor and project validation; `MCPFeatureParityTests`, `AgentProductionTests`, `AppStoreTests` |
-| Add/edit/delete independent subtitles; time, position, text/style and scene linkage | `storybird_upsert_subtitle`, `storybird_delete_subtitle` | Control host, scene timing and shared validation; `MCPFeatureParityTests`, `SceneTimingTests` |
-| Add spotlight and pan/zoom | `storybird_create_spotlight`, `storybird_create_pan_zoom` | Agent project editor and content anchoring; core effect tests, `AgentProductionTests` |
-| Insert title/CTA; edit/delete effects and card text/style | `storybird_insert_title`, `storybird_insert_cta`, `storybird_update_effect`, `storybird_delete_effect` | Shared card reconciliation/effect validation; `AgentProductionTests`, `MCPFeatureParityTests` |
-| Inspect/edit/apply/reject generated click suggestions | `storybird_get_edit_context`, `storybird_update_suggestion`, `storybird_apply_suggestion`, `storybird_reject_suggestion` | Shared suggestion editor; `MCPFeatureParityTests`, `AgentProductionTests` |
-| Pick an existing voice profile; generate/edit/delete cloned narration | `storybird_list_voice_profiles`, `storybird_generate_narration`, `storybird_update_narration`, `storybird_delete_narration` | Clone my voice → app host → Base synthesis with a consented `voice_profile_id`; reject `speaker`/`instruct`, including empty instructions. App-owned local synthesis; `AppStoreTests`, `AgentProductionTests`, `MCPAudioProtocolTests` |
+| Permanently delete a project | `storybird_delete_project` (`project_id`; optional `confirmed`, `expected_revision`) | Omitted confirmation retains the native prompt. `confirmed: true` requires the current revision and forwards the user's agent-side confirmation without a popup; false cancels. Host rechecks identity/revision after native approval and uses app-owned deletion. Structured results distinguish index removal and asset cleanup; deletion is not undoable. `MCPProjectDeletionTests` exercises the compact catalog, stale/invalid/cancelled requests and persistence/cleanup failures. |
+| Split, trim, delete, reorder, speed-change and freeze video | `storybird_edit_clip` with `action: "split"`, `storybird_edit_clip` with `action: "trim"`, `storybird_edit_clip` with `action: "delete"`, `storybird_edit_clip` with `action: "move"`, `storybird_edit_clip` with `action: "set_speed"`, `storybird_edit_clip` with `action: "insert_freeze"` | Shared `VideoTimelineEditor`; `MCPFeatureParityTests`, core timeline tests |
+| Undo, redo and compound model edits | `storybird_edit_history` with `action: "undo"`, `storybird_edit_history` with `action: "redo"`, `storybird_replace_project` | App store validation and history; `AppStoreTests`, `AgentProductionTests` |
+| Add/edit/delete Click Cues, including indicator, description and Cue subtitle | `storybird_edit_click` with `action: "create"`, `storybird_edit_click` with `action: "update"`, `storybird_edit_click` with `action: "delete"` | Agent project editor and project validation; `MCPFeatureParityTests`, `AgentProductionTests`, `AppStoreTests` |
+| Add/edit/delete independent subtitles; time, position, text/style and scene linkage | `storybird_edit_subtitle` with `action: "upsert"`, `storybird_edit_subtitle` with `action: "delete"` | Control host, scene timing and shared validation; `MCPFeatureParityTests`, `SceneTimingTests` |
+| Add spotlight and pan/zoom | `storybird_create_visual_effect` with `kind: "spotlight"`, `storybird_create_visual_effect` with `kind: "pan_zoom"` | Agent project editor and content anchoring; core effect tests, `AgentProductionTests` |
+| Insert title/CTA; edit/delete effects and card text/style | `storybird_insert_card` with `kind: "title"`, `storybird_insert_card` with `kind: "cta"`, `storybird_edit_effect` with `action: "update"`, `storybird_edit_effect` with `action: "delete"` | Shared card reconciliation/effect validation; `AgentProductionTests`, `MCPFeatureParityTests` |
+| Inspect/edit/apply/reject generated click suggestions | `storybird_get_edit_context`, `storybird_edit_suggestion` with `action: "update"`, `storybird_edit_suggestion` with `action: "apply"`, `storybird_edit_suggestion` with `action: "reject"` | Shared suggestion editor; `MCPFeatureParityTests`, `AgentProductionTests` |
+| Pick an existing voice profile; generate/edit/delete cloned narration | `storybird_list_voice_profiles`, `storybird_generate_narration`, `storybird_update_narration`, `storybird_edit_audio_layer` with `action: "delete"` | Clone my voice → app host → Base synthesis with a consented `voice_profile_id`; reject `speaker`/`instruct`, including empty instructions. App-owned local synthesis; `AppStoreTests`, `AgentProductionTests`, `MCPAudioProtocolTests` |
 | Generate CustomVoice speech without a profile | `storybird_start_narration_draft`, `storybird_generate_narration`; speakers via `storybird_list_voice_models` | Built-in voice + speaker + optional instructions → app host → shared input validation → local CustomVoice runtime → persisted draft/asset/layer `customVoice` metadata. MCP requires `speaker`, accepts optional `instruct`, and omits `voice_profile_id`; mixed or missing sources fail without saving. |
 | Change a CustomVoice speaker or instructions in the editing sheet or inspector | `storybird_update_narration` (`project_id`, `expected_revision`, `narration_id`, optional `speaker`, `instruct`) | Both controls → app host → existing CustomVoice layer validation → local regeneration → atomic save and undo. Instruction-only changes retain text/language; empty `instruct` clears instructions. Reject use on cloned/imported layers; stale revision, synthesis/save failure preserve prior audio/settings. |
 | Preserve generation settings when placing/reusing/splitting/duplicating audio, copying a project or undoing/reopening | Existing draft placement, audio asset placement, audio split/duplicate, project duplicate, history and read tools | App-owned draft/asset/layer metadata and shared audio editor retain `customVoice` speaker/instructions with text/language, or the cloned profile. `CustomVoiceMetadataTests` provides synthetic metadata regression coverage; this inventory does not assert real synthesis verification. |
@@ -76,8 +75,8 @@ profiles of `AuthoringMCPProtocolTests`/`MCPAudioProtocolTests` cover these path
 | Inspect supported generation models and clean up retained 0.6B files | `storybird_list_voice_models`, `storybird_get_voice_model`, `storybird_remove_voice_model` | Snapshots expose boolean `supports_generation` and speaker ID array `speakers`. Base/CustomVoice 1.7B 8-bit support generation; legacy 0.6B does not. Stored legacy selection migrates to Base; retained files appear for cleanup without automatic deletion. Reject new legacy selection/install/generation. |
 | Generate, list, inspect, cancel and place a reusable TTS draft | `storybird_start_narration_draft`, `storybird_list_narration_drafts`, `storybird_get_narration_draft`, `storybird_cancel_narration_draft`, `storybird_place_narration_draft` | Persisted draft lifecycle; `AgentProductionTests`, `MCPAudioProtocolTests` |
 | List audio cards/assets and place them at a chosen time | `storybird_list_audio_assets`, `storybird_place_audio_asset` | App-owned assets and shared audio editor; `ProjectAudioTests`, `MCPAudioProtocolTests`, `TimelineAudioTests` |
-| Move, trim, rename, fade, gain-adjust, mute or scene-link audio | `storybird_update_audio_layer` | Shared `AudioLayerEditor`; `ProjectAudioTests`, `TimelineAudioTests`, `MCPAudioProtocolTests` |
-| Split, duplicate or delete audio blocks | `storybird_split_audio_layer`, `storybird_duplicate_audio_layer`, `storybird_delete_audio_layer` | Shared audio editor and retained source assets; `ProjectAudioTests`, `MCPAudioProtocolTests` |
+| Move, trim, rename, fade, gain-adjust, mute or scene-link audio | `storybird_edit_audio_layer` with `action: "update"` | Shared `AudioLayerEditor`; `ProjectAudioTests`, `TimelineAudioTests`, `MCPAudioProtocolTests` |
+| Split, duplicate or delete audio blocks | `storybird_edit_audio_layer` with `action: "split"`, `storybird_edit_audio_layer` with `action: "duplicate"`, `storybird_edit_audio_layer` with `action: "delete"` | Shared audio editor and retained source assets; `ProjectAudioTests`, `MCPAudioProtocolTests` |
 | Change original movie gain/mute | `storybird_set_source_audio` | Shared project validation and mix; `ProjectAudioTests`, `MCPAudioProtocolTests` |
 | Inspect a composited frame or mixed audio range | `storybird_render_preview`, `storybird_render_audio_preview` | Shared composition/mix and local renderers; `AgentProductionTests`, `ProjectAudioTests`, `MCPAudioProtocolTests` |
 | Listen to only the selected audio layer from its trimmed start in the properties panel | `storybird_render_audio_preview` (`project_id`, `start_time`, `duration`, optional `layer_id`) | App host → shared audio preview renderer → selected layer's project-owned source and existing gain/mute/fade mix. UI plays/stops the returned temporary WAV; MCP receives the same local file metadata. `ProjectAudioTests`, `MCPAudioProtocolTests`, `AudioAuditionTests` cover isolation, trim/gain/mute/fades, unchanged revision/undo and playback lifecycle. |
@@ -86,11 +85,10 @@ profiles of `AuthoringMCPProtocolTests`/`MCPAudioProtocolTests` cover these path
 
 ### Subtitle presentation
 
-Independent subtitles (`storybird_upsert_subtitle`, compact `storybird_edit_subtitle`
+Independent subtitles (`storybird_edit_subtitle`
 with `action: upsert`) use `text`, `position`, `font_size` and color/background
 fields. Cue subtitles use `subtitle`, `subtitle_position`, `subtitle_font_size`
-and their color/background fields through create/update click (compact
-`storybird_edit_click`). The existing app handlers retain omitted properties,
+and their color/background fields through `storybird_edit_click` with `action: create` or `action: update`. The existing app handlers retain omitted properties,
 revision checks, atomic saves and undo.
 
 Both paths feed the same subtitle layout in the native preview, MCP
@@ -103,7 +101,7 @@ clients to reuse one style and verify all source text in order.
 
 `SubtitlePresentationTests` checks word preservation, full-width layout, all
 rendered lines, both native anchors and overflow. The subtitle sequence test in
-`AuthoringMCPProtocolTests` exercises both profiles through saved text/style,
+`AuthoringMCPProtocolTests` exercises the compact catalog through saved text/style,
 stale/invalid edits, preview, overflow rejection, undo and terminal MP4 export.
 The production skill's read-only `check-subtitles.py` compares saved text with
 the complete transcript and checks position/size; `scripts/test-subtitle-audit.py`
@@ -147,7 +145,7 @@ Shared performance changes preserve these tool arguments and results:
   output revision. Applying a suggestion or placing audio does. Do not infer
   revision behavior only from a tool's mutating annotation.
 
-The inventory test compares the union of both profiles' advertised names against this file and
+The inventory test compares the compact catalog's advertised names against this file and
 `MCP.md`, rejects stale documented names and checks uniqueness. Property tests
 cover Cue/subtitle/audio/effect fields and require revision envelopes on edit
 commands, including each compact branch's nested property contract. Existing host and protocol suites check behavior, including failure
@@ -187,7 +185,7 @@ project-editing tools. Changing their scope requires checking the owning ADR.
 
 | UI command/property | MCP path | Shared behavior / exact exception |
 | --- | --- | --- |
-| Split (Command+B), duplicate (Command+D), undo/redo (Command+Z / Shift+Command+Z), Delete selection | Existing split tools and `storybird_apply_edits`; `storybird_undo_project` / `storybird_redo_project` | Editor keyboard and visible edit menu use the same selection/domain actions, revisioned save and undo. Subtitle split still requires text-boundary input in its sheet/tool. |
+| Split (Command+B), duplicate (Command+D), undo/redo (Command+Z / Shift+Command+Z), Delete selection | Existing split tools and `storybird_apply_edits`; `storybird_edit_history` with `action: "undo"` / `storybird_edit_history` with `action: "redo"` | Editor keyboard and visible edit menu use the same selection/domain actions, revisioned save and undo. Subtitle split still requires text-boundary input in its sheet/tool. |
 | Space, Left/Right frame, Up/Down clip-boundary navigation | Explicit-time `storybird_render_preview` / audio preview and context queries | View-only authoring exception; native keys stay in the active editor and never mutate project/revision/history. Agents do not synthesize keys. |
 | Customize modified keys; display disabled new defaults on conflict | Native shortcut Settings | Existing application-settings exception. Preserve prior combinations; never steal text/dialog/shortcut-recorder input or another app/window. |
 
@@ -195,8 +193,8 @@ project-editing tools. Changing their scope requires checking the owning ADR.
 
 | Action/property | Advertised MCP path | App/shared validation and observable result |
 | --- | --- | --- |
-| Create a timed rectangle with explicit time mode and coordinate space | Legacy `storybird_create_mask`; compact `storybird_create_visual_effect` with `kind: mask`. Required project_id, expected_revision, start_time, end_time, x, y, width, height, timing_mode, coordinate_space; optional color_hex defaults to black | App host → shared mask editor → project validation/save/undo. No opacity property; invalid whole rectangle/time/anchor rejects all changes. |
-| Read/edit mask time, bounds, RGB, mode/space; move, duplicate or delete | `storybird_get_edit_context` effect targets; `storybird_update_effect` and shared `storybird_preview_edits` / `storybird_apply_edits` on the effect ID; existing delete effect tool | The same persisted mask and app-owned revision/atomic writer as native sheet, numeric inspector and direct handles. Scene starts retain duration and follow only their owner. |
+| Create a timed rectangle with explicit time mode and coordinate space | `storybird_create_visual_effect` with `kind: mask`. Required project_id, expected_revision, start_time, end_time, x, y, width, height, timing_mode, coordinate_space; optional color_hex defaults to black | App host → shared mask editor → project validation/save/undo. No opacity property; invalid whole rectangle/time/anchor rejects all changes. |
+| Read/edit mask time, bounds, RGB, mode/space; move, duplicate or delete | `storybird_get_edit_context` effect targets; `storybird_edit_effect` with `action: "update"` and shared `storybird_preview_edits` / `storybird_apply_edits` on the effect ID; existing delete effect tool | The same persisted mask and app-owned revision/atomic writer as native sheet, numeric inspector and direct handles. Scene starts retain duration and follow only their owner. |
 | Change overlapping mask order | Effect update `order_index`, zero-based within the mask stack | Reorders masks without changing non-mask effect order or their values; context returns current indices and preview/apply reports derived order changes. |
 | Verify final covered pixels and recover original by deleting a mask | `storybird_render_preview` / MP4 export; delete effect + undo | Masks compose last over video, captions, cards and other effects at 100% opacity. Content coordinates follow placement/camera; canvas coordinates stay fixed. Originals remain unchanged; composition failure cannot report an unmasked result as successful. |
 
@@ -224,7 +222,7 @@ CaptionCanvasInteractionTests exercises native editing/splitting/merging, import
 selected style fields, canvas/placement controls and preserved drafts after
 revision/write failures. SubtitleEditingTests verifies Unicode boundaries,
 merge constraints, UTF-8 parsing, scope/order and millisecond rounding.
-MCPBatchEditingTests drives production handlers in both profiles, including
+MCPBatchEditingTests drives production handlers in the compact catalog, including
 all-or-nothing append, stale revision, missing related IDs and invalid canvas
 properties. View-only seek and selection use the existing authoring exception.
 
@@ -279,6 +277,6 @@ setup boundaries remain as listed above.
 
 | UI action/property | MCP path | Shared validation/result |
 |---|---|---|
-| Duplicate a clip and its scene-owned layers | Legacy `storybird_duplicate_clip`; compact `storybird_edit_clip` action `duplicate`, `clip_id`, `destination_index` | One ProjectEditPlanner duplicate through the app writer; current revision, created IDs, one undo and structured failure. |
-| Set image or freeze duration in seconds | Legacy `storybird_set_clip_duration`; compact clip action `set_duration`, `clip_id`, `duration` | Same positive duration and kind validation as batch properties; video duration rejects, linked timing is final-validated, save/undo remain atomic. |
-| Place an owned media asset at a clip boundary | Compact clip action `place_media`, same input as shared `storybird_place_media_asset` | Both advertised routes call the same app placement once. Existing shared placement remains available in both profiles; asset preparation stays separate. |
+| Duplicate a clip and its scene-owned layers | `storybird_edit_clip` action `duplicate`, `clip_id`, `destination_index` | One ProjectEditPlanner duplicate through the app writer; current revision, created IDs, one undo and structured failure. |
+| Set image or freeze duration in seconds | Clip action `set_duration`, `clip_id`, `duration` | Same positive duration and kind validation as batch properties; video duration rejects, linked timing is final-validated, save/undo remain atomic. |
+| Place an owned media asset at a clip boundary | Compact clip action `place_media`, same input as shared `storybird_place_media_asset` | Both advertised routes call the same app placement once. Existing shared placement remains available in the compact catalog; asset preparation stays separate. |

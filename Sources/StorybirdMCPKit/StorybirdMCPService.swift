@@ -3,13 +3,11 @@ import MCP
 
 public struct StorybirdMCPService: Sendable {
     private let client: StorybirdAppIPCClient
-    private let toolProfile: StorybirdMCPToolProfile
 
-    /// Keeps one profile for the connection, defaulting to the original public
-    /// calls so existing client configurations retain their behavior.
-    public init(client: StorybirdAppIPCClient = .init(), toolProfile: StorybirdMCPToolProfile = .legacy) {
+    /// Uses one compact catalog. Keep the explicit profile argument for
+    /// source compatibility; the public enum has only that supported value.
+    public init(client: StorybirdAppIPCClient = .init(), toolProfile _: StorybirdMCPToolProfile = .compact) {
         self.client = client
-        self.toolProfile = toolProfile
     }
 
     /// Runs one local stdio MCP connection and aborts capture when it closes.
@@ -39,66 +37,13 @@ public struct StorybirdMCPService: Sendable {
             name: "storybird",
             version: "0.1.8",
             title: "Storybird Video Production",
-            instructions: """
-            Use one selected display or window per session. Starting a session \
-            shares that source with the MCP client and allows real pointer \
-            movement, clicks, and scrolling while Storybird records a local \
-            silent video. These tools do not authorize \
-            purchases, messages, uploads, account changes, or other external \
-            side effects. Keyboard input and microphone recording are not provided by MCP. \
-            For prompt-to-video production, prefer storybird_start_narration_draft with text \
-            and either an existing voice_profile_id or a CustomVoice speaker plus optional instruct. Poll storybird_get_narration_draft until ready, \
-            use the measured duration to edit picture length, then place the draft once \
-            with storybird_place_narration_draft. Read current project revision before mutations. \
-            Use storybird_get_edit_context to find project.narrations layer IDs, and \
-            storybird_list_audio_assets for reusable asset IDs. Edit or duplicate audio layers, \
-            audition storybird_render_audio_preview, and poll the export job to completion. \
-            Audio layers can overlap; no live microphone or repeated editing approvals are needed \
-            once the required local model is prepared; only cloning requires a voice profile. \
-            Use storybird_list_voice_models to inspect Base/CustomVoice 8-bit models and preset speakers, \
-            storybird_select_voice_model to select one, and storybird_prepare_voice_model \
-            to download and prepare it without another approval. Poll \
-            storybird_get_voice_model until ready or failed before synthesizing. \
-            When model removal is requested, use storybird_remove_voice_model and poll \
-            until not_prepared or failed. Removal preserves selection, profiles, ready drafts, \
-            completed audio and project history; reinstall before new synthesis. \
-            Import local video or project audio by absolute path using storybird_import_video \
-            or storybird_import_audio with a stable idempotency_key; no file picker or folder \
-            approval is needed. Poll storybird_get_import until terminal. Replay the same \
-            key and arguments after a lost response; use a new key for a new attempt. \
-            Screen capture follows the saved recording auto-approval preference (off by default). \
-            Use storybird_get_recording_auto_approval to inspect it and \
-            storybird_set_recording_auto_approval with an explicit enabled boolean only when \
-            the user requests that settings change. It persists across app restarts and skips \
-            only Storybird's session dialog, never macOS permissions or deletion approval. \
-            Project editing does not require an active screen-control session. \
-            Permanent project deletion is separate and cannot be undone. Only after the user \
-            requests or approves that project and its owned assets, pass confirmed:true and \
-            the current expected_revision to storybird_delete_project to avoid an app popup. \
-            Reuse an existing matching user approval; never self-approve. Omit confirmed \
-            for native confirmation or pass false to cancel. Inspect actual deletion results. \
-            Resolve scene and layer IDs with storybird_get_edit_context, make targeted edits, \
-            then inspect storybird_render_preview using its returned actual frame time and layer IDs. \
-            Updating only a Cue time preserves its component windows; to move a whole Cue, \
-            supply the indicator, description and subtitle windows together. \
-            For subtitles, choose one shared position and font_size for the sequence; \
-            default to bottom-center and keep the system font and size consistent across cues. \
-            Use the full safe frame width and wrap only between words (Korean eojeol). \
-            Preserve all requested source text in order unless the user explicitly allows shortening. \
-            Split long text into successive timed subtitles with the same style; do not shrink \
-            individual captions, summarize, omit words or add ellipses to make them fit. \
-            Preview the longest subtitle and every changed segment, compare the saved sequence \
-            with the full source text, and repair reported subtitle overflow before export. \
-            Use exact advertised argument names; unknown arguments are rejected without changes. \
-            A ready draft survives placement failure: edit the picture or placement and reuse it. \
-            Do not infer speech quality from a generated file or waveform alone.
-            """ + profileInstructions,
+            instructions: Self.serverInstructions,
             capabilities: .init(tools: .init(listChanged: false)),
             configuration: .strict
         )
 
         await server.withMethodHandler(ListTools.self) { _ in
-            .init(tools: Self.toolDefinitions(for: toolProfile))
+            .init(tools: Self.toolDefinitions)
         }
         await server.withMethodHandler(CallTool.self) { parameters in
             await callTool(parameters)
@@ -116,44 +61,44 @@ public struct StorybirdMCPService: Sendable {
         )
     }
 
-    /// Defines the public computer-use surface and its side-effect hints.
-    static var toolDefinitions: [Tool] {
+    /// Command schemas back grouped and shared tools; this full catalog is internal.
+    static var operationDefinitions: [Tool] {
         sourceTools + projectTools + layerTools + voiceTools + draftTools + audioTools + exportTools + importTools + voiceModelTools + updateTools + batchTools + captionFileTools
     }
 
-    private static let exposedTools = Dictionary(uniqueKeysWithValues: toolDefinitions.map { ($0.name, $0) })
+    private static let operations = Dictionary(uniqueKeysWithValues: operationDefinitions.map { ($0.name, $0) })
 
-    /// Advertises one fixed profile while retaining explicitly shared tools.
-    static func toolDefinitions(for profile: StorybirdMCPToolProfile) -> [Tool] {
-        switch profile {
-        case .legacy: toolDefinitions
-        case .compact:
-            toolDefinitions.filter { !StorybirdMCPToolGroup.replacedNames.contains($0.name) }
-                + StorybirdMCPToolGroup.all.map { $0.definition(legacy: exposedTools) }
-        }
+    /// The only advertised catalog; default and explicit compact launches match.
+    static var toolDefinitions: [Tool] {
+        operationDefinitions.filter { !StorybirdMCPToolGroup.replacedNames.contains($0.name) }
+            + StorybirdMCPToolGroup.all.map { $0.definition(operations: operations) }
     }
 
-    private var profileInstructions: String {
-        switch toolProfile {
-        case .legacy:
-            "\nTool profile: legacy. Use the advertised operation-specific tools."
-        case .compact:
-            """
-            \nTool profile: compact. Use storybird_edit_clip, storybird_edit_click, \
-            storybird_edit_subtitle, storybird_edit_effect, storybird_edit_suggestion, \
-            storybird_edit_audio_layer and storybird_edit_history with an explicit action. \
-            storybird_create_visual_effect and storybird_insert_card use kind instead. \
-            Put project_id and expected_revision at the top level and operation fields in input \
-            ({} for undo/redo). One grouped call executes one operation; use \
-            storybird_preview_edits/storybird_apply_edits for atomic multi-target changes. \
-            Use layer_id for placed audio, \
-            including generated narration; text regeneration remains storybird_update_narration. \
-            Read the selected branch's required fields and units; do not mix actions' fields. \
-            Pending suggestion update/reject keeps the output revision; apply edits the project. \
-            After an ambiguous edit response, read current state before retrying.
-            """
-        }
-    }
+    /// Keep only cross-tool rules here: clients may repeat this text per tool.
+    /// Workflow details belong to the tool that starts or observes that work.
+    static let serverInstructions = """
+    Tool profile: compact. Use advertised tools and exact fields. Read storybird_get_edit_context \
+    before project edits and pass its current expected_revision; after ambiguous responses, \
+    read current state before retrying. Grouped edits require project_id, expected_revision, \
+    action/kind and input ({} if empty); one call executes one action. Use \
+    storybird_preview_edits/storybird_apply_edits for atomic multi-target edits. \
+    Project editing needs no screen-control session or repeated approval. \
+    Screen control shares one approved source and controls the real pointer; it does not \
+    authorize purchases, messages, uploads, account changes or other external side effects. \
+    No keyboard input, microphone recording or voice-profile creation, renaming or deletion through MCP. \
+    Permanent project deletion requires the user's approval of that target and its owned assets; \
+    never self-approve. Poll asynchronous work to its terminal state. Follow each tool's conditions.
+    """
+
+    /// Shared caption requirements stay with editing tools, not every server call.
+    static let subtitleGuidance = """
+    Use the system font and one font_size and position across a subtitle sequence (default bottom-center). \
+    Use full safe-frame width and wrap between words/Korean eojeol. Preserve the requested \
+    source text in order unless shortening is explicitly allowed; split long text into \
+    successive timed segments without shrinking, summarizing, omitting words or adding ellipses. \
+    Preview the longest and each changed subtitle, compare the saved sequence with the \
+    full source, and repair overflow before export.
+    """
 
     /// Lists complete audio assets and exposes the same independent layer edits
     /// as the native editor. Microphone and voice-profile reference selection stay native.
@@ -168,7 +113,7 @@ public struct StorybirdMCPService: Sendable {
         let timing: Value = .object(["type": "string", "enum": ["project", "scene"]])
         return [
             Tool(name: "storybird_list_audio_assets", title: "List reusable project audio",
-                 description: "List complete project-owned audio assets with IDs, measured durations, peaks and waveform summaries. Generate TTS drafts with an existing voice profile, then place the ready draft once; use layer duplication for repeated speech.",
+                 description: "List complete project-owned audio assets with IDs, measured durations, peaks and waveform summaries. Use asset IDs for reusable placement; project.narrations contains placed layer IDs.",
                  inputSchema: objectSchema(properties: project, required: ["project_id"]),
                  annotations: .init(readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false)),
             Tool(name: "storybird_place_audio_asset", title: "Place a reusable audio asset",
@@ -336,7 +281,7 @@ public struct StorybirdMCPService: Sendable {
         for key in ["effect_id", "title", "subtitle", "button_label"] { effect[key] = id }
         return [
             Tool(name: "storybird_get_edit_context", title: "Resolve text requests to scenes and layers",
-                 description: "Read the current revision, one-based scene numbers and clip times, plus current click captions, subtitles, effects and narration. Use returned IDs for text-driven edits; Storybird does not interpret natural language.",
+                 description: "Read current revision, scene numbers, clip times, captions, subtitles, effects and narration. Use returned IDs: project.narrations has layer IDs; storybird_list_audio_assets has reusable asset IDs. Storybird does not interpret natural language. Inspect changes with storybird_render_preview at its returned actual frame time and visible layer IDs.",
                  inputSchema: objectSchema(properties: ["project_id": id,
                     "playhead": .object(["type": "number", "minimum": 0,
                         "description": "Optional project seconds for alignment candidates only; does not move the native playhead."])],
@@ -359,7 +304,7 @@ public struct StorybirdMCPService: Sendable {
             layerTool("storybird_insert_cta", "Insert a closing CTA", "Append one noninteractive closing card.", card.filter { $0.key != "after_clip_id" && $0.key != "subtitle" }, ["title", "button_label", "duration"]),
             layerTool("storybird_update_effect", "Edit effect properties", "Change only supplied properties of one effect; fields must match its type.", effect, ["effect_id"]),
             layerTool("storybird_delete_effect", "Delete an effect", "Remove a visual effect or close a title/CTA gap with linked timing changes.", ["effect_id": id], ["effect_id"]),
-            layerTool("storybird_update_suggestion", "Edit a pending suggestion", "Change split time or nested spotlight/pan_zoom properties before applying.", ["suggestion_id": id, "split_time": time, "spotlight": objectSchema(properties: spotlight), "pan_zoom": objectSchema(properties: zoom)], ["suggestion_id"]),
+            layerTool("storybird_update_suggestion", "Edit a pending suggestion", "Change split time or nested spotlight/pan_zoom properties before applying; output and edit revision stay unchanged.", ["suggestion_id": id, "split_time": time, "spotlight": objectSchema(properties: spotlight), "pan_zoom": objectSchema(properties: zoom)], ["suggestion_id"]),
             layerTool("storybird_apply_suggestion", "Apply a suggestion", "Apply its split and effects as one undoable project edit.", ["suggestion_id": id], ["suggestion_id"]),
             layerTool("storybird_reject_suggestion", "Reject a suggestion", "Reject a pending suggestion without changing output or edit revision.", ["suggestion_id": id], ["suggestion_id"]),
         ]
@@ -377,7 +322,7 @@ public struct StorybirdMCPService: Sendable {
         let identified = project.merging(["draft_id": .object(["type": "string"])]) { _, new in new }
         return [
             Tool(name: "storybird_start_narration_draft", title: "Generate a reusable narration draft",
-                 description: "Use voice_profile_id for Base cloning, or speaker with optional instruct for CustomVoice without a profile. Never mix these inputs. Start local sentence synthesis without placing it or changing the edit revision. Poll the draft and place its measured WAV after editing the scene length.",
+                 description: "Use voice_profile_id for Base cloning, or speaker with optional instruct for CustomVoice without a profile. Never mix these inputs. Prefer this production workflow over generate_narration: prepare the matching model to ready, then synthesize locally without network, placement or edit revision changes. Poll storybird_get_narration_draft until ready; edit picture length from its measured duration and place once with storybird_place_narration_draft. Existing consented profiles are required only for cloning.",
                  inputSchema: objectSchema(properties: project.merging([
                     "voice_profile_id": .object(["type": "string"]), "text": .object(["type": "string"]),
                     "language": .object(["type": "string"]),
@@ -396,7 +341,7 @@ public struct StorybirdMCPService: Sendable {
                  inputSchema: objectSchema(properties: identified, required: ["project_id", "draft_id"]),
                  annotations: .init(readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false)),
             Tool(name: "storybird_place_narration_draft", title: "Place a ready narration draft",
-                 description: "Place the existing WAV at project seconds with optional scene timing. Conflicts retain the ready draft. A draft can be placed only once.",
+                 description: "Place the existing WAV at project seconds with optional scene timing. Conflicts retain the ready draft: correct picture length or placement and reuse it. Place a draft only once; repeat speech with storybird_edit_audio_layer action duplicate. Audition storybird_render_audio_preview before export; files or waveforms alone do not establish speech quality.",
                  inputSchema: objectSchema(properties: identified.merging([
                     "expected_revision": .object(["type": "integer", "minimum": 0]),
                     "start_time": .object(["type": "number", "minimum": 0]),
@@ -737,7 +682,7 @@ public struct StorybirdMCPService: Sendable {
             Tool(
                 name: "storybird_update_click",
                 title: "Update a click layer",
-                description: "Update one timed click caption, normalized position, or background style and return the new project revision.",
+                description: "Update one Cue and return the revision. Changing time alone keeps its component windows; move the whole Cue by supplying indicator, description and subtitle windows together.",
                 inputSchema: Self.revisionedProjectSchema(properties: clickProperties, required: ["click_id"]),
                 annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false)
             ),
@@ -875,19 +820,18 @@ public struct StorybirdMCPService: Sendable {
     private func callTool(
         _ parameters: CallTool.Parameters
     ) async -> CallTool.Result {
-        if toolProfile == .compact,
-           let group = StorybirdMCPToolGroup.all.first(where: { $0.name == parameters.name }) {
+        if let group = StorybirdMCPToolGroup.all.first(where: { $0.name == parameters.name }) {
             do {
-                let resolved = try group.resolve(parameters.arguments ?? [:], legacy: Self.exposedTools)
+                let resolved = try group.resolve(parameters.arguments ?? [:], operations: Self.operations)
                 return await callApp(name: resolved.name, arguments: resolved.arguments)
             } catch {
                 return Self.toolError(error.localizedDescription)
             }
         }
-        if toolProfile == .compact, StorybirdMCPToolGroup.replacedNames.contains(parameters.name) {
+        if StorybirdMCPToolGroup.replacedNames.contains(parameters.name) {
             return Self.toolError("Unknown Storybird tool: \(parameters.name)")
         }
-        guard let tool = Self.exposedTools[parameters.name] else {
+        guard let tool = Self.operations[parameters.name] else {
             return Self.toolError("Unknown Storybird tool: \(parameters.name)")
         }
         let arguments = parameters.arguments ?? [:]

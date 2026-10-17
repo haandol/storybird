@@ -133,79 +133,77 @@ final class UpdateCheckTests: XCTestCase {
     }
 
     func test_mcpAndSettings_sharePendingCheckAndTerminalResultsWithoutProjectChanges() async throws {
-        for profile in StorybirdMCPToolProfile.allCases {
-            let (checker, session) = makeChecker()
-            defer { session.invalidateAndCancel(); UpdateHTTPProtocol.fixture.finish() }
-            let root = temporaryRoot()
-            defer { try? FileManager.default.removeItem(at: root) }
-            let repository = ProjectRepository(rootURL: root)
-            let project = DemoProject(name: "Synthetic update check")
-            try repository.saveProjects([project])
-            let before = try Data(contentsOf: root.appendingPathComponent("library.json"))
-            let store = AppStore(repository: repository, updateChecker: checker)
-            let originalProjects = store.projects
-            let host = StorybirdExternalControlHost(store: store)
-            let ipc = StorybirdAppIPCClient(sender: { await host.handle($0) },
-                                           launcher: { throw StorybirdControlWireError.invalidMessage })
-            let server = await StorybirdMCPService(client: ipc, toolProfile: profile).makeServer()
-            let transport = await InMemoryTransport.createConnectedPair()
-            try await server.start(transport: transport.server)
-            let client = Client(name: "Update check test", version: "1")
-            do {
-                _ = try await client.connect(transport: transport.client)
-                let idle = try await call(client, "storybird_get_update_status")
-                XCTAssertEqual(idle, checker.status)
-                XCTAssertTrue(UpdateHTTPProtocol.fixture.requests.isEmpty)
-                for name in ["storybird_check_for_updates", "storybird_get_update_status"] {
-                    let result = try await client.callTool(name: name, arguments: ["url": "https://example.com"])
-                    XCTAssertEqual(result.isError, true)
-                }
-                XCTAssertTrue(UpdateHTTPProtocol.fixture.requests.isEmpty)
-                UpdateHTTPProtocol.fixture.setReply(.release("v0.2.0"), hold: true)
-                let recordingOperation = store.beginStorageOperation(.recording)
-                let checking = try await call(client, "storybird_check_for_updates")
-                XCTAssertEqual(checking.state, .checking)
-                XCTAssertEqual(checking.currentVersion, "0.1.13")
-                XCTAssertEqual(checking.buildNumber, "14")
-                _ = checker.startCheck() // Same action as the Settings button.
-                let repeated = try await call(client, "storybird_check_for_updates")
-                XCTAssertEqual(repeated, checking)
-                try await waitForRequest()
-                for _ in 0..<3 {
-                    let cached = try await call(client, "storybird_get_update_status")
-                    XCTAssertEqual(cached, checking)
-                }
-                XCTAssertEqual(UpdateHTTPProtocol.fixture.requests.count, 1)
-                XCTAssertNotNil(store.storageChangeDisabledReason)
-                store.endStorageOperation(recordingOperation)
-                XCTAssertNil(store.storageChangeDisabledReason, "Network wait must not hold storage operations.")
-                UpdateHTTPProtocol.fixture.finish()
-                let completed = try await poll(client)
-                XCTAssertEqual(completed, checker.status)
-                XCTAssertEqual(completed.state, .updateAvailable)
-                XCTAssertEqual(completed.latestVersion, "0.2.0")
-                UpdateHTTPProtocol.fixture.setReply(UpdateHTTPReply(error: .timedOut))
-                _ = try await call(client, "storybird_check_for_updates")
-                let failure = try await poll(client)
-                XCTAssertEqual(failure.state, .failed)
-                XCTAssertNil(failure.releaseURL)
-                XCTAssertNotNil(failure.error)
-                UpdateHTTPProtocol.fixture.setReply(.release("v0.1.13"))
-                await checker.check() // UI retry is immediately observable through MCP.
-                let retried = try await call(client, "storybird_get_update_status")
-                XCTAssertEqual(retried.state, .upToDate)
-                XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent("library.json")), before)
-                XCTAssertEqual(store.projects, originalProjects)
-                XCTAssertNil(store.errorMessage)
-                XCTAssertNil(store.storageChangeDisabledReason)
-                await client.disconnect()
-                await server.stop()
-            } catch {
-                UpdateHTTPProtocol.fixture.finish()
-                await client.disconnect()
-                await server.stop()
-                throw error
+        let (checker, session) = makeChecker()
+        defer { session.invalidateAndCancel(); UpdateHTTPProtocol.fixture.finish() }
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repository = ProjectRepository(rootURL: root)
+        let project = DemoProject(name: "Synthetic update check")
+        try repository.saveProjects([project])
+        let before = try Data(contentsOf: root.appendingPathComponent("library.json"))
+        let store = AppStore(repository: repository, updateChecker: checker)
+        let originalProjects = store.projects
+        let host = StorybirdExternalControlHost(store: store)
+        let ipc = StorybirdAppIPCClient(sender: { await host.handle($0) },
+                                       launcher: { throw StorybirdControlWireError.invalidMessage })
+        let server = await StorybirdMCPService(client: ipc).makeServer()
+        let transport = await InMemoryTransport.createConnectedPair()
+        try await server.start(transport: transport.server)
+        let client = Client(name: "Update check test", version: "1")
+        do {
+            _ = try await client.connect(transport: transport.client)
+            let idle = try await call(client, "storybird_get_update_status")
+            XCTAssertEqual(idle, checker.status)
+            XCTAssertTrue(UpdateHTTPProtocol.fixture.requests.isEmpty)
+            for name in ["storybird_check_for_updates", "storybird_get_update_status"] {
+                let result = try await client.callTool(name: name, arguments: ["url": "https://example.com"])
+                XCTAssertEqual(result.isError, true)
             }
+            XCTAssertTrue(UpdateHTTPProtocol.fixture.requests.isEmpty)
+            UpdateHTTPProtocol.fixture.setReply(.release("v0.2.0"), hold: true)
+            let recordingOperation = store.beginStorageOperation(.recording)
+            let checking = try await call(client, "storybird_check_for_updates")
+            XCTAssertEqual(checking.state, .checking)
+            XCTAssertEqual(checking.currentVersion, "0.1.13")
+            XCTAssertEqual(checking.buildNumber, "14")
+            _ = checker.startCheck() // Same action as the Settings button.
+            let repeated = try await call(client, "storybird_check_for_updates")
+            XCTAssertEqual(repeated, checking)
+            try await waitForRequest()
+            for _ in 0..<3 {
+                let cached = try await call(client, "storybird_get_update_status")
+                XCTAssertEqual(cached, checking)
+            }
+            XCTAssertEqual(UpdateHTTPProtocol.fixture.requests.count, 1)
+            XCTAssertNotNil(store.storageChangeDisabledReason)
+            store.endStorageOperation(recordingOperation)
+            XCTAssertNil(store.storageChangeDisabledReason, "Network wait must not hold storage operations.")
+            UpdateHTTPProtocol.fixture.finish()
+            let completed = try await poll(client)
+            XCTAssertEqual(completed, checker.status)
+            XCTAssertEqual(completed.state, .updateAvailable)
+            XCTAssertEqual(completed.latestVersion, "0.2.0")
+            UpdateHTTPProtocol.fixture.setReply(UpdateHTTPReply(error: .timedOut))
+            _ = try await call(client, "storybird_check_for_updates")
+            let failure = try await poll(client)
+            XCTAssertEqual(failure.state, .failed)
+            XCTAssertNil(failure.releaseURL)
+            XCTAssertNotNil(failure.error)
+            UpdateHTTPProtocol.fixture.setReply(.release("v0.1.13"))
+            await checker.check() // UI retry is immediately observable through MCP.
+            let retried = try await call(client, "storybird_get_update_status")
+            XCTAssertEqual(retried.state, .upToDate)
+            XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent("library.json")), before)
+            XCTAssertEqual(store.projects, originalProjects)
+            XCTAssertNil(store.errorMessage)
+            XCTAssertNil(store.storageChangeDisabledReason)
+            await client.disconnect()
+            await server.stop()
+        } catch {
+            UpdateHTTPProtocol.fixture.finish()
+            await client.disconnect()
+            await server.stop()
+            throw error
         }
     }
 

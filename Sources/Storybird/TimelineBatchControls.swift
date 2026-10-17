@@ -8,6 +8,22 @@ struct CaptionStyleSession: Identifiable {
     let targets: [ProjectEditReference]
     let style: TextOverlayStyle
     let mixedFields: Set<String>
+
+    /// Both caption entry points preserve target order, the first available
+    /// style and the same mixed-property markers without editing the project.
+    static func make(project: DemoProject, targets: [ProjectEditReference]) -> Self {
+        let styles = targets.compactMap { ref in
+            project.subtitles.first { $0.id == ref.id }?.style
+                ?? project.clicks.first { $0.id == ref.id }?.cueSubtitle.style
+        }
+        var mixed: Set<String> = []
+        if Set(styles.map(\.foregroundHex)).count > 1 { mixed.insert("foreground_hex") }
+        if Set(styles.map(\.backgroundHex)).count > 1 { mixed.insert("background_hex") }
+        if Set(styles.map(\.backgroundOpacity)).count > 1 { mixed.insert("background_opacity") }
+        if Set(styles.map(\.fontSize)).count > 1 { mixed.insert("font_size") }
+        return Self(projectID: project.id, revision: project.revision, targets: targets,
+            style: styles.first ?? .default, mixedFields: mixed)
+    }
 }
 
 struct TimelineBatchControls: View {
@@ -53,17 +69,7 @@ struct TimelineBatchControls: View {
                 }
                 if targets.allSatisfy({ $0.target == .subtitle || $0.target == .click }) {
                     Button("Caption style…") {
-                        let styles = targets.compactMap { ref in
-                            project.subtitles.first { $0.id == ref.id }?.style
-                                ?? project.clicks.first { $0.id == ref.id }?.cueSubtitle.style
-                        }
-                        var mixed: Set<String> = []
-                        if Set(styles.map(\.foregroundHex)).count > 1 { mixed.insert("foreground_hex") }
-                        if Set(styles.map(\.backgroundHex)).count > 1 { mixed.insert("background_hex") }
-                        if Set(styles.map(\.backgroundOpacity)).count > 1 { mixed.insert("background_opacity") }
-                        if Set(styles.map(\.fontSize)).count > 1 { mixed.insert("font_size") }
-                        onStyle(CaptionStyleSession(projectID: project.id, revision: project.revision, targets: targets,
-                            style: styles.first ?? .default, mixedFields: mixed))
+                        onStyle(.make(project: project, targets: targets))
                     }.accessibilityIdentifier("timeline-batch-caption-style")
                 }
                 Button("Clear") { onSelect([]) }
@@ -165,12 +171,13 @@ struct CaptionBulkStyleSheet: View {
     /// Keep the session's original revision and entered style after a failure;
     /// reopening is an explicit choice to start from newer project state.
     private func apply() {
+        let fields: [String: ProjectEditValue] = ["foreground_hex": .string(style.foregroundHex),
+            "background_hex": .string(style.backgroundHex), "background_opacity": .number(style.backgroundOpacity),
+            "font_size": .number(style.fontSize)]
+        let selectedFields = fields.filter { changed.contains($0.key) }
         let edits = session.targets.map { ref in
             let prefix = ref.target == .click ? "subtitle_" : ""
-            let fields: [String: ProjectEditValue] = ["foreground_hex": .string(style.foregroundHex),
-                "background_hex": .string(style.backgroundHex), "background_opacity": .number(style.backgroundOpacity),
-                "font_size": .number(style.fontSize)]
-            let values = Dictionary(uniqueKeysWithValues: fields.filter { changed.contains($0.key) }.map { (prefix + $0.key, $0.value) })
+            let values = Dictionary(uniqueKeysWithValues: selectedFields.map { (prefix + $0.key, $0.value) })
             return ProjectEdit(target: ref.target, id: ref.id, action: .update, values: values)
         }
         do {

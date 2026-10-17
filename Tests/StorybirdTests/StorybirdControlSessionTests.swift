@@ -241,43 +241,37 @@ final class StorybirdControlSessionTests: XCTestCase {
     func test_toolDefinitions_exposeVideoTimelineTools() {
         let tools = StorybirdMCPService.toolDefinitions
         let required: Set<String> = [
-                "storybird_list_sources",
-                "storybird_start_session",
-                "storybird_observe",
-                "storybird_move_pointer",
-                "storybird_click",
-                "storybird_scroll",
-                "storybird_list_projects",
-                "storybird_get_project",
-                "storybird_replace_project",
-                "storybird_split_clip",
-                "storybird_trim_clip",
-                "storybird_delete_clip",
-                "storybird_move_clip",
-                "storybird_set_clip_speed",
-                "storybird_insert_freeze",
-                "storybird_undo_project",
-                "storybird_redo_project",
-                "storybird_update_project",
-                "storybird_update_click",
-                "storybird_upsert_subtitle",
-                "storybird_preview_project",
-                "storybird_render_preview",
-                "storybird_list_voice_profiles",
-                "storybird_generate_narration",
-                "storybird_update_narration",
-                "storybird_delete_narration",
-                "storybird_start_export",
-                "storybird_get_export",
-                "storybird_cancel_export",
-                "storybird_export_project",
-                "storybird_delete_project",
-                "storybird_stop_session",
-            ]
+            "storybird_list_sources",
+            "storybird_start_session",
+            "storybird_observe",
+            "storybird_move_pointer",
+            "storybird_click",
+            "storybird_scroll",
+            "storybird_list_projects",
+            "storybird_get_project",
+            "storybird_replace_project",
+            "storybird_edit_clip",
+            "storybird_edit_history",
+            "storybird_update_project",
+            "storybird_edit_click",
+            "storybird_edit_subtitle",
+            "storybird_preview_project",
+            "storybird_render_preview",
+            "storybird_list_voice_profiles",
+            "storybird_generate_narration",
+            "storybird_update_narration",
+            "storybird_edit_audio_layer",
+            "storybird_start_export",
+            "storybird_get_export",
+            "storybird_cancel_export",
+            "storybird_export_project",
+            "storybird_delete_project",
+            "storybird_stop_session",
+        ]
         XCTAssertTrue(required.isSubset(of: Set(tools.map(\.name))))
         XCTAssertEqual(Set(tools.map(\.name)).count, tools.count)
-        XCTAssertNotNil(tools.first { $0.name == "storybird_update_click" })
-        XCTAssertNotNil(tools.first { $0.name == "storybird_upsert_subtitle" })
+        XCTAssertNotNil(tools.first { $0.name == "storybird_edit_click" })
+        XCTAssertNotNil(tools.first { $0.name == "storybird_edit_subtitle" })
         XCTAssertNotNil(tools.first { $0.name == "storybird_replace_project" })
         XCTAssertNotNil(tools.first { $0.name == "storybird_render_preview" })
         XCTAssertNotNil(tools.first { $0.name == "storybird_start_export" })

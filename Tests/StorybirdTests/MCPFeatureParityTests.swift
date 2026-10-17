@@ -8,166 +8,147 @@ import XCTest
 @MainActor
 final class MCPFeatureParityTests: XCTestCase {
     func test_editorShortcutActions_haveExplicitCommandsWithoutKeyboardTools() throws {
-        for profile in StorybirdMCPToolProfile.allCases {
-            let tools = StorybirdMCPService.toolDefinitions(for: profile)
-            let names = Set(tools.map(\.name))
-            XCTAssertTrue(names.contains("storybird_apply_edits"))
-            XCTAssertTrue(names.contains("storybird_render_preview"))
-            XCTAssertTrue(names.contains(profile == .compact ? "storybird_edit_clip" : "storybird_split_clip"))
-            XCTAssertTrue(names.contains(profile == .compact ? "storybird_edit_history" : "storybird_undo_project"))
-            XCTAssertFalse(names.contains { $0.contains("keyboard") || $0.contains("shortcut") })
-            let batch = try XCTUnwrap(tools.first { $0.name == "storybird_apply_edits" })
-            let branches = try XCTUnwrap(batch.inputSchema.objectValue?["properties"]?.objectValue?["edits"]?.objectValue?["items"]?.objectValue?["oneOf"]?.arrayValue)
-            for action in ["split", "duplicate", "delete"] {
-                XCTAssertTrue(branches.contains { $0.objectValue?["properties"]?.objectValue?["action"]?.objectValue?["const"]?.stringValue == action })
-            }
+        let tools = StorybirdMCPService.toolDefinitions
+        let names = Set(tools.map(\.name))
+        XCTAssertTrue(names.contains("storybird_apply_edits"))
+        XCTAssertTrue(names.contains("storybird_render_preview"))
+        XCTAssertTrue(names.contains("storybird_edit_clip"))
+        XCTAssertTrue(names.contains("storybird_edit_history"))
+        XCTAssertFalse(names.contains { $0.contains("keyboard") || $0.contains("shortcut") })
+        let batch = try XCTUnwrap(tools.first { $0.name == "storybird_apply_edits" })
+        let branches = try XCTUnwrap(batch.inputSchema.objectValue?["properties"]?.objectValue?["edits"]?.objectValue?["items"]?.objectValue?["oneOf"]?.arrayValue)
+        for action in ["split", "duplicate", "delete"] {
+            XCTAssertTrue(branches.contains { $0.objectValue?["properties"]?.objectValue?["action"]?.objectValue?["const"]?.stringValue == action })
         }
     }
 
     func test_maskSchemas_requireIndependentModeAndSpaceAndNeverExposeOpacity() throws {
-        for profile in StorybirdMCPToolProfile.allCases {
-            let tools = StorybirdMCPService.toolDefinitions(for: profile)
-            let creation: [String: MCP.Value]
-            if profile == .legacy {
-                creation = try XCTUnwrap(tools.first { $0.name == "storybird_create_mask" }?.inputSchema.objectValue)
-            } else {
-                let tool = try XCTUnwrap(tools.first { $0.name == "storybird_create_visual_effect" })
-                let branch = try XCTUnwrap(tool.inputSchema.objectValue?["oneOf"]?.arrayValue?.first {
-                    $0.objectValue?["properties"]?.objectValue?["kind"]?.objectValue?["const"]?.stringValue == "mask"
-                })
-                creation = try XCTUnwrap(branch.objectValue?["properties"]?.objectValue?["input"]?.objectValue)
-            }
-            let required = Set(creation["required"]?.arrayValue?.compactMap(\.stringValue) ?? [])
-            XCTAssertTrue(Set(["start_time", "end_time", "x", "y", "width", "height", "timing_mode", "coordinate_space"]).isSubset(of: required))
-            let properties = try XCTUnwrap(creation["properties"]?.objectValue)
-            XCTAssertEqual(properties["timing_mode"]?.objectValue?["enum"]?.arrayValue?.compactMap(\.stringValue), ["project", "scene"])
-            XCTAssertEqual(properties["coordinate_space"]?.objectValue?["enum"]?.arrayValue?.compactMap(\.stringValue), ["content", "canvas"])
-            XCTAssertEqual(properties["color_hex"]?.objectValue?["default"]?.stringValue, "#000000")
-            XCTAssertEqual(properties["width"]?.objectValue?["exclusiveMinimum"], 0)
-            XCTAssertEqual(properties["height"]?.objectValue?["exclusiveMinimum"], 0)
-            XCTAssertNil(properties["opacity"])
-            let fields = ProjectEditFields.effect(.mask(MaskEffect(startTime: 0, endTime: 1, x: 0, y: 0, width: 1, height: 1,
-                timingMode: .project, coordinateSpace: .canvas)))
-            XCTAssertEqual(Set(fields.keys), ["start_time", "end_time", "x", "y", "width", "height", "color_hex", "timing_mode", "coordinate_space", "order_index"])
-            XCTAssertEqual(fields["order_index"]?.type, .integer)
-        }
+        let tools = StorybirdMCPService.toolDefinitions
+        let tool = try XCTUnwrap(tools.first { $0.name == "storybird_create_visual_effect" })
+        let branch = try XCTUnwrap(tool.inputSchema.objectValue?["oneOf"]?.arrayValue?.first {
+            $0.objectValue?["properties"]?.objectValue?["kind"]?.objectValue?["const"]?.stringValue == "mask"
+        })
+        let creation = try XCTUnwrap(branch.objectValue?["properties"]?.objectValue?["input"]?.objectValue)
+        let required = Set(creation["required"]?.arrayValue?.compactMap(\.stringValue) ?? [])
+        XCTAssertTrue(Set(["start_time", "end_time", "x", "y", "width", "height", "timing_mode", "coordinate_space"]).isSubset(of: required))
+        let properties = try XCTUnwrap(creation["properties"]?.objectValue)
+        XCTAssertEqual(properties["timing_mode"]?.objectValue?["enum"]?.arrayValue?.compactMap(\.stringValue), ["project", "scene"])
+        XCTAssertEqual(properties["coordinate_space"]?.objectValue?["enum"]?.arrayValue?.compactMap(\.stringValue), ["content", "canvas"])
+        XCTAssertEqual(properties["color_hex"]?.objectValue?["default"]?.stringValue, "#000000")
+        XCTAssertEqual(properties["width"]?.objectValue?["exclusiveMinimum"], 0)
+        XCTAssertEqual(properties["height"]?.objectValue?["exclusiveMinimum"], 0)
+        XCTAssertNil(properties["opacity"])
+        let fields = ProjectEditFields.effect(.mask(MaskEffect(startTime: 0, endTime: 1, x: 0, y: 0, width: 1, height: 1,
+            timingMode: .project, coordinateSpace: .canvas)))
+        XCTAssertEqual(Set(fields.keys), ["start_time", "end_time", "x", "y", "width", "height", "color_hex", "timing_mode", "coordinate_space", "order_index"])
+        XCTAssertEqual(fields["order_index"]?.type, .integer)
     }
 
     func test_atomicEditSchemas_shareInputsAndExposeAllTargetProperties() throws {
-        for profile in StorybirdMCPToolProfile.allCases {
-            let tools = StorybirdMCPService.toolDefinitions(for: profile)
-            let preview = try XCTUnwrap(tools.first { $0.name == "storybird_preview_edits" })
-            let apply = try XCTUnwrap(tools.first { $0.name == "storybird_apply_edits" })
-            XCTAssertEqual(preview.inputSchema, apply.inputSchema)
-            XCTAssertEqual(preview.annotations.readOnlyHint, true)
-            XCTAssertEqual(apply.annotations.readOnlyHint, false)
-            let schema = try XCTUnwrap(apply.inputSchema.objectValue)
-            XCTAssertEqual(Set(schema["required"]?.arrayValue?.compactMap(\.stringValue) ?? []),
-                ["project_id", "expected_revision", "edits"])
-            let branches = try XCTUnwrap(schema["properties"]?.objectValue?["edits"]?.objectValue?["items"]?.objectValue?["oneOf"]?.arrayValue)
-            let clipSplits = branches.filter {
-                let fields = $0.objectValue?["properties"]?.objectValue
-                return fields?["target"]?.objectValue?["const"]?.stringValue == "clip"
-                    && fields?["action"]?.objectValue?["const"]?.stringValue == "split"
-            }
-            XCTAssertEqual(clipSplits.count, 2)
-            XCTAssertEqual(Set(clipSplits.flatMap {
-                $0.objectValue?["properties"]?.objectValue?["values"]?.objectValue?["required"]?.arrayValue?.compactMap(\.stringValue) ?? []
-            }), ["source_time", "clip_offset"])
-            for target in ProjectEditTarget.allCases {
-                let branch = try XCTUnwrap(branches.first {
-                    let values = $0.objectValue?["properties"]?.objectValue
-                    return values?["target"]?.objectValue?["const"]?.stringValue == target.rawValue
-                        && values?["action"]?.objectValue?["const"]?.stringValue == "update"
-                })
-                let values = try XCTUnwrap(branch.objectValue?["properties"]?.objectValue?["values"]?.objectValue)
-                XCTAssertEqual(values["additionalProperties"], false)
-                XCTAssertFalse(values["properties"]?.objectValue?.isEmpty ?? true)
-            }
+        let tools = StorybirdMCPService.toolDefinitions
+        let preview = try XCTUnwrap(tools.first { $0.name == "storybird_preview_edits" })
+        let apply = try XCTUnwrap(tools.first { $0.name == "storybird_apply_edits" })
+        XCTAssertEqual(preview.inputSchema, apply.inputSchema)
+        XCTAssertEqual(preview.annotations.readOnlyHint, true)
+        XCTAssertEqual(apply.annotations.readOnlyHint, false)
+        let schema = try XCTUnwrap(apply.inputSchema.objectValue)
+        XCTAssertEqual(Set(schema["required"]?.arrayValue?.compactMap(\.stringValue) ?? []),
+            ["project_id", "expected_revision", "edits"])
+        let branches = try XCTUnwrap(schema["properties"]?.objectValue?["edits"]?.objectValue?["items"]?.objectValue?["oneOf"]?.arrayValue)
+        let clipSplits = branches.filter {
+            let fields = $0.objectValue?["properties"]?.objectValue
+            return fields?["target"]?.objectValue?["const"]?.stringValue == "clip"
+                && fields?["action"]?.objectValue?["const"]?.stringValue == "split"
+        }
+        XCTAssertEqual(clipSplits.count, 2)
+        XCTAssertEqual(Set(clipSplits.flatMap {
+            $0.objectValue?["properties"]?.objectValue?["values"]?.objectValue?["required"]?.arrayValue?.compactMap(\.stringValue) ?? []
+        }), ["source_time", "clip_offset"])
+        for target in ProjectEditTarget.allCases {
+            let branch = try XCTUnwrap(branches.first {
+                let values = $0.objectValue?["properties"]?.objectValue
+                return values?["target"]?.objectValue?["const"]?.stringValue == target.rawValue
+                    && values?["action"]?.objectValue?["const"]?.stringValue == "update"
+            })
+            let values = try XCTUnwrap(branch.objectValue?["properties"]?.objectValue?["values"]?.objectValue)
+            XCTAssertEqual(values["additionalProperties"], false)
+            XCTAssertFalse(values["properties"]?.objectValue?.isEmpty ?? true)
         }
     }
 
     func test_captionFilesCanvasAndDirectEffects_advertiseEveryRequiredInput() throws {
-        for profile in StorybirdMCPToolProfile.allCases {
-            let tools = StorybirdMCPService.toolDefinitions(for: profile)
-            for (name, required) in [("storybird_import_subtitles", ["project_id", "expected_revision", "path"]),
-                                     ("storybird_export_subtitles", ["project_id", "scope"])] {
-                let tool = try XCTUnwrap(tools.first { $0.name == name })
-                XCTAssertEqual(Set(tool.inputSchema.objectValue?["required"]?.arrayValue?.compactMap(\.stringValue) ?? []), Set(required))
-            }
-            let tool = try XCTUnwrap(tools.first { $0.name == "storybird_apply_edits" })
-            let branches = try XCTUnwrap(tool.inputSchema.objectValue?["properties"]?.objectValue?["edits"]?.objectValue?["items"]?.objectValue?["oneOf"]?.arrayValue)
-            for (target, fields) in [("project", ["canvas_preset", "canvas_background_hex"]),
-                ("clip", ["fit_mode", "anchor_x", "anchor_y"]),
-                ("effect", ["x", "y", "width", "height", "start_x", "start_y", "start_scale", "end_x", "end_y", "end_scale"])] {
-                let branch = try XCTUnwrap(branches.first {
-                    let properties = $0.objectValue?["properties"]?.objectValue
-                    return properties?["target"]?.objectValue?["const"]?.stringValue == target
-                        && properties?["action"]?.objectValue?["const"]?.stringValue == "update"
-                })
-                let properties = try XCTUnwrap(branch.objectValue?["properties"]?.objectValue?["values"]?.objectValue?["properties"]?.objectValue)
-                for field in fields { XCTAssertNotNil(properties[field], "Missing \(target).\(field)") }
-            }
-            let split = try XCTUnwrap(branches.first {
+        let tools = StorybirdMCPService.toolDefinitions
+        for (name, required) in [("storybird_import_subtitles", ["project_id", "expected_revision", "path"]),
+                                 ("storybird_export_subtitles", ["project_id", "scope"])] {
+            let tool = try XCTUnwrap(tools.first { $0.name == name })
+            XCTAssertEqual(Set(tool.inputSchema.objectValue?["required"]?.arrayValue?.compactMap(\.stringValue) ?? []), Set(required))
+        }
+        let tool = try XCTUnwrap(tools.first { $0.name == "storybird_apply_edits" })
+        let branches = try XCTUnwrap(tool.inputSchema.objectValue?["properties"]?.objectValue?["edits"]?.objectValue?["items"]?.objectValue?["oneOf"]?.arrayValue)
+        for (target, fields) in [("project", ["canvas_preset", "canvas_background_hex"]),
+            ("clip", ["fit_mode", "anchor_x", "anchor_y"]),
+            ("effect", ["x", "y", "width", "height", "start_x", "start_y", "start_scale", "end_x", "end_y", "end_scale"])] {
+            let branch = try XCTUnwrap(branches.first {
                 let properties = $0.objectValue?["properties"]?.objectValue
-                return properties?["target"]?.objectValue?["const"]?.stringValue == "subtitle"
-                    && properties?["action"]?.objectValue?["const"]?.stringValue == "split"
+                return properties?["target"]?.objectValue?["const"]?.stringValue == target
+                    && properties?["action"]?.objectValue?["const"]?.stringValue == "update"
             })
-            XCTAssertEqual(Set(split.objectValue?["properties"]?.objectValue?["values"]?.objectValue?["required"]?.arrayValue?.compactMap(\.stringValue) ?? []), ["time", "text_offset"])
-            let merge = try XCTUnwrap(branches.first {
-                let properties = $0.objectValue?["properties"]?.objectValue
-                return properties?["target"]?.objectValue?["const"]?.stringValue == "subtitle"
-                    && properties?["action"]?.objectValue?["const"]?.stringValue == "merge"
-            })
-            XCTAssertTrue(merge.objectValue?["required"]?.arrayValue?.compactMap(\.stringValue).contains("related_ids") ?? false)
+            let properties = try XCTUnwrap(branch.objectValue?["properties"]?.objectValue?["values"]?.objectValue?["properties"]?.objectValue)
+            for field in fields { XCTAssertNotNil(properties[field], "Missing \(target).\(field)") }
+        }
+        let split = try XCTUnwrap(branches.first {
+            let properties = $0.objectValue?["properties"]?.objectValue
+            return properties?["target"]?.objectValue?["const"]?.stringValue == "subtitle"
+                && properties?["action"]?.objectValue?["const"]?.stringValue == "split"
+        })
+        XCTAssertEqual(Set(split.objectValue?["properties"]?.objectValue?["values"]?.objectValue?["required"]?.arrayValue?.compactMap(\.stringValue) ?? []), ["time", "text_offset"])
+        let merge = try XCTUnwrap(branches.first {
+            let properties = $0.objectValue?["properties"]?.objectValue
+            return properties?["target"]?.objectValue?["const"]?.stringValue == "subtitle"
+                && properties?["action"]?.objectValue?["const"]?.stringValue == "merge"
+        })
+        XCTAssertTrue(merge.objectValue?["required"]?.arrayValue?.compactMap(\.stringValue).contains("related_ids") ?? false)
+    }
+
+    func test_subtitleSchemas_exposeSharedStyleGuidanceInCompact() throws {
+        let tools = StorybirdMCPService.toolDefinitions
+        let subtitleName = "storybird_edit_subtitle"
+        let subtitle = try XCTUnwrap(tools.first { $0.name == subtitleName })
+        XCTAssertTrue(subtitle.description?.contains("one font_size") ?? false)
+        let schema = String(decoding: try JSONEncoder().encode(subtitle.inputSchema), as: UTF8.self)
+        for field in ["font_size", "position", "text", "start_time", "end_time"] {
+            XCTAssertTrue(schema.contains(field))
+        }
+        let cueName = "storybird_edit_click"
+        let cue = try XCTUnwrap(tools.first { $0.name == cueName })
+        let cueSchema = String(decoding: try JSONEncoder().encode(cue.inputSchema), as: UTF8.self)
+        XCTAssertTrue(cueSchema.contains("same font size"))
+        XCTAssertTrue(cueSchema.contains("subtitle_position"))
+    }
+
+    func test_updateChecks_exposeNoArgumentToolsInCompact() throws {
+        let tools = StorybirdMCPService.toolDefinitions
+        for name in ["storybird_check_for_updates", "storybird_get_update_status"] {
+            let tool = try XCTUnwrap(tools.first { $0.name == name })
+            let schema = try XCTUnwrap(tool.inputSchema.objectValue)
+            XCTAssertTrue(schema["properties"]?.objectValue?.isEmpty ?? true)
+            XCTAssertTrue(schema["required"]?.arrayValue?.isEmpty ?? true)
+            XCTAssertEqual(schema["additionalProperties"], .bool(false))
+            XCTAssertEqual(tool.annotations.openWorldHint, name == "storybird_check_for_updates")
+            XCTAssertEqual(tool.annotations.destructiveHint, false)
         }
     }
 
-    func test_subtitleSchemas_exposeSharedStyleGuidanceInBothProfiles() throws {
-        for profile in StorybirdMCPToolProfile.allCases {
-            let tools = StorybirdMCPService.toolDefinitions(for: profile)
-            let subtitleName = profile == .legacy ? "storybird_upsert_subtitle" : "storybird_edit_subtitle"
-            let subtitle = try XCTUnwrap(tools.first { $0.name == subtitleName })
-            XCTAssertTrue(subtitle.description?.contains("one font_size") ?? false)
-            let schema = String(decoding: try JSONEncoder().encode(subtitle.inputSchema), as: UTF8.self)
-            for field in ["font_size", "position", "text", "start_time", "end_time"] {
-                XCTAssertTrue(schema.contains(field))
-            }
-            let cueName = profile == .legacy ? "storybird_update_click" : "storybird_edit_click"
-            let cue = try XCTUnwrap(tools.first { $0.name == cueName })
-            let cueSchema = String(decoding: try JSONEncoder().encode(cue.inputSchema), as: UTF8.self)
-            XCTAssertTrue(cueSchema.contains("same font size"))
-            XCTAssertTrue(cueSchema.contains("subtitle_position"))
-        }
-    }
-
-    func test_updateChecks_exposeNoArgumentToolsInBothProfiles() throws {
-        for profile in StorybirdMCPToolProfile.allCases {
-            let tools = StorybirdMCPService.toolDefinitions(for: profile)
-            for name in ["storybird_check_for_updates", "storybird_get_update_status"] {
-                let tool = try XCTUnwrap(tools.first { $0.name == name })
-                let schema = try XCTUnwrap(tool.inputSchema.objectValue)
-                XCTAssertTrue(schema["properties"]?.objectValue?.isEmpty ?? true)
-                XCTAssertTrue(schema["required"]?.arrayValue?.isEmpty ?? true)
-                XCTAssertEqual(schema["additionalProperties"], .bool(false))
-                XCTAssertEqual(tool.annotations.openWorldHint, name == "storybird_check_for_updates")
-                XCTAssertEqual(tool.annotations.destructiveHint, false)
-            }
-        }
-    }
-
-    func test_customVoiceSchemas_exposeSpeakerAndInstructionsInBothProfiles() throws {
-        for profile in StorybirdMCPToolProfile.allCases {
-            let tools = StorybirdMCPService.toolDefinitions(for: profile)
-            for name in ["storybird_start_narration_draft", "storybird_generate_narration", "storybird_update_narration"] {
-                let tool = try XCTUnwrap(tools.first { $0.name == name })
-                let schema = try XCTUnwrap(tool.inputSchema.objectValue)
-                let properties = try XCTUnwrap(schema["properties"]?.objectValue)
-                XCTAssertEqual(properties["instruct"]?.objectValue?["type"]?.stringValue, "string")
-                XCTAssertEqual(properties["speaker"]?.objectValue?["enum"]?.arrayValue?.compactMap(\.stringValue),
-                               CustomVoiceSpeaker.allCases.map(\.rawValue))
-                XCTAssertFalse(schema["required"]?.arrayValue?.contains(.string("voice_profile_id")) ?? false)
-            }
+    func test_customVoiceSchemas_exposeSpeakerAndInstructionsInCompact() throws {
+        let tools = StorybirdMCPService.toolDefinitions
+        for name in ["storybird_start_narration_draft", "storybird_generate_narration", "storybird_update_narration"] {
+            let tool = try XCTUnwrap(tools.first { $0.name == name })
+            let schema = try XCTUnwrap(tool.inputSchema.objectValue)
+            let properties = try XCTUnwrap(schema["properties"]?.objectValue)
+            XCTAssertEqual(properties["instruct"]?.objectValue?["type"]?.stringValue, "string")
+            XCTAssertEqual(properties["speaker"]?.objectValue?["enum"]?.arrayValue?.compactMap(\.stringValue),
+                           CustomVoiceSpeaker.allCases.map(\.rawValue))
+            XCTAssertFalse(schema["required"]?.arrayValue?.contains(.string("voice_profile_id")) ?? false)
         }
     }
 
@@ -179,13 +160,11 @@ final class MCPFeatureParityTests: XCTestCase {
         XCTAssertEqual(schema["additionalProperties"] as? Bool, false)
     }
 
-    /// Checks each profile's unique names and complete documentation of their union.
+    /// Checks the sole catalog for unique names and complete documentation.
     func test_toolInventory_matchesGuideAndFeatureCoverage() throws {
-        let names = Set(StorybirdMCPToolProfile.allCases.flatMap { profile in
-            let tools = StorybirdMCPService.toolDefinitions(for: profile)
-            XCTAssertEqual(Set(tools.map(\.name)).count, tools.count, "Tool names must be unique within a profile.")
-            return tools.map(\.name)
-        })
+        let tools = StorybirdMCPService.toolDefinitions
+        let names = Set(tools.map(\.name))
+        XCTAssertEqual(names.count, tools.count, "Tool names must be unique.")
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -218,7 +197,8 @@ final class MCPFeatureParityTests: XCTestCase {
         XCTAssertTrue(names.contains("storybird_list_voice_profiles"))
         XCTAssertTrue(names.contains("storybird_generate_narration"))
         XCTAssertTrue(names.contains("storybird_update_narration"))
-        XCTAssertTrue(names.contains("storybird_delete_narration"))
+        XCTAssertTrue(names.contains("storybird_edit_audio_layer"))
+        XCTAssertFalse(names.contains("storybird_delete_narration"))
         XCTAssertFalse(names.contains("storybird_create_voice_profile"))
         XCTAssertFalse(names.contains("storybird_record_voice_profile"))
         XCTAssertFalse(names.contains("storybird_delete_voice_profile"))
@@ -236,12 +216,10 @@ final class MCPFeatureParityTests: XCTestCase {
     }
 
     func test_microphoneGain_remainsNativeWhileTimelineVolumeStaysEditable() throws {
-        for profile in StorybirdMCPToolProfile.allCases {
-            for tool in StorybirdMCPService.toolDefinitions(for: profile) {
-                let properties = tool.inputSchema.objectValue?["properties"]?.objectValue ?? [:]
-                XCTAssertNil(properties["input_gain"], "Microphone input gain is native recording state.")
-                XCTAssertNil(properties["microphone_gain"])
-            }
+        for tool in StorybirdMCPService.toolDefinitions {
+            let properties = tool.inputSchema.objectValue?["properties"]?.objectValue ?? [:]
+            XCTAssertNil(properties["input_gain"], "Microphone input gain is native recording state.")
+            XCTAssertNil(properties["microphone_gain"])
         }
         XCTAssertTrue(try propertyNames(for: "storybird_update_narration").contains("volume"))
     }
@@ -256,7 +234,7 @@ final class MCPFeatureParityTests: XCTestCase {
         XCTAssertTrue(properties.contains("start_time"))
         XCTAssertTrue(properties.contains("volume"))
     }
-    func test_toolDefinitions_clipEditingOperations_areExposed() {
+    func test_toolDefinitions_clipEditingOperations_areExposed() throws {
         let available = Set(
             StorybirdMCPService.toolDefinitions.map(\.name)
         )
@@ -269,19 +247,17 @@ final class MCPFeatureParityTests: XCTestCase {
             "storybird_insert_freeze",
         ])
 
-        XCTAssertEqual(required.subtracting(available), [])
+        XCTAssertTrue(available.contains("storybird_edit_clip"))
         for name in required {
             XCTAssertEqual(
-                StorybirdMCPService.toolDefinitions.first {
-                    $0.name == name
-                }?.annotations.destructiveHint,
+                try MCPTestClient.operationTool(named: name, in: StorybirdMCPService.toolDefinitions).annotations.destructiveHint,
                 false,
                 "\(name) preserves the original recording and is undoable."
             )
         }
     }
 
-    func test_toolDefinitions_remainingNativeEditingOperations_areExposed() {
+    func test_toolDefinitions_remainingNativeEditingOperations_areExposed() throws {
         let available = Set(
             StorybirdMCPService.toolDefinitions.map(\.name)
         )
@@ -302,11 +278,10 @@ final class MCPFeatureParityTests: XCTestCase {
             "storybird_reject_suggestion",
         ])
 
-        XCTAssertEqual(
-            required.subtracting(available),
-            [],
-            "Every native editing operation must have an MCP command."
-        )
+        XCTAssertTrue(available.contains("storybird_edit_effect"))
+        for name in required {
+            _ = try MCPTestClient.operationTool(named: name, in: StorybirdMCPService.toolDefinitions)
+        }
     }
 
     func test_toolDefinitions_mutatingProjectTools_requireExpectedRevision() throws {
@@ -796,11 +771,7 @@ final class MCPFeatureParityTests: XCTestCase {
     private func schemaObject(
         for toolName: String
     ) throws -> [String: Any] {
-        let tool = try XCTUnwrap(
-            StorybirdMCPService.toolDefinitions.first {
-                $0.name == toolName
-            }
-        )
+        let tool = try MCPTestClient.operationTool(named: toolName, in: StorybirdMCPService.toolDefinitions)
         let data = try JSONEncoder().encode(tool.inputSchema)
         return try XCTUnwrap(
             JSONSerialization.jsonObject(with: data) as? [String: Any]

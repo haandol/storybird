@@ -8,10 +8,16 @@ app and companion need updating. Do not fall back to editing the library directl
 ## Choose the result
 
 - MP4/MOV: `storybird_import_video` accepts `path` and `idempotency_key`. It creates
-  a new project; it cannot insert another source into an existing timeline.
+  a new project. Use the media-asset route below to add another source to an
+  existing video project.
 - WAV/MP3/M4A: `storybird_import_audio` also requires `project_id`. It registers a
   reusable asset without changing playback, revision, or undo. It does not need a
   voice profile or the synthesis model.
+- Additional MP4/MOV/PNG/JPEG: `storybird_import_media` requires `path`,
+  `project_id` and `idempotency_key`. It registers a reusable source in an existing
+  video project without changing revision or playback. Create the first video
+  project through import_video or recording; image results have dimensions but
+  no duration.
 
 Pass an absolute local path readable by the Storybird app. Resolve relative paths
 and `~` before calling; do not pass URLs or shell expressions. Do not ask the user
@@ -27,12 +33,23 @@ Poll `storybird_get_import` with `job_id` until `completed`, `failed`, or
 cancellation; continue polling until terminal.
 
 Only completed jobs expose `result`. Video returns `projectID`, `duration`
-(seconds), `width`, `height`, and creation `revision` 0. Read the current edit
-context before editing; the project may have changed since import. Audio returns
-`projectID`, `assetID`, and `duration` (seconds). Read the current revision and use
-`storybird_place_audio_asset` to place it, then follow [audio.md](audio.md) for
-mixing and preview. The app owns complete copies, so moving the external source
-after success does not break the project.
+(seconds), `width`, `height`, and creation `revision` 0. Audio returns `projectID`,
+`assetID` and `duration`; media assets return `projectID`, `assetID`, dimensions
+and video duration when present. Read current edit context before editing or
+placement: the project may have changed since import.
+
+Place audio with `storybird_place_audio_asset`, then follow [audio.md](audio.md).
+For visuals, read `storybird_list_media_assets` and use
+`storybird_place_media_asset` (or edit_clip action place_media) with the asset ID,
+current revision and zero-based insertion index. Images require an explicit
+positive duration. Video source ranges refer to that asset, not the first
+recording. The app owns complete copies; moving external sources after success
+does not break the project.
+
+Inspect an unplaced visual with `storybird_render_preview`, `asset_id` and
+source-relative `time`; image time is zero. Raw source previews are unmasked and
+differ from composited project previews. Follow [editing.md](editing.md) to
+arrange clips and [subtitles.md](subtitles.md) when captions are involved.
 
 ## Recover without duplicates
 

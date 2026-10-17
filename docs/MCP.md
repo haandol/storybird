@@ -24,17 +24,17 @@ See the [UI/MCP feature inventory](MCPFeatureParity.md) for action coverage,
 native-only boundaries, view-only equivalents and regression checks. MCP does
 not control every Settings or window action.
 
-### Choose a tool profile
+### Compact tool catalog
 
-No launch arguments selects `legacy`, with 84 tools.
-To use 63 tools covering the same actions, configure the
-companion arguments as `["--tool-profile", "compact"]` and reconnect. Explicit
-`["--tool-profile", "legacy"]` also works. Invalid arguments fail before the
-server starts; a connection never changes profiles during use.
+Storybird exposes 63 tools by default. No launch arguments are needed.
+Existing `["--tool-profile", "compact"]` configurations also work and expose the
+same catalog. `--tool-profile legacy` is no longer supported: remove that option
+or select compact, then reconnect. Unsupported arguments fail before a server
+connection or app access. The catalog stays fixed for the connection.
 
-Compact groups only related project edits. Recording, pointer actions, settings,
-imports, voice generation, draft lifecycle, previews and exports remain separate.
-An unadvertised name is rejected, including legacy names replaced in compact.
+Related project edits share explicit actions. Recording, pointer actions,
+settings, imports, voice generation, draft lifecycle, previews and exports retain
+their separate boundaries. Replaced individual names are not hidden aliases.
 
 | Compact tool | Selector | Existing operations |
 |---|---|---|
@@ -72,8 +72,7 @@ Subtitle upsert still requires both endpoints. Cue `time` alone still leaves its
 component windows fixed. Title and CTA retain distinct insertion rules.
 
 Audio deletion uses `storybird_edit_audio_layer` with `action: "delete"` and
-`input.layer_id` for any placed audio, including narration. There is no compact
-`storybird_delete_narration` alias. Use `storybird_update_narration` for text,
+`input.layer_id` for any placed audio, including narration. Removed narration-specific deletion calls use that same layer deletion action. Use `storybird_update_narration` for text,
 speaker or instruction regeneration; reusable asset placement and one-time draft
 placement remain separate.
 
@@ -86,7 +85,7 @@ After an ambiguous response, read the project before retrying.
 
 Compact spotlight inputs require positive `width` and `height` up to 1, including
 effect updates and nested suggestion patches. This exposes the existing app
-constraint before IPC; legacy schemas and rejection behavior remain unchanged.
+constraint before IPC; all existing compact property bounds and rejection behavior remain unchanged.
 
 ### Operation-specific reference
 
@@ -97,9 +96,13 @@ retryable: reconcile the current revision, draft or job after losing a response.
 Reader/writer export failures include their phase, snapshot revision and
 available underlying error codes in the existing error text.
 
-The table and detailed examples below use legacy names. In compact, use the
-matching grouped tool above and move operation fields into `input`; the other
-44 tool names and argument shapes are unchanged.
+The reference below uses public compact names and selectors. For grouped edits,
+keep `project_id` and `expected_revision` at the top level and put operation
+fields in `input`. The other 54 tools use their listed direct arguments.
+
+Server-wide instructions contain cross-tool rules only. Narration production,
+subtitle preservation and recording-approval conditions are described by the
+relevant tools so every unrelated call does not repeat those workflows.
 
 | Tool | Result |
 |---|---|
@@ -116,18 +119,18 @@ matching grouped tool above and move operation fields into `input`; the other
 | `storybird_create_project` | Creates an empty placeholder; later recordings still create separate projects |
 | `storybird_duplicate_project` | Copies the video and placed narration into an independent project at revision 0 |
 | `storybird_abort_session` | Discards the active incomplete recording; use stop to save it |
-| `storybird_create_click` | Adds a Cue with optional description and subtitle text |
-| `storybird_delete_click` | Removes a Cue and its suggestion metadata, retaining applied effects |
-| `storybird_delete_subtitle` | Removes one independent subtitle |
-| `storybird_create_spotlight` | Adds a timed normalized spotlight rectangle |
-| `storybird_create_pan_zoom` | Adds a timed camera movement and zoom |
-| `storybird_insert_title` | Inserts a title at the beginning or after a nonfinal clip |
-| `storybird_insert_cta` | Appends a noninteractive closing card |
-| `storybird_update_effect` | Changes only supplied properties of one effect |
-| `storybird_delete_effect` | Removes an effect or closes a card's timeline gap |
-| `storybird_update_suggestion` | Updates a pending suggestion's split and nested spotlight/pan_zoom properties |
-| `storybird_apply_suggestion` | Applies a pending suggestion as one undoable edit |
-| `storybird_reject_suggestion` | Rejects a pending suggestion without changing output or edit revision |
+| `storybird_edit_click` with `action: "create"` | Adds a Cue with optional description and subtitle text |
+| `storybird_edit_click` with `action: "delete"` | Removes a Cue and its suggestion metadata, retaining applied effects |
+| `storybird_edit_subtitle` with `action: "delete"` | Removes one independent subtitle |
+| `storybird_create_visual_effect` with `kind: "spotlight"` | Adds a timed normalized spotlight rectangle |
+| `storybird_create_visual_effect` with `kind: "pan_zoom"` | Adds a timed camera movement and zoom |
+| `storybird_insert_card` with `kind: "title"` | Inserts a title at the beginning or after a nonfinal clip |
+| `storybird_insert_card` with `kind: "cta"` | Appends a noninteractive closing card |
+| `storybird_edit_effect` with `action: "update"` | Changes only supplied properties of one effect |
+| `storybird_edit_effect` with `action: "delete"` | Removes an effect or closes a card's timeline gap |
+| `storybird_edit_suggestion` with `action: "update"` | Updates a pending suggestion's split and nested spotlight/pan_zoom properties |
+| `storybird_edit_suggestion` with `action: "apply"` | Applies a pending suggestion as one undoable edit |
+| `storybird_edit_suggestion` with `action: "reject"` | Rejects a pending suggestion without changing output or edit revision |
 | `storybird_start_narration_draft` | Starts local synthesis without placing a layer or incrementing edit revision |
 | `storybird_list_narration_drafts` | Lists project-owned generation jobs and measured durations |
 | `storybird_get_narration_draft` | Returns generating, ready, failed, cancelled, or placed state |
@@ -136,31 +139,31 @@ matching grouped tool above and move operation fields into `input`; the other
 | `storybird_list_projects` | Lists local project models |
 | `storybird_get_project` | Returns one editable project model without image bytes |
 | `storybird_replace_project` | Validates and atomically replaces editable project properties against the current revision |
-| `storybird_split_clip` | Splits one video clip at a source recording time |
-| `storybird_trim_clip` | Keeps one source range and removes linked layers outside it |
-| `storybird_delete_clip` | Removes one edited clip while preserving the original recording |
-| `storybird_move_clip` | Moves one clip to a zero-based timeline index |
-| `storybird_set_clip_speed` | Sets one clip from 0.25× through 4× |
-| `storybird_insert_freeze` | Inserts a positive-duration still frame after one clip |
-| `storybird_undo_project` | Undoes one project edit against the current revision |
-| `storybird_redo_project` | Redoes one project edit against the current revision |
+| `storybird_edit_clip` with `action: "split"` | Splits one video clip at a source recording time |
+| `storybird_edit_clip` with `action: "trim"` | Keeps one source range and removes linked layers outside it |
+| `storybird_edit_clip` with `action: "delete"` | Removes one edited clip while preserving the original recording |
+| `storybird_edit_clip` with `action: "move"` | Moves one clip to a zero-based timeline index |
+| `storybird_edit_clip` with `action: "set_speed"` | Sets one clip from 0.25× through 4× |
+| `storybird_edit_clip` with `action: "insert_freeze"` | Inserts a positive-duration still frame after one clip |
+| `storybird_edit_history` with `action: "undo"` | Undoes one project edit against the current revision |
+| `storybird_edit_history` with `action: "redo"` | Redoes one project edit against the current revision |
 | `storybird_update_project` | Updates project name or summary |
-| `storybird_update_click` | Edits the complete Cue: timing, indicator, description, subtitle, position, and styling |
-| `storybird_upsert_subtitle` | Adds or updates a timed subtitle, including text color and font size |
+| `storybird_edit_click` with `action: "update"` | Edits the complete Cue: timing, indicator, description, subtitle, position, and styling |
+| `storybird_edit_subtitle` with `action: "upsert"` | Adds or updates a timed subtitle, including text color and font size |
 | `storybird_preview_project` | Opens the native video timeline editor |
 | `storybird_render_preview` | Returns a composited project-resolution PNG, its actual frame time, visible layer IDs, and incomplete click IDs |
 | `storybird_list_audio_assets` | Lists reusable project sounds with measured duration, peak and waveform |
 | `storybird_place_audio_asset` | Places an asset source range as a new independent audio layer |
-| `storybird_update_audio_layer` | Atomically edits start, source trim, duration, gain, mute and linear fades |
-| `storybird_split_audio_layer` | Splits inside an audio layer at project seconds |
-| `storybird_duplicate_audio_layer` | Reuses its audio under a new layer ID without TTS generation |
-| `storybird_delete_audio_layer` | Removes the layer while keeping the asset for reuse and undo |
+| `storybird_edit_audio_layer` with `action: "update"` | Atomically edits start, source trim, duration, gain, mute and linear fades |
+| `storybird_edit_audio_layer` with `action: "split"` | Splits inside an audio layer at project seconds |
+| `storybird_edit_audio_layer` with `action: "duplicate"` | Reuses its audio under a new layer ID without TTS generation |
+| `storybird_edit_audio_layer` with `action: "delete"` | Removes the layer while keeping the asset for reuse and undo |
 | `storybird_set_source_audio` | Changes gain or mute of the original movie audio |
 | `storybird_render_audio_preview` | Renders a local mix WAV and returns path, duration, peak and waveform |
 | `storybird_list_voice_profiles` | Lists existing profile metadata without reference audio or transcripts |
 | `storybird_generate_narration` | Generates and places one local narration using a Base profile or a CustomVoice speaker with optional instructions |
 | `storybird_update_narration` | Changes timing or volume, or regenerates when text, speaker or instructions are supplied; speaker/instructions require an existing CustomVoice layer |
-| `storybird_delete_narration` | Removes a narration layer while preserving its WAV for undo |
+| `storybird_edit_audio_layer` with `action: "delete"` | Removes a narration layer while preserving its WAV for undo |
 | `storybird_start_export` | Starts an asynchronous MP4 export and returns a job |
 | `storybird_get_export` | Returns export state and progress |
 | `storybird_cancel_export` | Cancels an active export without replacing an existing output |
@@ -350,7 +353,7 @@ Placement atomically creates the layer and marks the draft `placed`; undo does
 not make a consumed draft available for duplicate placement. Running jobs become
 failed with an interruption reason after restart and never auto-restart.
 
-The existing `storybird_generate_narration` generates and places in one call in both profiles;
+The existing `storybird_generate_narration` generates and places in one call in the compact catalog;
 its failed placement removes the unreferenced result. Do not issue several
 revision-changing placements against the same revision. Read the current project
 after a lost response before retrying. Never blindly replay pointer actions.
@@ -438,7 +441,7 @@ Preserve unrelated fields, IDs, source media and relationships. Draft states are
 app-owned and cannot be rewritten through this endpoint. Never edit library
 files or project assets directly.
 
-For `storybird_update_click`, changing only `time` keeps the indicator,
+For `storybird_edit_click` with `action: "update"`, changing only `time` keeps the indicator,
 description and subtitle windows fixed. They must all contain the new time.
 To move the entire Cue, supply `time` and all three start/end pairs explicitly;
 Storybird reanchors the Cue to the owning clip and commits once.
@@ -560,7 +563,7 @@ the agent can finish speech production without asking the user to record each se
 6. Render a selected audio range, inspect its peak and listen where supported; render
    video frames to inspect text and effects. Then start export and poll to completion.
 
-`storybird_update_audio_layer` accepts `project_id`, `expected_revision`, `layer_id`,
+`storybird_edit_audio_layer` with `action: "update"` accepts `project_id`, `expected_revision`, `layer_id`,
 and optional `name`, `start_time`, `source_start`, `duration`, `volume`, `muted`,
 `fade_in`, `fade_out`, `timing_mode`. Times are seconds. Volume is a nonnegative
 multiplier (1 = original), fades are linear, and their combined length cannot exceed
@@ -756,7 +759,7 @@ file output and permanent project deletion use their separate tools.
 
 ## App version checks
 
-Both tool profiles expose these app-wide actions with no arguments:
+The compact catalog exposes these app-wide actions with no arguments:
 
 | Tool | Result |
 |---|---|
@@ -783,8 +786,7 @@ release URLs. The user can explicitly open the validated link to download a rele
 
 ### Opaque area masks
 
-`storybird_create_mask` (legacy), or `storybird_create_visual_effect` with
-`kind: "mask"` (compact), creates a mask. Supply `project_id`, `expected_revision`,
+`storybird_create_visual_effect` with `kind: "mask"` creates a mask. Supply `project_id`, `expected_revision`,
 `start_time`, `end_time`, `x`, `y`, `width`, `height`, `timing_mode` and
 `coordinate_space`. `timing_mode` is `project` or `scene`; `coordinate_space`
 is independently `content` or `canvas`. `color_hex` defaults to `#000000`.
@@ -806,8 +808,8 @@ invalid required mask composition must fail rather than return an unmasked resul
 
 ### Targeted clip duplication and held duration
 
-`storybird_duplicate_clip` requires `project_id`, `expected_revision`, `clip_id` and
-`destination_index` (zero-based insertion position). `storybird_set_clip_duration`
+`storybird_edit_clip` with `action: "duplicate"` requires `project_id`, `expected_revision`, `clip_id` and
+`destination_index` (zero-based insertion position). `storybird_edit_clip` with `action: "set_duration"`
 requires the same project/revision/clip identifiers and positive `duration` in
 seconds for an image or freeze clip. Both use the atomic planner and return its
 revision, direct/derived changes and created IDs. Use trim/speed for video clips.
@@ -816,4 +818,4 @@ Compact exposes these as `storybird_edit_clip` actions `duplicate` and
 `set_duration`, with operation fields under `input`. Its `place_media` action
 uses the existing placement fields (`asset_id`, `destination_index`, image
 `duration` or video source range/rate). The shared `storybird_place_media_asset`
-name remains advertised in both profiles. Each route executes one app command.
+name remains advertised in the compact catalog. Each route executes one app command.

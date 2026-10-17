@@ -1,13 +1,12 @@
 import MCP
-import StorybirdMCPKit
+import XCTest
 
-/// Runs the same behavioral expectations through either advertised wire form.
+/// Encodes operation fixtures in the sole advertised compact wire form.
 /// This caller-side map is intentionally independent of the production router.
-struct MCPProfileTestClient {
+struct MCPTestClient {
     let client: Client
-    let profile: StorybirdMCPToolProfile
 
-    static let routes: [(legacy: String, compact: String, selector: String, value: String)] = [
+    static let routes: [(command: String, compact: String, selector: String, value: String)] = [
         ("split_clip", "edit_clip", "action", "split"),
         ("trim_clip", "edit_clip", "action", "trim"),
         ("delete_clip", "edit_clip", "action", "delete"),
@@ -41,15 +40,34 @@ struct MCPProfileTestClient {
         ("redo_project", "edit_history", "action", "redo"),
     ]
 
+    /// Expands an advertised branch only for property assertions. Calls still use
+    /// its real selector/input envelope, and missing public branches fail tests.
+    static func operationTool(named name: String, in tools: [Tool]) throws -> Tool {
+        if let direct = tools.first(where: { $0.name == name }) { return direct }
+        let route = try XCTUnwrap(routes.first { "storybird_" + $0.command == name })
+        let tool = try XCTUnwrap(tools.first { $0.name == "storybird_" + route.compact })
+        let schema = try XCTUnwrap(tool.inputSchema.objectValue)
+        let branch = try XCTUnwrap(schema["oneOf"]?.arrayValue?.first {
+            $0.objectValue?["properties"]?.objectValue?[route.selector]?.objectValue?["const"]?.stringValue == route.value
+        })
+        var input = try XCTUnwrap(branch.objectValue?["properties"]?.objectValue?["input"]?.objectValue)
+        let envelope = try XCTUnwrap(schema["properties"]?.objectValue).filter {
+            ["project_id", "expected_revision"].contains($0.key)
+        }
+        input["properties"] = .object(try XCTUnwrap(input["properties"]?.objectValue).merging(envelope) { _, new in new })
+        input["required"] = .array([.string("project_id"), .string("expected_revision")] + (input["required"]?.arrayValue ?? []))
+        return Tool(name: tool.name, title: tool.title, description: tool.description,
+                    inputSchema: .object(input), annotations: tool.annotations)
+    }
+
     /// Reads the real connection's catalog without synthesizing tool definitions.
     func listTools() async throws -> (tools: [Tool], nextCursor: String?) {
         try await client.listTools()
     }
 
-    /// Encodes a behavioral fixture in the chosen profile and calls the real MCP client.
+    /// Encodes an operation fixture in compact form and calls the real MCP client.
     func callTool(name: String, arguments: [String: Value]) async throws -> (content: [Tool.Content], isError: Bool?) {
-        guard profile == .compact,
-              let route = Self.routes.first(where: { "storybird_" + $0.legacy == name }) else {
+        guard let route = Self.routes.first(where: { "storybird_" + $0.command == name }) else {
             return try await client.callTool(name: name, arguments: arguments)
         }
         var input = arguments
@@ -57,7 +75,7 @@ struct MCPProfileTestClient {
         for key in ["project_id", "expected_revision"] {
             outer[key] = input.removeValue(forKey: key)
         }
-        if route.legacy == "delete_narration" {
+        if route.command == "delete_narration" {
             input["layer_id"] = input.removeValue(forKey: "narration_id")
         }
         outer["input"] = .object(input)

@@ -6,7 +6,7 @@ import XCTest
 final class MCPInitializationTests: XCTestCase {
     /// Preserves compatibility with external initialization on the default profile.
     func test_objectExperimentalCapabilities_initializesAndListsToolsWithoutAppAccess() async throws {
-        try await assertInitialization(profile: .legacy)
+        try await assertInitialization()
     }
 
     /// Exposes the compact catalog through raw protocol discovery without app access.
@@ -15,13 +15,14 @@ final class MCPInitializationTests: XCTestCase {
     }
 
     /// Sends raw client JSON through production initialization and catalog handlers.
-    private func assertInitialization(profile: StorybirdMCPToolProfile) async throws {
+    private func assertInitialization(profile: StorybirdMCPToolProfile? = nil) async throws {
         let ipc = StorybirdAppIPCClient(
             sender: { _ in XCTFail("Initialization must not access the app"); throw FixtureError.unexpectedIPC },
             launcher: { XCTFail("Initialization must not launch the app"); throw FixtureError.unexpectedIPC }
         )
         let pair = await InMemoryTransport.createConnectedPair()
-        let server = try await StorybirdMCPService(client: ipc, toolProfile: profile).startServer(transport: pair.server)
+        let service = profile.map { StorybirdMCPService(client: ipc, toolProfile: $0) } ?? StorybirdMCPService(client: ipc)
+        let server = try await service.startServer(transport: pair.server)
         try await pair.client.connect()
         // Bound the receive even when a broken server never responds.
         let deadline = Task {
@@ -55,8 +56,10 @@ final class MCPInitializationTests: XCTestCase {
             let toolsResult = try XCTUnwrap(toolsResponse["result"] as? [String: Any])
             let tools = try XCTUnwrap(toolsResult["tools"] as? [[String: Any]])
             XCTAssertEqual(Set(tools.compactMap { $0["name"] as? String }),
-                           Set(StorybirdMCPService.toolDefinitions(for: profile).map(\.name)))
-            XCTAssertEqual(tools.count, profile == .legacy ? 84 : 63)
+                           Set(StorybirdMCPService.toolDefinitions.map(\.name)))
+            XCTAssertEqual(tools.count, 63)
+            XCTAssertTrue(tools.contains { $0["name"] as? String == "storybird_edit_clip" })
+            XCTAssertFalse(tools.contains { $0["name"] as? String == "storybird_trim_clip" })
             try await pair.client.send(Data(#"{"jsonrpc":"2.0","id":3,"method":"initialize","params":{}}"#.utf8))
             let repeatedInitialization = try await responses.next()
             XCTAssertNotNil(try decode(XCTUnwrap(repeatedInitialization))["error"],

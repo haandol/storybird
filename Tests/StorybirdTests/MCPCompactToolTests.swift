@@ -8,9 +8,9 @@ import XCTest
 @MainActor
 final class MCPCompactToolTests: XCTestCase {
     /// Invalid launch options must fail before any server or app access.
-    func test_profileArguments_preserveDefaultAndRejectUnknownConfigurations() throws {
-        XCTAssertEqual(try StorybirdMCPToolProfile(arguments: []), .legacy)
-        XCTAssertEqual(try StorybirdMCPToolProfile(arguments: ["--tool-profile", "legacy"]), .legacy)
+    func test_profileArguments_defaultToCompactAndRejectRemovedOrUnknownConfigurations() throws {
+        XCTAssertEqual(try StorybirdMCPToolProfile(arguments: []), .compact)
+        XCTAssertThrowsError(try StorybirdMCPToolProfile(arguments: ["--tool-profile", "legacy"]))
         XCTAssertEqual(try StorybirdMCPToolProfile(arguments: ["--tool-profile", "compact"]), .compact)
         for arguments in [["compact"], ["--tool-profile"], ["--tool-profile", "other"],
                           ["--tool-profile", "compact", "extra"], ["--unknown", "compact"]] {
@@ -20,15 +20,15 @@ final class MCPCompactToolTests: XCTestCase {
 
     /// Checks each independent route's fields, envelope, bounds and annotations.
     func test_compactSchemas_preserveEveryBranchPropertyAndRequiredField() throws {
-        let legacy = Dictionary(uniqueKeysWithValues: StorybirdMCPService.toolDefinitions.map { ($0.name, $0) })
-        let compact = Dictionary(uniqueKeysWithValues: StorybirdMCPService.toolDefinitions(for: .compact).map { ($0.name, $0) })
-        XCTAssertEqual(legacy.count, 84)
+        let operations = Dictionary(uniqueKeysWithValues: StorybirdMCPService.operationDefinitions.map { ($0.name, $0) })
+        let compact = Dictionary(uniqueKeysWithValues: StorybirdMCPService.toolDefinitions.map { ($0.name, $0) })
+        XCTAssertEqual(operations.count, 84)
         XCTAssertEqual(compact.count, 63)
-        XCTAssertEqual(Set(legacy.keys).intersection(compact.keys).count, 54)
-        let removed = Set(MCPProfileTestClient.routes.map { "storybird_" + $0.legacy }).subtracting(["storybird_place_media_asset"])
-        XCTAssertEqual(Set(legacy.keys).subtracting(compact.keys), removed)
-        for route in MCPProfileTestClient.routes where route.legacy != "delete_narration" {
-            let original = try XCTUnwrap(legacy["storybird_" + route.legacy])
+        XCTAssertEqual(Set(operations.keys).intersection(compact.keys).count, 54)
+        let removed = Set(MCPTestClient.routes.map { "storybird_" + $0.command }).subtracting(["storybird_place_media_asset"])
+        XCTAssertEqual(Set(operations.keys).subtracting(compact.keys), removed)
+        for route in MCPTestClient.routes where route.command != "delete_narration" {
+            let original = try XCTUnwrap(operations["storybird_" + route.command])
             let grouped = try XCTUnwrap(compact["storybird_" + route.compact])
             let schema = try XCTUnwrap(grouped.inputSchema.objectValue)
             let branches = try XCTUnwrap(schema["oneOf"]?.arrayValue)
@@ -40,11 +40,11 @@ final class MCPCompactToolTests: XCTestCase {
             var expectedProperties = try XCTUnwrap(originalSchema["properties"]?.objectValue).filter {
                 !["project_id", "expected_revision"].contains($0.key)
             }
-            if ["create_spotlight", "update_effect"].contains(route.legacy) {
+            if ["create_spotlight", "update_effect"].contains(route.command) {
                 for key in ["width", "height"] {
                     expectedProperties[key] = .object(["type": "number", "exclusiveMinimum": 0, "maximum": 1])
                 }
-            } else if route.legacy == "update_suggestion" {
+            } else if route.command == "update_suggestion" {
                 var spotlight = expectedProperties["spotlight"]!.objectValue!
                 var fields = spotlight["properties"]!.objectValue!
                 for key in ["width", "height"] {
@@ -53,11 +53,11 @@ final class MCPCompactToolTests: XCTestCase {
                 spotlight["properties"] = .object(fields)
                 expectedProperties["spotlight"] = .object(spotlight)
             }
-            XCTAssertEqual(input["properties"], .object(expectedProperties), route.legacy)
+            XCTAssertEqual(input["properties"], .object(expectedProperties), route.command)
             let expectedRequired = try XCTUnwrap(originalSchema["required"]?.arrayValue).filter {
                 !["project_id", "expected_revision"].contains($0.stringValue ?? "")
             }
-            XCTAssertEqual(input["required"], .array(expectedRequired), route.legacy)
+            XCTAssertEqual(input["required"], .array(expectedRequired), route.command)
             XCTAssertEqual(input["additionalProperties"], false)
             XCTAssertEqual(schema["additionalProperties"], false)
             XCTAssertEqual(Set(schema["required"]!.arrayValue!.compactMap(\.stringValue)),
@@ -68,29 +68,29 @@ final class MCPCompactToolTests: XCTestCase {
             XCTAssertEqual(grouped.annotations.openWorldHint, false)
         }
         // All ungrouped tools preserve the actual serialized definitions.
-        for name in Set(legacy.keys).intersection(compact.keys) {
-            XCTAssertEqual(legacy[name]?.inputSchema, compact[name]?.inputSchema)
-            XCTAssertEqual(legacy[name]?.description, compact[name]?.description)
-            XCTAssertEqual(legacy[name]?.annotations, compact[name]?.annotations)
+        for name in Set(operations.keys).intersection(compact.keys) {
+            XCTAssertEqual(operations[name]?.inputSchema, compact[name]?.inputSchema)
+            XCTAssertEqual(operations[name]?.description, compact[name]?.description)
+            XCTAssertEqual(operations[name]?.annotations, compact[name]?.annotations)
         }
     }
 
     /// Exercises every branch through production handlers using a recording IPC probe.
     func test_compactCalls_routeEachOperationOnceAndPreserveAppResponses() async throws {
         let probe = CompactIPCProbe()
-        try await withClient(profile: .compact, sender: { request in
+        try await withClient(sender: { request in
             await probe.append(request)
             return StorybirdControlResponse(text: "app-response", imageData: Data([1, 2, 3]), isError: true)
         }) { raw, initialization in
             XCTAssertTrue(initialization.instructions?.contains("Tool profile: compact") == true)
-            let client = MCPProfileTestClient(client: raw, profile: .compact)
+            let client = MCPTestClient(client: raw)
             let tools = try await raw.listTools().tools
             XCTAssertEqual(tools.count, 63)
             let repeated = try await raw.listTools().tools
             XCTAssertEqual(tools.map(\.name), repeated.map(\.name))
-            let legacy = Dictionary(uniqueKeysWithValues: StorybirdMCPService.toolDefinitions.map { ($0.name, $0) })
-            for route in MCPProfileTestClient.routes {
-                let tool = try XCTUnwrap(legacy["storybird_" + route.legacy])
+            let operations = Dictionary(uniqueKeysWithValues: StorybirdMCPService.operationDefinitions.map { ($0.name, $0) })
+            for route in MCPTestClient.routes {
+                let tool = try XCTUnwrap(operations["storybird_" + route.command])
                 let fields = try XCTUnwrap(tool.inputSchema.objectValue?["properties"]?.objectValue)
                 let required = try XCTUnwrap(tool.inputSchema.objectValue?["required"]?.arrayValue)
                 var arguments: [String: Value] = [:]
@@ -109,10 +109,10 @@ final class MCPCompactToolTests: XCTestCase {
                 XCTAssertEqual(mime, "image/png")
                 let requests = await probe.requests
                 let request = try XCTUnwrap(requests.last)
-                let expectedName = route.legacy == "delete_narration" ? "delete_audio_layer" : route.legacy
+                let expectedName = route.command == "delete_narration" ? "delete_audio_layer" : route.command
                 XCTAssertEqual(request.name, "storybird_" + expectedName)
                 var expected = arguments
-                if route.legacy == "delete_narration" {
+                if route.command == "delete_narration" {
                     expected["layer_id"] = expected.removeValue(forKey: "narration_id")
                 }
                 XCTAssertEqual(try JSONDecoder().decode([String: Value].self, from: request.argumentsJSON), expected)
@@ -125,7 +125,7 @@ final class MCPCompactToolTests: XCTestCase {
     /// Rejects malformed, cross-branch and hidden-alias calls before any app request.
     func test_invalidCompactBranches_neverReachApp() async throws {
         let probe = CompactIPCProbe()
-        try await withClient(profile: .compact, sender: { request in
+        try await withClient(sender: { request in
             await probe.append(request)
             return StorybirdControlResponse(text: "Must not execute")
         }) { client, _ in
@@ -175,29 +175,20 @@ final class MCPCompactToolTests: XCTestCase {
                 let response = try await client.callTool(name: name, arguments: arguments)
                 XCTAssertEqual(response.isError, true, name)
             }
-            for name in MCPProfileTestClient.routes.filter({ $0.legacy != "place_media_asset" }).map({ "storybird_" + $0.legacy }) + ["storybird_unadvertised"] {
+            for name in MCPTestClient.routes.filter({ $0.command != "place_media_asset" }).map({ "storybird_" + $0.command }) + ["storybird_unadvertised"] {
                 let response = try await client.callTool(name: name, arguments: [:])
                 XCTAssertEqual(response.isError, true, name)
             }
             let requests = await probe.requests
             XCTAssertTrue(requests.isEmpty)
         }
-        try await withClient(profile: .legacy, sender: { _ in
-            XCTFail("Compact names must not run on legacy connections")
-            return StorybirdControlResponse(text: "unexpected")
-        }) { client, initialization in
-            XCTAssertTrue(initialization.instructions?.contains("Tool profile: legacy") == true)
-            for name in Set(MCPProfileTestClient.routes.map({ "storybird_" + $0.compact })) {
-                let response = try await client.callTool(name: name, arguments: [:])
-                XCTAssertEqual(response.isError, true)
-            }
-        }
+
     }
 
     /// Static rectangle bounds are enforced before IPC for each spotlight entry path.
-    func test_zeroSpotlightDimensions_rejectBeforeAppAndKeepLegacySchemas() async throws {
+    func test_zeroSpotlightDimensions_rejectBeforeAppAndKeepInternalSchemas() async throws {
         let probe = CompactIPCProbe()
-        try await withClient(profile: .compact, sender: { request in
+        try await withClient(sender: { request in
             await probe.append(request)
             return StorybirdControlResponse(text: "Must not execute")
         }) { client, _ in
@@ -222,9 +213,9 @@ final class MCPCompactToolTests: XCTestCase {
             let requests = await probe.requests
             XCTAssertTrue(requests.isEmpty)
         }
-        let legacy = try XCTUnwrap(StorybirdMCPService.toolDefinitions.first { $0.name == "storybird_create_spotlight" })
+        let operations = try XCTUnwrap(StorybirdMCPService.operationDefinitions.first { $0.name == "storybird_create_spotlight" })
         for key in ["width", "height"] {
-            let field = legacy.inputSchema.objectValue?["properties"]?.objectValue?[key]?.objectValue
+            let field = operations.inputSchema.objectValue?["properties"]?.objectValue?[key]?.objectValue
             XCTAssertEqual(field?["minimum"], 0)
             XCTAssertNil(field?["exclusiveMinimum"])
         }
@@ -242,7 +233,7 @@ final class MCPCompactToolTests: XCTestCase {
         edited.name = "One committed edit"
         let before = try store.saveProject(edited, expectedRevision: 0)
         let host = StorybirdExternalControlHost(store: store)
-        try await withClient(profile: .compact, sender: { await host.handle($0) }) { client, _ in
+        try await withClient(sender: { await host.handle($0) }) { client, _ in
             let library = root.appendingPathComponent("library.json")
             let backup = root.appendingPathComponent("backup.json")
             try FileManager.default.moveItem(at: library, to: backup)
@@ -280,7 +271,6 @@ final class MCPCompactToolTests: XCTestCase {
 
     /// Connects production handlers over in-memory transport with no real app launch.
     private func withClient(
-        profile: StorybirdMCPToolProfile,
         sender: @escaping @Sendable (StorybirdControlRequest) async throws -> StorybirdControlResponse,
         _ body: (Client, Initialize.Result) async throws -> Void
     ) async throws {
@@ -289,7 +279,7 @@ final class MCPCompactToolTests: XCTestCase {
             throw StorybirdMCPToolInputError(message: "Unexpected app launch")
         })
         let transport = await InMemoryTransport.createConnectedPair()
-        let server = try await StorybirdMCPService(client: ipc, toolProfile: profile).startServer(transport: transport.server)
+        let server = try await StorybirdMCPService(client: ipc).startServer(transport: transport.server)
         let client = Client(name: "Compact protocol test", version: "1")
         do {
             let initialization = try await client.connect(transport: transport.client)

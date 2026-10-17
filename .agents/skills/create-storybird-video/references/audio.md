@@ -7,23 +7,36 @@ voice profile. For field details, use the relevant audio/narration sections of
 
 ## Generate or revise speech
 
-Query `storybird_list_voice_models`. For cloning, prepare
-`qwen3-tts-1.7b-base-8bit` and use an existing consented `voice_profile_id`.
-For built-in speech without a profile, prepare `qwen3-tts-1.7b-customvoice-8bit`,
-choose a returned `speaker`, and optionally provide `instruct` for speaking style,
-emotion or pacing. Do not mix these fields with `voice_profile_id`.
-Use `storybird_prepare_voice_model` if the required model is not ready.
-Poll `storybird_get_voice_model` until ready or failed; preparation needs no
-additional approval and model selection alone never downloads. Do not switch
-models during active voice work. Both prepared models remain available.
-Users create/manage profiles in native Settings; never activate a microphone,
-choose a voice-profile reference file or modify profile assets indirectly.
-Native profile/project recording offers 0–400% input volume (default 100%) and
-clipping indication. Agents do not change microphone input gain through MCP;
-use existing audio assets and timeline volume editing for automated production.
-CustomVoice requires no microphone, reference audio or profile. Retired 0.6B
-installations are removal-only; use `storybird_remove_voice_model` when cleanup
-is requested and poll until `not_prepared` or `failed`.
+Query `storybird_list_voice_models` and distinguish `supports_generation` from
+local readiness. Clone my voice uses Qwen3-TTS 1.7B Base 8-bit
+(`qwen3-tts-1.7b-base-8bit`) with an existing consented `voice_profile_id`.
+Built-in voice uses 1.7B CustomVoice 8-bit (`qwen3-tts-1.7b-customvoice-8bit`)
+without a profile, reference audio or microphone. Choose a returned `speaker`:
+`vivian`, `serena`, `uncle_fu`, `dylan`, `eric`, `ryan`, `aiden`, `ono_anna`, `sohee`.
+Clone requests omit `speaker` and `instruct`; CustomVoice requests omit
+`voice_profile_id` entirely and may include `instruct` for style, emotion or pacing.
+Never mix voice sources. `storybird_generate_narration` uses the same voice fields
+plus the current revision and placement time.
+
+Select and prepare the model matching the requested voice source. Selection
+alone never downloads. Use `storybird_prepare_voice_model` when that model is
+not ready and poll `storybird_get_voice_model` until ready or failed; preparation
+needs no additional approval. Both models can remain installed, and generation
+uses the model matching its source. Prepared synthesis runs locally without
+network access. Model changes are rejected during active voice work.
+
+The retired 0.6B model cannot be selected, installed or used for synthesis. Its
+stored selection migrates to Base; retained files are status/removal-only and
+are not automatically deleted. Only for requested cleanup, use
+`storybird_remove_voice_model` and poll until `not_prepared` or `failed`.
+Removal preserves selection, other models, profiles, ready drafts, completed
+audio and project history. Reinstall before generating with a removed model.
+
+Profile management, microphone input and voice-profile reference-file selection
+remain native user actions. Do not modify profile assets indirectly. Native
+profile/project recording offers 0–400% input volume (default 100%) and clipping
+indication; agents use existing audio assets and timeline volume editing instead
+of changing microphone input gain through MCP.
 
 Before a longer synthesis with an unverified voice/language, generate a short
 representative sentence with service names, numbers or mixed-language phrases.
@@ -36,12 +49,13 @@ actual duration; generation does not advance edit revision. Refresh that revisio
 before `storybird_place_narration_draft` with the intended start and timing mode.
 
 If speech does not fit, retain the ready WAV, edit placement/picture or add a freeze,
-and place the same draft. Ready drafts survive restart; failed/cancelled jobs are
+and place the same draft. A placement conflict preserves the ready draft: refresh
+revision/timing and retry placement without resynthesizing. Ready drafts survive restart; failed/cancelled jobs are
 terminal and need an explicit retry after resolving the cause. A placed draft
 cannot be placed twice, including after undo. Discard audio only within user intent.
 Do not issue several revision-changing placements against one revision.
 
-The legacy generate-and-place tool deletes an unreferenced WAV on placement
+`storybird_generate_narration` deletes an unreferenced WAV on placement
 failure. Prefer drafts for recoverable production. On a lost response, inspect
 project/draft state before retrying.
 
@@ -50,20 +64,21 @@ text for a language change. Preserve other sentences and adjust subtitles using
 the new measured duration. Finished audio remains available for undo.
 For an existing CustomVoice layer, `speaker` and `instruct` also trigger
 regeneration. Sending only `instruct` keeps its text, language and speaker;
-an empty string clears the instruction. These controls use the same revision
-check and save the new audio and voice settings together.
+an empty string clears the instruction. Omitted settings stay unchanged; these fields cannot convert cloned or imported
+audio. The revision check and save cover audio and voice settings together;
+failure preserves previous audio/settings. Preserve saved `customVoice` metadata
+through placement, asset reuse, split, duplicate, undo and reopen. The native
+editing sheet and inspector provide the same controls.
 
 ## Place and mix audio
 
 For an external WAV/MP3/M4A, follow [importing.md](importing.md) to register the
 file without a picker. Then read the current revision before placing its asset.
 
-Inspect reusable assets with `storybird_list_audio_assets`. In compact, use
+Inspect reusable assets with `storybird_list_audio_assets`. Use
 `storybird_edit_audio_layer` with `action: "duplicate"`, `"update"`, `"split"` or
 `"delete"` and put `layer_id` plus operation fields in `input`. A split uses
-project seconds. In legacy, use the advertised `storybird_duplicate_audio_layer`,
-`storybird_update_audio_layer`, `storybird_split_audio_layer` or deletion tool.
-Place a registered asset with `storybird_place_audio_asset` in either profile.
+project seconds. Place a registered asset with `storybird_place_audio_asset`.
 Original movie gain/mute uses `storybird_set_source_audio` without changing picture timing.
 
 Overlapping voices, music and effects are allowed and mixed. Keep speech intelligible

@@ -73,7 +73,7 @@
         {
           "path": "docs/adr/agent-project-editing/0001-versioned-mcp-project-editing.md",
           "status": "Accepted (2026-10-17)",
-          "summary": "기존 MCP 호출을 보존하며 모든 편집의 문맥 조회·검토·원자 적용과 소재·자막·출력을 지원한다"
+          "summary": "단일 통합 MCP 목록으로 모든 편집·제작 기능을 제공하고 공통 안내의 반복을 줄인다"
         }
       ],
       "dependsOn": [

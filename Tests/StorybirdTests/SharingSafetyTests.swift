@@ -43,51 +43,49 @@ final class SharingSafetyTests: XCTestCase {
         }
     }
 
-    func test_asyncExport_bothProfilesSnapshotCancelAndTerminalStatesPreserveSource() async throws {
-        for profile in StorybirdMCPToolProfile.allCases {
-            let (root, store, initial, source) = try await fixture(duration: 10)
-            defer { try? FileManager.default.removeItem(at: root) }
-            let originalBytes = try Data(contentsOf: source)
-            var project = initial
-            project = try MaskEditor.create(in: project, startTime: 0, endTime: 10, x: 0, y: 0, width: 1, height: 1,
-                timingMode: .project, coordinateSpace: .canvas, colorHex: "#FF0000")
-            project = try store.saveProject(project, expectedRevision: project.revision)
-            try await withClient(profile, store: store) { client in
-                let started: Job = try decode(await client.callTool(name: "storybird_start_export", arguments: [
-                    "project_id": .string(project.id.uuidString), "parent_directory": .string(root.path)]))
-                XCTAssertNil(started.outputPath)
-                let duplicate = try await client.callTool(name: "storybird_start_export", arguments: [
-                    "project_id": .string(project.id.uuidString), "parent_directory": .string(root.path)])
-                XCTAssertEqual(duplicate.isError, true)
-                var newer = try XCTUnwrap(store.project(id: project.id))
-                if case var .mask(mask) = newer.effects[0] { mask.colorHex = "#0000FF"; newer.effects[0] = .mask(mask) }
-                newer = try store.saveProject(newer, expectedRevision: newer.revision)
-                let completed = try await terminal(client, id: started.id)
-                XCTAssertEqual(completed.state, "completed", completed.error ?? "")
-                XCTAssertEqual(completed.progress, 100)
-                let url = URL(fileURLWithPath: try XCTUnwrap(completed.outputPath))
-                let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
-                let frame = try await generator.image(at: CMTime(seconds: 0.5, preferredTimescale: 600)).image
-                let center = try pixel(frame)
-                XCTAssertGreaterThan(center[0], 235)
-                XCTAssertLessThan(center[2], 20, "The export must use its initial red snapshot, not the new blue state")
-                let afterCancel: Job = try decode(await client.callTool(name: "storybird_cancel_export", arguments: ["job_id": .string(started.id.uuidString)]))
-                XCTAssertEqual(afterCancel.state, "completed")
-                XCTAssertEqual(afterCancel.outputPath, completed.outputPath)
-                let cancelJob: Job = try decode(await client.callTool(name: "storybird_start_export", arguments: [
-                    "project_id": .string(project.id.uuidString), "parent_directory": .string(root.path)]))
-                _ = try await client.callTool(name: "storybird_cancel_export", arguments: ["job_id": .string(cancelJob.id.uuidString)])
-                let cancelled = try await terminal(client, id: cancelJob.id)
-                XCTAssertEqual(cancelled.state, "cancelled", cancelled.error ?? "")
-                XCTAssertNil(cancelled.outputPath)
-                let repeated: Job = try decode(await client.callTool(name: "storybird_cancel_export", arguments: ["job_id": .string(cancelJob.id.uuidString)]))
-                XCTAssertEqual(repeated.state, "cancelled")
-                let missing = try await client.callTool(name: "storybird_get_export", arguments: ["job_id": .string(UUID().uuidString)])
-                XCTAssertEqual(missing.isError, true)
-                XCTAssertEqual(store.project(id: project.id), newer)
-                XCTAssertEqual(try Data(contentsOf: source), originalBytes)
-                XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: root.path).contains { $0.hasPrefix(".storybird-export-") })
-            }
+    func test_asyncExport_compactSnapshotCancelAndTerminalStatesPreserveSource() async throws {
+        let (root, store, initial, source) = try await fixture(duration: 10)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let originalBytes = try Data(contentsOf: source)
+        var project = initial
+        project = try MaskEditor.create(in: project, startTime: 0, endTime: 10, x: 0, y: 0, width: 1, height: 1,
+            timingMode: .project, coordinateSpace: .canvas, colorHex: "#FF0000")
+        project = try store.saveProject(project, expectedRevision: project.revision)
+        try await withClient(store: store) { client in
+            let started: Job = try decode(await client.callTool(name: "storybird_start_export", arguments: [
+                "project_id": .string(project.id.uuidString), "parent_directory": .string(root.path)]))
+            XCTAssertNil(started.outputPath)
+            let duplicate = try await client.callTool(name: "storybird_start_export", arguments: [
+                "project_id": .string(project.id.uuidString), "parent_directory": .string(root.path)])
+            XCTAssertEqual(duplicate.isError, true)
+            var newer = try XCTUnwrap(store.project(id: project.id))
+            if case var .mask(mask) = newer.effects[0] { mask.colorHex = "#0000FF"; newer.effects[0] = .mask(mask) }
+            newer = try store.saveProject(newer, expectedRevision: newer.revision)
+            let completed = try await terminal(client, id: started.id)
+            XCTAssertEqual(completed.state, "completed", completed.error ?? "")
+            XCTAssertEqual(completed.progress, 100)
+            let url = URL(fileURLWithPath: try XCTUnwrap(completed.outputPath))
+            let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+            let frame = try await generator.image(at: CMTime(seconds: 0.5, preferredTimescale: 600)).image
+            let center = try pixel(frame)
+            XCTAssertGreaterThan(center[0], 235)
+            XCTAssertLessThan(center[2], 20, "The export must use its initial red snapshot, not the new blue state")
+            let afterCancel: Job = try decode(await client.callTool(name: "storybird_cancel_export", arguments: ["job_id": .string(started.id.uuidString)]))
+            XCTAssertEqual(afterCancel.state, "completed")
+            XCTAssertEqual(afterCancel.outputPath, completed.outputPath)
+            let cancelJob: Job = try decode(await client.callTool(name: "storybird_start_export", arguments: [
+                "project_id": .string(project.id.uuidString), "parent_directory": .string(root.path)]))
+            _ = try await client.callTool(name: "storybird_cancel_export", arguments: ["job_id": .string(cancelJob.id.uuidString)])
+            let cancelled = try await terminal(client, id: cancelJob.id)
+            XCTAssertEqual(cancelled.state, "cancelled", cancelled.error ?? "")
+            XCTAssertNil(cancelled.outputPath)
+            let repeated: Job = try decode(await client.callTool(name: "storybird_cancel_export", arguments: ["job_id": .string(cancelJob.id.uuidString)]))
+            XCTAssertEqual(repeated.state, "cancelled")
+            let missing = try await client.callTool(name: "storybird_get_export", arguments: ["job_id": .string(UUID().uuidString)])
+            XCTAssertEqual(missing.isError, true)
+            XCTAssertEqual(store.project(id: project.id), newer)
+            XCTAssertEqual(try Data(contentsOf: source), originalBytes)
+            XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: root.path).contains { $0.hasPrefix(".storybird-export-") })
         }
     }
 
@@ -188,9 +186,9 @@ final class SharingSafetyTests: XCTestCase {
         let store = AppStore(repository: repository)
         return (root, store, try XCTUnwrap(store.project(id: id)), source.url)
     }
-    private func withClient(_ profile: StorybirdMCPToolProfile, store: AppStore, body: @MainActor (Client) async throws -> Void) async throws {
+    private func withClient(store: AppStore, body: @MainActor (Client) async throws -> Void) async throws {
         let host = StorybirdExternalControlHost(store: store)
-        let service = StorybirdMCPService(client: StorybirdAppIPCClient(sender: { await host.handle($0) }, launcher: { throw StorybirdControlWireError.invalidMessage }), toolProfile: profile)
+        let service = StorybirdMCPService(client: StorybirdAppIPCClient(sender: { await host.handle($0) }, launcher: { throw StorybirdControlWireError.invalidMessage }))
         let transport = await InMemoryTransport.createConnectedPair()
         let server = try await service.startServer(transport: transport.server)
         let client = Client(name: "Sharing protocol verification", version: "1")

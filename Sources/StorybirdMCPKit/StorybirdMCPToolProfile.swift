@@ -1,23 +1,26 @@
 import Foundation
 import MCP
 
-/// A connection keeps one catalog for its entire lifetime. Existing launch
-/// configurations retain their original public calls unless they opt in.
+/// The sole public catalog. Explicit compact arguments remain valid for existing
+/// client configurations; removed profiles fail before connecting to the app.
 public enum StorybirdMCPToolProfile: String, Sendable, CaseIterable {
-    case legacy
     case compact
 
-    /// Defaults existing launches to legacy and rejects unknown options before
+    /// Defaults every launch to compact and rejects unsupported options before
     /// a server connection or app session can begin.
     public init(arguments: [String]) throws {
         if arguments.isEmpty {
-            self = .legacy
+            self = .compact
         } else if arguments.count == 2, arguments[0] == "--tool-profile",
                   let profile = Self(rawValue: arguments[1]) {
             self = profile
+        } else if arguments == ["--tool-profile", "legacy"] {
+            throw StorybirdMCPToolInputError(
+                message: "The legacy tool profile has been removed. Run StorybirdMCP without arguments or with --tool-profile compact."
+            )
         } else {
             throw StorybirdMCPToolInputError(
-                message: "Usage: StorybirdMCP [--tool-profile legacy|compact]"
+                message: "Usage: StorybirdMCP [--tool-profile compact]"
             )
         }
     }
@@ -92,8 +95,8 @@ struct StorybirdMCPToolGroup: Sendable {
 
     /// Reuses existing fields and bounds, including compact's explicit positive
     /// spotlight sizes. Root oneOf ties each selector to its closed input object.
-    func definition(legacy: [String: Tool]) -> Tool {
-        let firstSchema = legacy[branches[0].toolName]!.inputSchema.objectValue!
+    func definition(operations: [String: Tool]) -> Tool {
+        let firstSchema = operations[branches[0].toolName]!.inputSchema.objectValue!
         let envelope = firstSchema["properties"]!.objectValue!.filter { Self.envelopeKeys.contains($0.key) }
         var schema = StorybirdMCPService.objectSchema(
             properties: envelope.merging([
@@ -105,20 +108,20 @@ struct StorybirdMCPToolGroup: Sendable {
         schema["oneOf"] = .array(branches.map { branch in
             .object(["properties": .object([
                 selector: .object(["const": .string(branch.value)]),
-                "input": branchInput(legacy[branch.toolName]!),
+                "input": branchInput(operations[branch.toolName]!),
             ])])
         })
         let descriptions = branches.map { branch in
-            "\(branch.value): \(legacy[branch.toolName]!.description ?? "")"
+            "\(branch.value): \(operations[branch.toolName]!.description ?? "")"
         }.joined(separator: "\n")
+        let captions = ["storybird_edit_click", "storybird_edit_subtitle"].contains(name)
+            ? "\n" + StorybirdMCPService.subtitleGuidance : ""
         return Tool(
             name: name, title: title,
             description: """
-            Choose \(selector) explicitly and put that operation's fields in input. \
-            project_id and expected_revision stay at the top level. Executes one \
-            existing app command; omitted optional fields keep their existing meaning. \
+            Select \(selector); put operation fields in input. One app command; omitted optional fields keep their meaning. \
             \(descriptions)
-            """,
+            """ + captions,
             inputSchema: .object(schema),
             annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false)
         )
@@ -126,7 +129,7 @@ struct StorybirdMCPToolGroup: Sendable {
 
     /// Rejects invalid branch input before returning exactly one app command,
     /// preserving the original fields and revision envelope.
-    func resolve(_ arguments: [String: Value], legacy: [String: Tool]) throws -> (name: String, arguments: [String: Value]) {
+    func resolve(_ arguments: [String: Value], operations: [String: Tool]) throws -> (name: String, arguments: [String: Value]) {
         let allowed = Self.envelopeKeys.union([selector, "input"])
         if let unknown = Set(arguments.keys).subtracting(allowed).sorted().first {
             throw invalid("Unknown argument: \(unknown)")
@@ -138,7 +141,7 @@ struct StorybirdMCPToolGroup: Sendable {
         guard let input = arguments["input"]?.objectValue else {
             throw invalid("input must be an object")
         }
-        let tool = legacy[branch.toolName]!
+        let tool = operations[branch.toolName]!
         try Self.validate(.object(input), schema: branchInput(tool), path: "input")
         var flattened = input
         for key in Self.envelopeKeys {
@@ -150,7 +153,7 @@ struct StorybirdMCPToolGroup: Sendable {
     }
 
     /// Moves operation fields into a closed input object. Compact also exposes
-    /// the app's positive spotlight dimensions without changing legacy schemas.
+    /// the app's positive spotlight dimensions without changing operation schemas.
     private func branchInput(_ tool: Tool) -> Value {
         var schema = tool.inputSchema.objectValue!
         var properties = schema["properties"]!.objectValue!.filter { !Self.envelopeKeys.contains($0.key) }
@@ -213,7 +216,7 @@ struct StorybirdMCPToolGroup: Sendable {
             }
         case "string":
             // The SDK decodes data-URL JSON strings as .data, then encodes them
-            // as strings again. Match the legacy wire form rather than its enum.
+            // as strings again. Match the operation wire form rather than its enum.
             switch value {
             case .string, .data: break
             default: try reject("expected a string")

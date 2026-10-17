@@ -9,121 +9,121 @@ import XCTest
 
 @MainActor
 final class AuthoringMCPProtocolTests: XCTestCase {
-    func test_subtitleSequence_bothProfilesPreserveTextStyleUndoAndRejectClippedExport() async throws {
-        for profile in StorybirdMCPToolProfile.allCases {
-            try await withClient(profile: profile) { client, store, initial, source, _, initialization in
-                let instructions = try XCTUnwrap(initialization.instructions)
-                XCTAssertTrue(instructions.contains("Preserve all requested source text"))
-                XCTAssertTrue(instructions.contains("same style"))
-                let projectID = Value.string(initial.id.uuidString)
-                let text = "First complete line\n두 번째 문장\nThird complete line\n마지막 문구까지"
-                let _: AuthoringLayerMutation<TimedSubtitle> = try await call(client, "storybird_upsert_subtitle", [
-                    "project_id": projectID, "expected_revision": 0,
-                    "start_time": 0, "end_time": 1.5, "text": .string(text), "font_size": 17,
-                ])
-                let created = try XCTUnwrap(store.project(id: initial.id))
-                let subtitle = try XCTUnwrap(created.subtitles.first)
-                XCTAssertEqual(subtitle.text, text)
-                XCTAssertEqual(subtitle.position, .bottom)
-                let _: AuthoringLayerMutation<TimedSubtitle> = try await call(client, "storybird_upsert_subtitle", [
-                    "project_id": projectID, "expected_revision": .int(created.revision),
-                    "start_time": 1.5, "end_time": 3.5, "text": "Short caption", "font_size": 17,
-                ])
-                let next = try XCTUnwrap(store.project(id: initial.id))
-                XCTAssertEqual(next.subtitles[0].style, next.subtitles[1].style)
-                let preview = try await client.callTool(name: "storybird_render_preview", arguments: [
-                    "project_id": projectID, "time": 0.5,
-                ])
-                XCTAssertNotEqual(preview.isError, true, "\(preview.content)")
-                XCTAssertEqual(preview.content.count, 2)
-                let library = store.repository.rootURL.appendingPathComponent("library.json")
-                let bytes = try Data(contentsOf: library)
-                let sourceBytes = try Data(contentsOf: source)
-                for invalid: [String: Value] in [["expected_revision": 0], ["position": "middle"]] {
-                    let args: [String: Value] = [
-                        "project_id": projectID, "expected_revision": .int(next.revision),
-                        "subtitle_id": .string(subtitle.id.uuidString), "start_time": 0, "end_time": 1.5,
-                        "text": "Must not partially save",
-                    ]
-                    try await assertRejected(client, "storybird_upsert_subtitle", args.merging(invalid) { _, new in new },
-                        store: store, expected: next, libraryBytes: bytes, source: source, sourceBytes: sourceBytes)
-                }
-                let oversized = Array(repeating: "Retain this entire line", count: 100).joined(separator: "\n")
-                let _: AuthoringLayerMutation<TimedSubtitle> = try await call(client, "storybird_upsert_subtitle", [
+    func test_subtitleSequence_compactPreserveTextStyleUndoAndRejectClippedExport() async throws {
+        try await withClient { client, store, initial, source, _, initialization in
+            let tools = try await client.listTools().tools
+            let guidance = try XCTUnwrap(tools.first { $0.name == "storybird_edit_subtitle" }?.description)
+            XCTAssertTrue(guidance.contains("Preserve the requested"))
+            XCTAssertTrue(guidance.contains("same style"))
+            XCTAssertFalse(initialization.instructions?.contains("eojeol") ?? true)
+            let projectID = Value.string(initial.id.uuidString)
+            let text = "First complete line\n두 번째 문장\nThird complete line\n마지막 문구까지"
+            let _: AuthoringLayerMutation<TimedSubtitle> = try await call(client, "storybird_upsert_subtitle", [
+                "project_id": projectID, "expected_revision": 0,
+                "start_time": 0, "end_time": 1.5, "text": .string(text), "font_size": 17,
+            ])
+            let created = try XCTUnwrap(store.project(id: initial.id))
+            let subtitle = try XCTUnwrap(created.subtitles.first)
+            XCTAssertEqual(subtitle.text, text)
+            XCTAssertEqual(subtitle.position, .bottom)
+            let _: AuthoringLayerMutation<TimedSubtitle> = try await call(client, "storybird_upsert_subtitle", [
+                "project_id": projectID, "expected_revision": .int(created.revision),
+                "start_time": 1.5, "end_time": 3.5, "text": "Short caption", "font_size": 17,
+            ])
+            let next = try XCTUnwrap(store.project(id: initial.id))
+            XCTAssertEqual(next.subtitles[0].style, next.subtitles[1].style)
+            let preview = try await client.callTool(name: "storybird_render_preview", arguments: [
+                "project_id": projectID, "time": 0.5,
+            ])
+            XCTAssertNotEqual(preview.isError, true, "\(preview.content)")
+            XCTAssertEqual(preview.content.count, 2)
+            let library = store.repository.rootURL.appendingPathComponent("library.json")
+            let bytes = try Data(contentsOf: library)
+            let sourceBytes = try Data(contentsOf: source)
+            for invalid: [String: Value] in [["expected_revision": 0], ["position": "middle"]] {
+                let args: [String: Value] = [
                     "project_id": projectID, "expected_revision": .int(next.revision),
                     "subtitle_id": .string(subtitle.id.uuidString), "start_time": 0, "end_time": 1.5,
-                    "text": .string(oversized),
-                ])
-                let overflow = try XCTUnwrap(store.project(id: initial.id))
-                XCTAssertEqual(overflow.subtitles[0].text, oversized)
-                XCTAssertEqual(overflow.subtitles[0].style, subtitle.style)
-                let overflowBytes = try Data(contentsOf: library)
-                let outputDirectory = store.repository.rootURL.appendingPathComponent("subtitle-exports")
-                for (name, args) in [
-                    ("storybird_render_preview", ["project_id": projectID, "time": Value.double(0.5)]),
-                    ("storybird_start_export", ["project_id": projectID, "parent_directory": .string(outputDirectory.path)]),
-                ] {
-                    let response = try await client.callTool(name: name, arguments: args)
-                    XCTAssertEqual(response.isError, true)
-                    if case let .text(message, _, _) = response.content.first {
-                        XCTAssertTrue(message.contains(subtitle.id.uuidString), message)
-                    } else { XCTFail("Expected subtitle diagnostic") }
-                    XCTAssertEqual(store.project(id: initial.id), overflow)
-                    XCTAssertEqual(try Data(contentsOf: library), overflowBytes)
-                    XCTAssertFalse(store.isExportActive)
-                }
-                XCTAssertFalse(FileManager.default.fileExists(atPath: outputDirectory.path))
-                let undone: DemoProject = try await call(client, "storybird_undo_project", [
-                    "project_id": projectID, "expected_revision": .int(overflow.revision),
-                ])
-                assertContent(undone, equals: next)
-                let beforeExport = try XCTUnwrap(store.project(id: initial.id))
-                var job: AuthoringExportJob = try await call(client, "storybird_start_export", [
-                    "project_id": projectID, "parent_directory": .string(outputDirectory.path),
-                ])
-                for _ in 0..<1_000 {
-                    if ["completed", "failed", "cancelled"].contains(job.state) { break }
-                    try await Task.sleep(for: .milliseconds(10))
-                    job = try await call(client, "storybird_get_export", ["job_id": .string(job.id.uuidString)])
-                }
-                XCTAssertEqual(job.state, "completed", job.error ?? "No terminal state")
-                let path = try XCTUnwrap(job.outputPath)
-                XCTAssertTrue(FileManager.default.fileExists(atPath: path))
-                let generator = AVAssetImageGenerator(asset: AVURLAsset(url: URL(fileURLWithPath: path)))
-                generator.requestedTimeToleranceBefore = .zero
-                generator.requestedTimeToleranceAfter = .zero
-                let exported = try await generator.image(at: CMTime(seconds: 0.5, preferredTimescale: 600)).image
-                guard case let .image(base64, _, _, _) = preview.content[1],
-                      let data = Data(base64Encoded: base64),
-                      let imageSource = CGImageSourceCreateWithData(data as CFData, nil),
-                      let expected = CGImageSourceCreateImageAtIndex(imageSource, 0, nil) else {
-                    throw AuthoringProtocolError.invalidResponse
-                }
-                func pixels(_ image: CGImage) throws -> [UInt8] {
-                    var bytes = [UInt8](repeating: 0, count: image.width * image.height * 4)
-                    try bytes.withUnsafeMutableBytes { buffer in
-                        let context = try XCTUnwrap(CGContext(data: buffer.baseAddress, width: image.width,
-                            height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4,
-                            space: CGColorSpaceCreateDeviceRGB(),
-                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
-                        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
-                    }
-                    return bytes
-                }
-                XCTAssertEqual(exported.width, expected.width)
-                XCTAssertEqual(exported.height, expected.height)
-                let expectedPixels = try pixels(expected)
-                let outputPixels = try pixels(exported)
-                let glyphOffsets = stride(from: 0, to: expectedPixels.count, by: 4).filter {
-                    expectedPixels[$0] > 220 && expectedPixels[$0 + 1] > 220 && expectedPixels[$0 + 2] > 220
-                }
-                XCTAssertGreaterThan(glyphOffsets.count, 100)
-                let retained = glyphOffsets.filter { outputPixels[$0] > 180 }.count
-                XCTAssertGreaterThan(Double(retained) / Double(max(1, glyphOffsets.count)), 0.95,
-                                     "MP4 must retain the PNG's glyphs, including the fourth line.")
-                XCTAssertEqual(store.project(id: initial.id), beforeExport)
-                XCTAssertEqual(try Data(contentsOf: source), sourceBytes)
+                    "text": "Must not partially save",
+                ]
+                try await assertRejected(client, "storybird_upsert_subtitle", args.merging(invalid) { _, new in new },
+                    store: store, expected: next, libraryBytes: bytes, source: source, sourceBytes: sourceBytes)
             }
+            let oversized = Array(repeating: "Retain this entire line", count: 100).joined(separator: "\n")
+            let _: AuthoringLayerMutation<TimedSubtitle> = try await call(client, "storybird_upsert_subtitle", [
+                "project_id": projectID, "expected_revision": .int(next.revision),
+                "subtitle_id": .string(subtitle.id.uuidString), "start_time": 0, "end_time": 1.5,
+                "text": .string(oversized),
+            ])
+            let overflow = try XCTUnwrap(store.project(id: initial.id))
+            XCTAssertEqual(overflow.subtitles[0].text, oversized)
+            XCTAssertEqual(overflow.subtitles[0].style, subtitle.style)
+            let overflowBytes = try Data(contentsOf: library)
+            let outputDirectory = store.repository.rootURL.appendingPathComponent("subtitle-exports")
+            for (name, args) in [
+                ("storybird_render_preview", ["project_id": projectID, "time": Value.double(0.5)]),
+                ("storybird_start_export", ["project_id": projectID, "parent_directory": .string(outputDirectory.path)]),
+            ] {
+                let response = try await client.callTool(name: name, arguments: args)
+                XCTAssertEqual(response.isError, true)
+                if case let .text(message, _, _) = response.content.first {
+                    XCTAssertTrue(message.contains(subtitle.id.uuidString), message)
+                } else { XCTFail("Expected subtitle diagnostic") }
+                XCTAssertEqual(store.project(id: initial.id), overflow)
+                XCTAssertEqual(try Data(contentsOf: library), overflowBytes)
+                XCTAssertFalse(store.isExportActive)
+            }
+            XCTAssertFalse(FileManager.default.fileExists(atPath: outputDirectory.path))
+            let undone: DemoProject = try await call(client, "storybird_undo_project", [
+                "project_id": projectID, "expected_revision": .int(overflow.revision),
+            ])
+            assertContent(undone, equals: next)
+            let beforeExport = try XCTUnwrap(store.project(id: initial.id))
+            var job: AuthoringExportJob = try await call(client, "storybird_start_export", [
+                "project_id": projectID, "parent_directory": .string(outputDirectory.path),
+            ])
+            for _ in 0..<1_000 {
+                if ["completed", "failed", "cancelled"].contains(job.state) { break }
+                try await Task.sleep(for: .milliseconds(10))
+                job = try await call(client, "storybird_get_export", ["job_id": .string(job.id.uuidString)])
+            }
+            XCTAssertEqual(job.state, "completed", job.error ?? "No terminal state")
+            let path = try XCTUnwrap(job.outputPath)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: path))
+            let generator = AVAssetImageGenerator(asset: AVURLAsset(url: URL(fileURLWithPath: path)))
+            generator.requestedTimeToleranceBefore = .zero
+            generator.requestedTimeToleranceAfter = .zero
+            let exported = try await generator.image(at: CMTime(seconds: 0.5, preferredTimescale: 600)).image
+            guard case let .image(base64, _, _, _) = preview.content[1],
+                  let data = Data(base64Encoded: base64),
+                  let imageSource = CGImageSourceCreateWithData(data as CFData, nil),
+                  let expected = CGImageSourceCreateImageAtIndex(imageSource, 0, nil) else {
+                throw AuthoringProtocolError.invalidResponse
+            }
+            func pixels(_ image: CGImage) throws -> [UInt8] {
+                var bytes = [UInt8](repeating: 0, count: image.width * image.height * 4)
+                try bytes.withUnsafeMutableBytes { buffer in
+                    let context = try XCTUnwrap(CGContext(data: buffer.baseAddress, width: image.width,
+                        height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4,
+                        space: CGColorSpaceCreateDeviceRGB(),
+                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+                    context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+                }
+                return bytes
+            }
+            XCTAssertEqual(exported.width, expected.width)
+            XCTAssertEqual(exported.height, expected.height)
+            let expectedPixels = try pixels(expected)
+            let outputPixels = try pixels(exported)
+            let glyphOffsets = stride(from: 0, to: expectedPixels.count, by: 4).filter {
+                expectedPixels[$0] > 220 && expectedPixels[$0 + 1] > 220 && expectedPixels[$0 + 2] > 220
+            }
+            XCTAssertGreaterThan(glyphOffsets.count, 100)
+            let retained = glyphOffsets.filter { outputPixels[$0] > 180 }.count
+            XCTAssertGreaterThan(Double(retained) / Double(max(1, glyphOffsets.count)), 0.95,
+                                 "MP4 must retain the PNG's glyphs, including the fourth line.")
+            XCTAssertEqual(store.project(id: initial.id), beforeExport)
+            XCTAssertEqual(try Data(contentsOf: source), sourceBytes)
         }
     }
 
@@ -133,13 +133,14 @@ final class AuthoringMCPProtocolTests: XCTestCase {
         try await withClient { client, _, _, _, probe, initialization in
             XCTAssertEqual(initialization.serverInfo.title, "Storybird Video Production")
             let instructions = try XCTUnwrap(initialization.instructions)
-            for phrase in ["storybird_get_edit_context", "revision", "recording auto-approval",
-                           "off by default", "storybird_set_recording_auto_approval",
-                           "never macOS permissions or deletion approval",
-                           "does not require an active screen-control session", "microphone"] {
+            for phrase in ["storybird_get_edit_context", "expected_revision", "no screen-control session", "microphone"] {
                 XCTAssertTrue(instructions.contains(phrase), phrase)
             }
             let tools = try await client.listTools().tools
+            let approval = try XCTUnwrap(tools.first { $0.name == "storybird_set_recording_auto_approval" }?.description)
+            for phrase in ["only when the user requests it", "Default is false", "macOS permissions and permanent deletion approval still apply"] {
+                XCTAssertTrue(approval.contains(phrase), phrase)
+            }
             XCTAssertEqual(Set(tools.map(\.name)).count, tools.count)
             let requiredFields: [String: [String]] = [
                 "storybird_trim_clip": ["clip_id", "source_start", "source_end"],
@@ -153,7 +154,7 @@ final class AuthoringMCPProtocolTests: XCTestCase {
                 "storybird_redo_project": [],
             ]
             for (name, fields) in requiredFields {
-                let tool = try XCTUnwrap(tools.first { $0.name == name })
+                let tool = try MCPTestClient.operationTool(named: name, in: tools)
                 let schema = try schema(tool)
                 let required = Set(try XCTUnwrap(schema["required"] as? [String]))
                 XCTAssertEqual(required, Set(fields + ["project_id", "expected_revision"]), name)
@@ -165,7 +166,7 @@ final class AuthoringMCPProtocolTests: XCTestCase {
                 XCTAssertEqual(tool.annotations.destructiveHint, false, name)
             }
             for name in ["storybird_create_click", "storybird_update_click"] {
-                let tool = try XCTUnwrap(tools.first { $0.name == name })
+                let tool = try MCPTestClient.operationTool(named: name, in: tools)
                 let properties = try XCTUnwrap(schema(tool)["properties"] as? [String: Any])
                 for field in ["x", "y", "description_x", "description_y", "indicator_opacity",
                               "description_background_opacity", "subtitle_background_opacity"] {
@@ -180,7 +181,7 @@ final class AuthoringMCPProtocolTests: XCTestCase {
             }
             for name in ["storybird_get_edit_context", "storybird_get_project", "storybird_list_projects",
                          "storybird_render_preview", "storybird_get_export"] {
-                let tool = try XCTUnwrap(tools.first { $0.name == name })
+                let tool = try MCPTestClient.operationTool(named: name, in: tools)
                 XCTAssertEqual(tool.annotations.readOnlyHint, true, name)
                 let properties = try XCTUnwrap(schema(tool)["properties"] as? [String: Any])
                 XCTAssertNil(properties["expected_revision"], name)
@@ -262,7 +263,7 @@ final class AuthoringMCPProtocolTests: XCTestCase {
                 let unknown = name.contains("click") ? "description_font_szie" : "unadvertised_argument"
                 arguments[unknown] = 42
                 let tools = try await client.listTools().tools
-                let tool = try XCTUnwrap(tools.first { $0.name == name })
+                let tool = try MCPTestClient.operationTool(named: name, in: tools)
                 let advertised = try schema(tool)
                 XCTAssertEqual(advertised["additionalProperties"] as? Bool, false, name)
                 let properties = try XCTUnwrap(advertised["properties"] as? [String: Any])
@@ -285,7 +286,11 @@ final class AuthoringMCPProtocolTests: XCTestCase {
                 XCTAssertEqual(response.isError, true, "\(name) accepted \(unknown)")
                 XCTAssertEqual(response.content.count, 1, "\(name): rejection must be text-only")
                 if case let .text(message, _, _) = response.content.first {
-                    XCTAssertTrue(message.contains(name), message)
+                    if MCPTestClient.routes.contains(where: { "storybird_" + $0.command == name }) {
+                        XCTAssertTrue(message.hasPrefix("Invalid input: unknown argument "), message)
+                    } else {
+                        XCTAssertTrue(message.contains(name), message)
+                    }
                     XCTAssertTrue(message.contains(unknown), message)
                 } else {
                     XCTFail("\(name): rejection must return text without an image")
@@ -367,35 +372,28 @@ final class AuthoringMCPProtocolTests: XCTestCase {
     /// Runs a coordinate-free UI workflow through SDK calls: resolve IDs, edit
     /// media/layers, inspect PNG output, reject atomic failures, undo and export.
     /// Normalized layer coordinates describe video content, never desktop controls.
-    /// Retains the original operation-specific production workflow expectations.
-    func test_protocolAuthoring_editsPreviewsRejectsAtomicallyAndCompletesExport() async throws {
-        try await assertAuthoring(profile: .legacy)
-    }
-
     /// Runs the same output, failure and history checks through the compact wire form.
     func test_compactAuthoring_preservesEditsPreviewAtomicRejectionUndoAndExport() async throws {
-        try await assertAuthoring(profile: .compact)
+        try await assertAuthoring()
     }
 
     /// The SDK's binary Value case is still a JSON string on the wire; caption
-    /// text containing a data URL must behave the same in both profiles.
+    /// text containing a data URL must behave the same in the compact catalog.
     func test_dataURLSubtitleText_preservesLegacyBehaviorInCompact() async throws {
-        for profile in StorybirdMCPToolProfile.allCases {
-            try await withClient(profile: profile) { client, _, initial, _, _, _ in
-                let text = "data:text/plain;base64,SGVsbG8="
-                let result: AuthoringLayerMutation<TimedSubtitle> = try await call(client, "storybird_upsert_subtitle", [
-                    "project_id": .string(initial.id.uuidString), "expected_revision": 0,
-                    "start_time": 0, "end_time": 1, "text": .string(text),
-                ])
-                XCTAssertEqual(result.value.text, text, profile.rawValue)
-                XCTAssertEqual(result.revision, 1)
-            }
+        try await withClient { client, _, initial, _, _, _ in
+            let text = "data:text/plain;base64,SGVsbG8="
+            let result: AuthoringLayerMutation<TimedSubtitle> = try await call(client, "storybird_upsert_subtitle", [
+                "project_id": .string(initial.id.uuidString), "expected_revision": 0,
+                "start_time": 0, "end_time": 1, "text": .string(text),
+            ])
+            XCTAssertEqual(result.value.text, text, "compact")
+            XCTAssertEqual(result.revision, 1)
         }
     }
 
     /// Exercises the remaining grouped actions against real app-owned domain edits.
     func test_compactRemainingActions_preserveClipCardSuggestionAndAudioBehavior() async throws {
-        try await withClient(profile: .compact) { client, store, initial, _, _, _ in
+        try await withClient { client, store, initial, _, _, _ in
             /// Uses the latest revision and reads the committed app value after one call.
             @MainActor func edit(_ name: String, _ input: [String: Value]) async throws -> DemoProject {
                 let current = try XCTUnwrap(store.project(id: initial.id))
@@ -488,9 +486,9 @@ final class AuthoringMCPProtocolTests: XCTestCase {
         }
     }
 
-    /// Compares observable authoring behavior across both profiles using isolated media.
-    private func assertAuthoring(profile: StorybirdMCPToolProfile) async throws {
-        try await withClient(profile: profile) { client, store, initial, source, probe, _ in
+    /// Compares observable authoring behavior across the compact catalog using isolated media.
+    private func assertAuthoring() async throws {
+        try await withClient { client, store, initial, source, probe, _ in
             let sourceBytes = try Data(contentsOf: source)
             let placeholder: DemoProject = try await call(client, "storybird_create_project", [
                 "name": "Agent-created placeholder",
@@ -703,7 +701,7 @@ final class AuthoringMCPProtocolTests: XCTestCase {
     /// Sends a raw serialized replacement through the MCP protocol without
     /// model decoding that could hide malformed values before the app sees them.
     private func rejectReplacement(
-        _ object: [String: Any], client: MCPProfileTestClient, store: AppStore, expected: DemoProject,
+        _ object: [String: Any], client: MCPTestClient, store: AppStore, expected: DemoProject,
         libraryBytes: Data, source: URL, sourceBytes: Data
     ) async throws {
         let json = try JSONSerialization.data(withJSONObject: object)
@@ -716,7 +714,7 @@ final class AuthoringMCPProtocolTests: XCTestCase {
     /// Verifies error responses leave the entire project and original media
     /// unchanged; later protocol undo/redo checks the retained history contents.
     private func assertRejected(
-        _ client: MCPProfileTestClient, _ name: String, _ arguments: [String: Value],
+        _ client: MCPTestClient, _ name: String, _ arguments: [String: Value],
         store: AppStore, expected: DemoProject, libraryBytes: Data, source: URL, sourceBytes: Data
     ) async throws {
         let result = try await client.callTool(name: name, arguments: arguments)
@@ -731,8 +729,7 @@ final class AuthoringMCPProtocolTests: XCTestCase {
     /// Executes real server handlers and host publication with in-memory MCP
     /// transport; only the IPC socket and pre-existing synthetic source are injected.
     private func withClient(
-        profile: StorybirdMCPToolProfile = .legacy,
-        _ body: (MCPProfileTestClient, AppStore, DemoProject, URL, AuthoringIPCProbe, Initialize.Result) async throws -> Void
+        _ body: (MCPTestClient, AppStore, DemoProject, URL, AuthoringIPCProbe, Initialize.Result) async throws -> Void
     ) async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -752,13 +749,13 @@ final class AuthoringMCPProtocolTests: XCTestCase {
             await probe.record(request.name)
             return await host.handle(request)
         }, launcher: { throw AuthoringProtocolError.unexpectedLaunch })
-        let server = await StorybirdMCPService(client: ipc, toolProfile: profile).makeServer()
+        let server = await StorybirdMCPService(client: ipc).makeServer()
         let transport = await InMemoryTransport.createConnectedPair()
         try await server.start(transport: transport.server)
         let client = Client(name: "Authoring production protocol test", version: "1")
         do {
             let initialization = try await client.connect(transport: transport.client)
-            try await body(MCPProfileTestClient(client: client, profile: profile), store, initial, target.url, probe, initialization)
+            try await body(MCPTestClient(client: client), store, initial, target.url, probe, initialization)
             await client.disconnect()
             await server.stop()
         } catch {
@@ -771,7 +768,7 @@ final class AuthoringMCPProtocolTests: XCTestCase {
     /// Decodes successful wire content and fails immediately on a tool error,
     /// preventing later assertions from obscuring the failed workflow action.
     private func call<T: Decodable>(
-        _ client: MCPProfileTestClient, _ name: String, _ arguments: [String: Value]
+        _ client: MCPTestClient, _ name: String, _ arguments: [String: Value]
     ) async throws -> T {
         let result = try await client.callTool(name: name, arguments: arguments)
         XCTAssertNotEqual(result.isError, true, "\(name): \(result.content)")

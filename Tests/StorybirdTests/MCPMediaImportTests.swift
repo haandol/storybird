@@ -136,8 +136,9 @@ final class MCPMediaImportTests: XCTestCase {
             ])
             XCTAssertEqual(invalid.isError, true)
             XCTAssertEqual(store.project(id: projectID)?.narrations.count, 1)
-            let undone: DemoProject = try await call(client, "storybird_undo_project", [
+            let undone: DemoProject = try await call(client, "storybird_edit_history", [
                 "project_id": .string(projectID.uuidString), "expected_revision": 1,
+                "action": "undo", "input": .object([:]),
             ])
             XCTAssertTrue(undone.narrations.isEmpty)
             XCTAssertEqual(undone.audioAssets.count, 1)

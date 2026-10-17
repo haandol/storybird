@@ -460,7 +460,7 @@ not automatically use a build from your checkout.
 With Codex installed, register the companion:
 
 ```bash
-codex mcp add storybird -- /Applications/Storybird.app/Contents/MacOS/StorybirdMCP --tool-profile compact
+codex mcp add storybird -- /Applications/Storybird.app/Contents/MacOS/StorybirdMCP
 codex mcp list
 ```
 
@@ -470,14 +470,14 @@ The same server can be configured in `~/.codex/config.toml`:
 ```toml
 [mcp_servers.storybird]
 command = "/Applications/Storybird.app/Contents/MacOS/StorybirdMCP"
-args = ["--tool-profile", "compact"]
+args = []
 ```
 
-The compact profile groups related project edits into 63 tools. Existing
-configurations without arguments keep the 84-tool legacy profile; select
-`--tool-profile legacy` explicitly if needed. Each connection exposes one fixed
-list. See [tool profiles and call examples](docs/MCP.md#choose-a-tool-profile)
-for the grouped actions and unchanged recording, audio-generation and export tools.
+Storybird exposes 63 compact tools by default. The optional
+`--tool-profile compact` arguments remain accepted; `--tool-profile legacy`
+is removed and fails before connecting. Replace any legacy setting and reconnect.
+Each connection exposes one fixed list. See the [catalog and call examples](docs/MCP.md#compact-tool-catalog)
+for grouped actions and the separate recording, audio-generation and export tools.
 
 See the [official Codex MCP setup guide](https://learn.chatgpt.com/docs/extend/mcp).
 For Kiro, merge the included [configuration example](mcp/storybird.kiro.json)

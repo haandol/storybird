@@ -2,6 +2,13 @@
 
 이 문서는 agent-project-editing 카테고리의 주요 결정 변경 이력이다.
 
+## 2026-10-17 — 통합 목록을 기본이자 유일한 공개 목록으로 제공한다
+
+- **Current ADR**: [versioned-mcp-project-editing](./0001-versioned-mcp-project-editing.md)
+- **Change type**: approved compatibility and discovery rule change
+- **What**: 호환 기본 목록과 선택형 통합 목록 → 모든 기능을 유지하는 단일 통합 목록. 호환 시작 옵션과 대체된 개별 호출은 거부하며 동작별 안내는 해당 도구에서 제공한다.
+- **Why**: 사용자가 legacy 제거를 승인했고 도구 수와 반복 안내의 컨텍스트 부담을 줄이도록 요청했다.
+
 ## 2026-10-17 — 기존 MCP 호출을 보존하며 모든 편집의 문맥 조회·검토·원자 적용과 소재·자막·출력을 지원한다
 
 - **Current ADR**: [versioned-mcp-project-editing](./0001-versioned-mcp-project-editing.md)

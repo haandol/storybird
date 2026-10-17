@@ -11,6 +11,8 @@ The session dialog is skipped only when recording auto-approval is enabled.
 `storybird_get_recording_auto_approval` reads the setting. If the user asks to change
 it, use `storybird_set_recording_auto_approval` with `enabled: true` or `false`.
 The setting persists across restarts and is also available in General Settings.
+Changes affect future requests, not pending prompts or active sessions; they do
+not replace permanent project-deletion confirmation.
 macOS permissions still apply. Do not change the preference merely to unblock a
 recording request, and do not treat it as authorization for external side effects.
 For a browser walkthrough without a user-selected source, prepare a dedicated

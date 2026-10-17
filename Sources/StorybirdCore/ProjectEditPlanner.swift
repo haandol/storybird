@@ -47,6 +47,9 @@ public enum ProjectEditPlanner {
         var result = project
         var created: [ProjectEditCreation] = []
         let structural = edits.indices.filter { isStructural(edits[$0], in: project) }
+        // Keep the ordered array for execution; membership need not rescan it
+        // for every non-structural edit in the second phase.
+        let structuralIndices = Set(structural)
         for index in structural {
             let before = Set(references(in: result))
             result = try contextual(index, edits[index]) { try apply(edits[index], to: result) }
@@ -63,7 +66,7 @@ public enum ProjectEditPlanner {
             result = VideoTimelineEditor.remapContentLayers(result)
         }
         let derived = result
-        for index in edits.indices where !structural.contains(index) {
+        for index in edits.indices where !structuralIndices.contains(index) {
             let edit = edits[index]
             let before = Set(references(in: result))
             result = try contextual(index, edit) {

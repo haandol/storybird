@@ -108,16 +108,7 @@ struct TimelineCaptionPanel: View {
 
     private func style() {
         guard let project else { return }
-        let styles = chosen.compactMap { row in
-            project.subtitles.first { $0.id == row.id }?.style ?? project.clicks.first { $0.id == row.id }?.cueSubtitle.style
-        }
-        var mixed: Set<String> = []
-        if Set(styles.map(\.fontSize)).count > 1 { mixed.insert("font_size") }
-        if Set(styles.map(\.foregroundHex)).count > 1 { mixed.insert("foreground_hex") }
-        if Set(styles.map(\.backgroundHex)).count > 1 { mixed.insert("background_hex") }
-        if Set(styles.map(\.backgroundOpacity)).count > 1 { mixed.insert("background_opacity") }
-        onStyle(CaptionStyleSession(projectID: projectID, revision: project.revision, targets: chosen.map(\.target),
-            style: styles.first ?? .default, mixedFields: mixed))
+        onStyle(.make(project: project, targets: chosen.map(\.target)))
     }
 
     private func delete(_ entries: [CaptionListEntry]) {
