@@ -23,6 +23,7 @@ private struct PlaybackCompositionState: Equatable {
     let sourceAudioVolume: Double
     let sourceAudioMuted: Bool
     let cards: [Card]
+    let canvas: ProjectCanvas
 
     /// Reloads media only for changes affecting the picture clock or sound;
     /// subtitle and visual style edits remain lightweight SwiftUI overlays.
@@ -31,6 +32,7 @@ private struct PlaybackCompositionState: Equatable {
         narrations = project.narrations
         sourceAudioVolume = project.sourceAudioVolume
         sourceAudioMuted = project.sourceAudioMuted
+        canvas = project.canvas
         cards = project.effects.filter(\.isFullScreenCard).map {
             Card(id: $0.id, start: $0.startTime, end: $0.endTime)
         }
@@ -52,6 +54,7 @@ struct VideoTimelineEditorView: View {
     @State private var previewLayout = TimelinePreviewLayout()
     @State private var previewPhase: VideoPreviewPhase = .loading
     @State private var showAudioComposer = false
+    @State private var showMediaLibrary = false
     @StateObject private var audioModel = TimelineAudioModel()
     @StateObject private var audition = AudioAuditionPlayer()
     @State private var editingNarration: NarrationClip?
@@ -214,7 +217,8 @@ struct VideoTimelineEditorView: View {
                 .frame(height: height)
 
             Group {
-                if showAudioComposer { audioPanel }
+                if showMediaLibrary { mediaPanel }
+                else if showAudioComposer { audioPanel }
                 else { PlaybackDrivenView(playback: playback) { _ in inspector } }
             }
             .frame(minWidth: 250, idealWidth: 280, maxWidth: 340)
@@ -249,10 +253,22 @@ struct VideoTimelineEditorView: View {
         }
     }
 
+    private var mediaPanel: some View {
+        PlaybackDrivenView(playback: playback) { playback in
+            TimelineMediaPanel(store: store, projectID: project.id, playhead: playback.currentTime) { id in
+                selection = .clip(id)
+                if let scene = VideoTimelineSchedule(project: project).items.first(where: {
+                    if case let .clip(value) = $0 { return value.clip.id == id }; return false
+                }) { playback.seek(to: scene.projectStart) }
+            }
+            .id(project.id)
+        }
+    }
+
     /// Budgets the compact audio panel before the split, preserving playback and layer access.
     private func editingWorkspace(compact: Bool) -> some View {
         GeometryReader { proxy in
-            let audioHeight: CGFloat = compact && showAudioComposer
+            let audioHeight: CGFloat = compact && (showAudioComposer || showMediaLibrary)
                 ? min(190, max(80, proxy.size.height * 0.24)) : 0
             let toolsHeight: CGFloat = selectedNarrationID == nil ? 204 : 248
             TimelinePreviewSplitView(
@@ -263,8 +279,10 @@ struct VideoTimelineEditorView: View {
             } timeline: {
                 VStack(spacing: 0) {
                     PlaybackDrivenView(playback: playback) { _ in playbackControls }.frame(height: 48)
-                    if compact && showAudioComposer {
-                        audioPanel.frame(height: audioHeight)
+                    if compact && (showAudioComposer || showMediaLibrary) {
+                        Group {
+                            if showMediaLibrary { mediaPanel } else { audioPanel }
+                        }.frame(height: audioHeight)
                         Divider()
                     }
                     timeline
@@ -283,10 +301,7 @@ struct VideoTimelineEditorView: View {
             let camera = activeCamera
             let displayPhase: VideoPreviewPhase = playback.isPreparing ? .loading : previewPhase
             let frame = AspectFit.frame(
-                contentSize: CGSize(
-                    width: project.recording?.width ?? 1,
-                    height: project.recording?.height ?? 1
-                ),
+                contentSize: project.canvasSize,
                 in: CGRect(origin: .zero, size: proxy.size)
             )
             ZStack(alignment: .topLeading) {
@@ -499,10 +514,16 @@ struct VideoTimelineEditorView: View {
                 }
                 Button {
                     showAudioComposer.toggle()
+                    if showAudioComposer { showMediaLibrary = false }
                 } label: {
                     Label(showAudioComposer ? "Close Audio" : "Add Audio", systemImage: "waveform.badge.plus")
                 }
                 .accessibilityIdentifier("timeline-audio-toggle")
+                Button {
+                    showMediaLibrary.toggle()
+                    if showMediaLibrary { showAudioComposer = false }
+                } label: { Label(showMediaLibrary ? "Close Media" : "Media", systemImage: "photo.on.rectangle") }
+                .accessibilityIdentifier("timeline-media-toggle")
                 Menu("Source Audio") {
                     Toggle("Mute original audio", isOn: $project.sourceAudioMuted)
                     Button("Original volume") { project.sourceAudioVolume = 1 }

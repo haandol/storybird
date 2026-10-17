@@ -11,6 +11,8 @@ public enum VideoProjectValidationError: LocalizedError, Equatable {
     case invalidSuggestion(UUID)
     case invalidNarration(UUID, String)
     case duplicateLayerID(UUID)
+    case invalidMediaAsset(UUID)
+    case invalidCanvas
 
     public var errorDescription: String? {
         switch self {
@@ -34,6 +36,10 @@ public enum VideoProjectValidationError: LocalizedError, Equatable {
             return "Narration \(id.uuidString): \(reason)"
         case let .duplicateLayerID(id):
             return "Layer \(id.uuidString) appears more than once."
+        case let .invalidMediaAsset(id):
+            return "Media asset \(id.uuidString) is invalid or belongs to another project."
+        case .invalidCanvas:
+            return "The canvas or media placement is invalid."
         }
     }
 }
@@ -82,26 +88,47 @@ public enum VideoProjectValidator {
         else {
             throw VideoProjectValidationError.invalidAssetFilename
         }
+        guard isHexColor(project.canvas.backgroundHex) else { throw VideoProjectValidationError.invalidCanvas }
+        var mediaIDs: Set<UUID> = [project.id]
+        var mediaFiles: Set<String> = [recording.filename]
+        for asset in project.mediaAssets {
+            let suffix = asset.filename.pathExtension.lowercased()
+            guard mediaIDs.insert(asset.id).inserted, mediaFiles.insert(asset.filename).inserted,
+                  isSimpleFilename(asset.filename), asset.width > 0, asset.height > 0,
+                  !asset.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  asset.mediaStartTime.isFinite,
+                  asset.kind == .video
+                    ? (["mp4", "mov"].contains(suffix) && asset.duration?.isFinite == true && (asset.duration ?? 0) > 0)
+                    : (["png", "jpg", "jpeg"].contains(suffix) && asset.duration == nil) else {
+                throw VideoProjectValidationError.invalidMediaAsset(asset.id)
+            }
+        }
 
         var layerIDs = Set<UUID>()
         for clip in project.clips {
             guard layerIDs.insert(clip.id).inserted else {
                 throw VideoProjectValidationError.duplicateLayerID(clip.id)
             }
+            guard let media = project.mediaAsset(for: clip), clip.placement.isValid else {
+                throw VideoProjectValidationError.invalidClip(clip.id)
+            }
             let valid: Bool
             switch clip.kind {
             case .video:
-                valid = clip.sourceStart.isFinite
+                valid = media.kind == .video && clip.sourceStart.isFinite
                     && clip.sourceEnd.isFinite
                     && clip.sourceStart >= 0
                     && clip.sourceStart < clip.sourceEnd
-                    && clip.sourceEnd <= recording.duration
+                    && clip.sourceEnd <= (media.duration ?? 0)
                     && (0.25...4).contains(clip.playbackRate)
             case .freeze:
-                valid = clip.sourceStart.isFinite
-                    && (0...recording.duration).contains(clip.sourceStart)
+                valid = media.kind == .video && clip.sourceStart.isFinite
+                    && (0...(media.duration ?? 0)).contains(clip.sourceStart)
                     && clip.freezeDuration.isFinite
                     && clip.freezeDuration > 0
+            case .image:
+                valid = media.kind == .image && clip.sourceStart == 0 && clip.sourceEnd == 0
+                    && clip.freezeDuration.isFinite && clip.freezeDuration > 0 && clip.playbackRate == 1
             }
             guard valid else {
                 throw VideoProjectValidationError.invalidClip(clip.id)
@@ -111,13 +138,15 @@ public enum VideoProjectValidator {
         try SceneTiming.validate(project)
         var previousClickTime = -Double.infinity
         for click in project.clicks {
+            let owner = click.sourceAnchor.flatMap { anchor in project.clips.first { $0.id == anchor.clipID } }
+            let sourceDuration = owner.flatMap { project.mediaAsset(for: $0)?.duration } ?? recording.duration
             guard layerIDs.insert(click.id).inserted else {
                 throw VideoProjectValidationError.duplicateLayerID(click.id)
             }
             guard click.time.isFinite,
                   (0...timelineDuration).contains(click.time),
                   click.sourceTime.isFinite,
-                  (0...recording.duration).contains(click.sourceTime),
+                  (0...sourceDuration).contains(click.sourceTime),
                   click.x.isFinite,
                   click.y.isFinite,
                   (0...1).contains(click.x),
@@ -164,7 +193,7 @@ public enum VideoProjectValidator {
                     else {
                         throw VideoProjectValidationError.invalidClick(click.id)
                     }
-                case .freeze:
+                case .freeze, .image:
                     guard abs(click.sourceTime - clip.sourceStart) <= 0.001
                     else {
                         throw VideoProjectValidationError.invalidClick(click.id)
@@ -369,7 +398,7 @@ public enum VideoProjectValidator {
             else {
                 throw VideoProjectValidationError.invalidRecording
             }
-        case .freeze:
+        case .freeze, .image:
             guard anchor.clipStartOffset.isFinite,
                   anchor.clipEndOffset.isFinite,
                   anchor.clipStartOffset >= 0,

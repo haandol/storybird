@@ -167,6 +167,9 @@ matching grouped tool above and move operation fields into `input`; the other
 | `storybird_export_project` | Renders H.264 MP4 with imported audio and generated narration mixed into AAC when present |
 | `storybird_import_video` | Imports local MP4/MOV by absolute path into a new project without a picker; returns a job ID |
 | `storybird_import_audio` | Imports local WAV/MP3/M4A by absolute path into a reusable project audio asset without a picker |
+| `storybird_import_media` | Registers an additional local MP4/MOV or PNG/JPEG in the current video project without advancing revision |
+| `storybird_list_media_assets` | Reads the primary and registered video/image source IDs, dimensions and metadata |
+| `storybird_place_media_asset` | Inserts an owned source at a zero-based clip index; requires current revision and an explicit positive image duration |
 | `storybird_get_import` | Reads durable media import status and committed result metadata |
 | `storybird_cancel_import` | Cancels an active media import; poll until a terminal state |
 | `storybird_delete_project` | Permanently deletes a project after native or agent-side user confirmation; reports actual deletion and cleanup results |
@@ -191,6 +194,19 @@ outcome instead of claiming success or rollback.
 Every clip mutation includes `project_id`, `expected_revision`, and the target
 clip ID. Read the project again after a revision conflict, then recalculate the
 edit instead of overwriting the newer UI state.
+
+Visual media registration uses `storybird_import_media` and the existing import
+job lifecycle. The first video still comes from recording or `storybird_import_video`.
+`storybird_list_media_assets` includes the primary source and additional registered
+videos/images. Use `storybird_place_media_asset` with `destination_index`,
+an explicit image `duration`, or a video's optional `source_start`/`source_end`/
+`playback_rate`. Registration and failed placement retain the reusable source.
+
+`storybird_render_preview` normally inspects the composited project clock. Adding
+`asset_id` selects source-card inspection: `time` is relative to that source
+(zero for an image), and the PNG is a bounded thumbnail. Its metadata reports
+`source_time`, rendered `width`/`height` and original `source_width`/`source_height`.
+This path also works before the asset is placed and does not edit the project.
 
 ## Recording auto-approval
 

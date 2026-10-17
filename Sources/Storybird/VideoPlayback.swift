@@ -114,17 +114,13 @@ final class VideoPlaybackModel: ObservableObject {
                     project: project,
                     sourceURL: url
                 )
-                let sourceAsset = AVURLAsset(url: url)
-                let sourceTracks = try await sourceAsset.loadTracks(withMediaType: .video)
-                guard let sourceTrack = sourceTracks.first else { throw LayeredVideoExportError.missingVideoTrack }
-                let cadence = try await VideoFrameCadence.frameDuration(
-                    sourceAsset: sourceAsset, sourceTrack: sourceTrack, project: project
-                )
+                let cadence = result.videoComposition.frameDuration
                 try Task.checkCancellation()
                 guard rebuildID == requestID else { return }
                 let item = AVPlayerItem(asset: result.asset)
                 AmplifiedAudioFiles.retainLeases(from: result.asset, on: item)
                 item.audioMix = result.audioMix
+                item.videoComposition = result.videoComposition
                 player.replaceCurrentItem(with: item)
                 installTimeObserver(interval: cadence)
                 duration = max(result.duration, 0)

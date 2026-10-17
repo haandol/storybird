@@ -641,6 +641,22 @@ final class PreviewFrameContractTests: XCTestCase {
         return CGRect(x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1)
     }
 
+    func test_duplicateOffsetSource_preservesDeclaredClockAndOriginalBytes() async throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (store, original, source) = try await fixture(root: root, fps: 60, mediaStart: 1)
+        let bytes = try Data(contentsOf: source)
+        let copy = try await store.duplicateProject(projectID: original.id, expectedRevision: original.revision)
+        XCTAssertEqual(copy.recording, original.recording)
+        XCTAssertEqual(copy.clips, original.clips)
+        XCTAssertEqual(copy.revision, 0)
+        let copiedURL = store.repository.assetURL(projectID: copy.id, filename: try XCTUnwrap(copy.recording?.filename))
+        XCTAssertEqual(try Data(contentsOf: copiedURL), bytes)
+        XCTAssertEqual(try Data(contentsOf: source), bytes)
+        let loaded = try await VideoMediaSources.load(project: copy, sourceURL: copiedURL, audio: true)
+        XCTAssertEqual(loaded[copy.id]?.geometry.mediaStartTime, 1)
+    }
+
     private func frameMarker(_ image: CGImage) throws -> Double {
         let bytes = try pixels(image)
         // Eight large binary blue bars tolerate H.264 color conversion while

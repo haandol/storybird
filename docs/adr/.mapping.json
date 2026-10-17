@@ -111,7 +111,7 @@
       "adrs": [
         {
           "path": "docs/adr/library/0001-local-project-library.md",
-          "status": "Proposed",
+          "status": "Accepted (2026-10-17)",
           "summary": "여러 원본 자산과 현재 연속영상 프로젝트를 보존하고 준비·배치·원자 저장을 분리한다"
         }
       ],

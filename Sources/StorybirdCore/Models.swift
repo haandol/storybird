@@ -15,6 +15,8 @@ public struct DemoProject: Codable, Identifiable, Hashable, Sendable {
     public var narrations: [NarrationClip]
     public var narrationDrafts: [NarrationDraft]
     public var audioAssets: [ProjectAudioAsset]
+    public var mediaAssets: [ProjectMediaAsset]
+    public var canvas: ProjectCanvas
     public var sourceAudioVolume: Double
     public var sourceAudioMuted: Bool
     public var suggestions: [ClickEditSuggestion]
@@ -39,6 +41,8 @@ public struct DemoProject: Codable, Identifiable, Hashable, Sendable {
         narrations: [NarrationClip] = [],
         narrationDrafts: [NarrationDraft] = [],
         audioAssets: [ProjectAudioAsset] = [],
+        mediaAssets: [ProjectMediaAsset] = [],
+        canvas: ProjectCanvas = .init(),
         sourceAudioVolume: Double = 1,
         sourceAudioMuted: Bool = false,
         suggestions: [ClickEditSuggestion] = [],
@@ -69,6 +73,8 @@ public struct DemoProject: Codable, Identifiable, Hashable, Sendable {
         self.narrations = audioAssets.isEmpty ? Self.legacyAudioIdentities(narrations) : narrations
         self.narrationDrafts = narrationDrafts
         self.audioAssets = audioAssets
+        self.mediaAssets = mediaAssets
+        self.canvas = canvas
         self.sourceAudioVolume = sourceAudioVolume
         self.sourceAudioMuted = sourceAudioMuted
         self.suggestions = suggestions
@@ -90,7 +96,7 @@ public struct DemoProject: Codable, Identifiable, Hashable, Sendable {
         case subtitles
         case effects
         case narrations
-        case narrationDrafts, audioAssets, sourceAudioVolume, sourceAudioMuted
+        case narrationDrafts, audioAssets, mediaAssets, canvas, sourceAudioVolume, sourceAudioMuted
         case suggestions
         case steps
         case events
@@ -134,6 +140,8 @@ public struct DemoProject: Codable, Identifiable, Hashable, Sendable {
             [NarrationDraft].self, forKey: .narrationDrafts
         ) ?? []
         audioAssets = try container.decodeIfPresent([ProjectAudioAsset].self, forKey: .audioAssets) ?? []
+        mediaAssets = try container.decodeIfPresent([ProjectMediaAsset].self, forKey: .mediaAssets) ?? []
+        canvas = try container.decodeIfPresent(ProjectCanvas.self, forKey: .canvas) ?? .init()
         if audioAssets.isEmpty { narrations = Self.legacyAudioIdentities(narrations) }
         sourceAudioVolume = try container.decodeIfPresent(Double.self, forKey: .sourceAudioVolume) ?? 1
         sourceAudioMuted = try container.decodeIfPresent(Bool.self, forKey: .sourceAudioMuted) ?? false
@@ -320,19 +328,22 @@ public struct VideoRecordingAsset: Codable, Hashable, Sendable {
     public var width: Int
     public var height: Int
     public var mediaStartTime: Double?
+    public var hasAudio: Bool?
 
     public init(
         filename: String,
         duration: Double,
         width: Int,
         height: Int,
-        mediaStartTime: Double? = nil
+        mediaStartTime: Double? = nil,
+        hasAudio: Bool? = nil
     ) {
         self.filename = filename
         self.duration = max(duration, 0)
         self.width = max(width, 1)
         self.height = max(height, 1)
         self.mediaStartTime = mediaStartTime
+        self.hasAudio = hasAudio
     }
 }
 
@@ -346,6 +357,7 @@ public enum PointerButton: String, Codable, CaseIterable, Identifiable, Hashable
 public enum VideoClipKind: String, Codable, Hashable, Sendable {
     case video
     case freeze
+    case image
 }
 
 public struct VideoClip: Codable, Identifiable, Hashable, Sendable {
@@ -355,6 +367,8 @@ public struct VideoClip: Codable, Identifiable, Hashable, Sendable {
     public var sourceEnd: Double
     public var playbackRate: Double
     public var freezeDuration: Double
+    public var mediaAssetID: UUID?
+    public var placement: MediaPlacement
 
     public init(
         id: UUID = UUID(),
@@ -362,7 +376,9 @@ public struct VideoClip: Codable, Identifiable, Hashable, Sendable {
         sourceStart: Double,
         sourceEnd: Double,
         playbackRate: Double = 1,
-        freezeDuration: Double = 0
+        freezeDuration: Double = 0,
+        mediaAssetID: UUID? = nil,
+        placement: MediaPlacement = .init()
     ) {
         self.id = id
         self.kind = kind
@@ -370,13 +386,33 @@ public struct VideoClip: Codable, Identifiable, Hashable, Sendable {
         self.sourceEnd = sourceEnd
         self.playbackRate = playbackRate
         self.freezeDuration = freezeDuration
+        self.mediaAssetID = mediaAssetID
+        self.placement = placement
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, kind, sourceStart, sourceEnd, playbackRate, freezeDuration, mediaAssetID, placement
+    }
+
+    /// New view geometry is optional in existing project JSON; the original
+    /// required clip fields retain their strict decoding behavior.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        kind = try c.decode(VideoClipKind.self, forKey: .kind)
+        sourceStart = try c.decode(Double.self, forKey: .sourceStart)
+        sourceEnd = try c.decode(Double.self, forKey: .sourceEnd)
+        playbackRate = try c.decode(Double.self, forKey: .playbackRate)
+        freezeDuration = try c.decode(Double.self, forKey: .freezeDuration)
+        mediaAssetID = try c.decodeIfPresent(UUID.self, forKey: .mediaAssetID)
+        placement = try c.decodeIfPresent(MediaPlacement.self, forKey: .placement) ?? .init()
     }
 
     public var outputDuration: Double {
         switch kind {
         case .video:
             return max(sourceEnd - sourceStart, 0) / max(playbackRate, 0.001)
-        case .freeze:
+        case .freeze, .image:
             return max(freezeDuration, 0)
         }
     }

@@ -166,6 +166,7 @@ public struct ProjectRepository {
                 try VideoProjectValidator.validate(project)
             }
             let filenames = [project.recording?.filename].compactMap { $0 }
+                + project.mediaAssets.map(\.filename)
                 + project.narrations.map(\.filename)
                 + project.audioAssets.map(\.filename)
                 + project.narrationDrafts.filter { $0.state == .ready }.map(\.filename)

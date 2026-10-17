@@ -96,12 +96,16 @@ public enum VideoTimelineEditor {
         let left = VideoClip(
             sourceStart: clip.sourceStart,
             sourceEnd: sourceTime,
-            playbackRate: clip.playbackRate
+            playbackRate: clip.playbackRate,
+            mediaAssetID: clip.mediaAssetID,
+            placement: clip.placement
         )
         let right = VideoClip(
             sourceStart: sourceTime,
             sourceEnd: clip.sourceEnd,
-            playbackRate: clip.playbackRate
+            playbackRate: clip.playbackRate,
+            mediaAssetID: clip.mediaAssetID,
+            placement: clip.placement
         )
         result.clips.replaceSubrange(
             index...index,
@@ -223,7 +227,9 @@ public enum VideoTimelineEditor {
                 kind: .freeze,
                 sourceStart: sourceTime,
                 sourceEnd: sourceTime,
-                freezeDuration: duration
+                freezeDuration: duration,
+                mediaAssetID: result.clips[index].mediaAssetID,
+                placement: result.clips[index].placement
             ),
             at: index + 1
         )
@@ -234,6 +240,18 @@ public enum VideoTimelineEditor {
     /// transfers anchors before this pass, while legacy unanchored Cues use source time.
     public static func remapContentLayers(_ project: DemoProject) -> DemoProject {
         var result = project
+        let contentEnd = result.clips.reduce(0) { $0 + $1.outputDuration }
+            + result.effects.reduce(0) { sum, effect in
+                if case .title = effect { return sum + effect.endTime - effect.startTime }
+                return sum
+            }
+        result.effects = result.effects.map { effect in
+            guard case var .cta(card) = effect else { return effect }
+            let duration = card.endTime - card.startTime
+            card.startTime = contentEnd
+            card.endTime = contentEnd + duration
+            return .cta(card)
+        }
         let schedule = VideoTimelineSchedule(project: result)
         let mappedClicks = result.clicks.compactMap {
             remappedClick($0, in: schedule)
@@ -303,10 +321,10 @@ public enum VideoTimelineEditor {
                 clipStartOffset: startOffset,
                 clipEndOffset: endOffset
             )
-        case .freeze:
+        case .freeze, .image:
             anchor = ContentEffectAnchor(
                 clipID: scheduled.clip.id,
-                clipKind: .freeze,
+                clipKind: scheduled.clip.kind,
                 sourceStart: scheduled.clip.sourceStart,
                 sourceEnd: scheduled.clip.sourceStart,
                 clipStartOffset: startOffset,
@@ -405,7 +423,7 @@ public enum VideoTimelineEditor {
                 else {
                     return nil
                 }
-            case .freeze:
+            case .freeze, .image:
                 guard anchor.clipOffset < exact.clip.outputDuration else {
                     return nil
                 }
@@ -414,6 +432,7 @@ public enum VideoTimelineEditor {
         } else if click.sourceAnchor == nil {
             scheduled = scheduledClips.first {
                 $0.clip.kind == VideoClipKind.video
+                    && ($0.clip.mediaAssetID == nil || $0.clip.mediaAssetID == schedule.primaryAssetID)
                     && click.sourceTime >= $0.clip.sourceStart
                     && click.sourceTime < $0.clip.sourceEnd
             }
@@ -429,7 +448,7 @@ public enum VideoTimelineEditor {
             newTime = scheduled.projectStart
                 + (click.sourceTime - scheduled.clip.sourceStart)
                     / scheduled.clip.playbackRate
-        case .freeze:
+        case .freeze, .image:
             newTime = scheduled.projectStart
                 + (click.sourceAnchor?.clipOffset ?? 0)
         }
@@ -478,7 +497,7 @@ public enum VideoTimelineEditor {
             end = scheduled.projectStart
                 + (updated.sourceEnd - scheduled.clip.sourceStart)
                     / scheduled.clip.playbackRate
-        case .freeze:
+        case .freeze, .image:
             updated.clipStartOffset = min(
                 anchor.clipStartOffset,
                 scheduled.clip.outputDuration

@@ -2,7 +2,7 @@ import Foundation
 import StorybirdCore
 
 struct MediaImportRequest: Codable, Equatable, Sendable {
-    enum Kind: String, Codable, Sendable { case video, audio }
+    enum Kind: String, Codable, Sendable { case video, audio, media }
     let kind: Kind
     let path: String
     let projectID: UUID?
@@ -12,7 +12,7 @@ struct MediaImportRequest: Codable, Equatable, Sendable {
 struct MediaImportResult: Codable, Equatable, Sendable {
     let projectID: UUID
     let assetID: UUID?
-    let duration: Double
+    let duration: Double?
     let width: Int?
     let height: Int?
     let revision: Int?
@@ -81,10 +81,15 @@ final class MediaImportController {
 
     /// Saves a request and reserved result identities before starting I/O. Replays
     /// consult that record before accessing the source, including after it moved.
-    func start(kind: MediaImportRequest.Kind, path: String, projectID: UUID?, key: String) throws -> MediaImportStatus {
-        let source = try LocalMediaFile.url(path: path)
+    func start(kind: MediaImportRequest.Kind, path: String, projectID: UUID?, key: String,
+               nativeSource: URL? = nil) throws -> MediaImportStatus {
+        let validated = try LocalMediaFile.url(path: path)
+        if let nativeSource, nativeSource.standardizedFileURL != validated.standardizedFileURL {
+            throw AgentEditError.invalidField("path")
+        }
+        let source = nativeSource ?? validated
         guard !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              (kind == .audio) == (projectID != nil) else {
+              (kind != .video) == (projectID != nil) else {
             throw AgentEditError.invalidField("idempotency_key or project_id")
         }
         try load()
@@ -128,6 +133,9 @@ final class MediaImportController {
                     _ = try await store.importProjectAudio(
                         projectID: job.reservedProjectID, sourceURL: source, assetID: job.reservedAssetID
                     )
+                case .media:
+                    _ = try await store.importProjectMedia(
+                        projectID: job.reservedProjectID, sourceURL: source, assetID: job.reservedAssetID)
                 }
                 finished.result = try publishedResult(for: job)
                 finished.state = .completed
@@ -246,6 +254,12 @@ final class MediaImportController {
             }
             return MediaImportResult(projectID: project.id, assetID: asset.id, duration: asset.duration,
                                      width: nil, height: nil, revision: nil)
+        case .media:
+            guard let asset = project.mediaAssets.first(where: { $0.id == job.reservedAssetID }) else {
+                throw AgentEditError.invalidField("asset_id")
+            }
+            return MediaImportResult(projectID: project.id, assetID: asset.id, duration: asset.duration,
+                width: asset.width, height: asset.height, revision: nil)
         }
     }
 
@@ -268,6 +282,16 @@ final class MediaImportController {
             let partials = published ? [snapshot] : [url, snapshot]
             for partial in partials where FileManager.default.fileExists(atPath: partial.path) {
                 try FileManager.default.removeItem(at: partial)
+            }
+        case .media:
+            let suffix = URL(fileURLWithPath: job.request.path).pathExtension.lowercased()
+            guard ProjectMediaFiles.supportedExtensions.contains(suffix) else { return }
+            let filename = ProjectMediaFiles.filename(assetID: job.reservedAssetID, fileExtension: suffix)
+            let published = store.project(id: job.reservedProjectID)?.availableMediaAssets
+                .contains(where: { $0.filename == filename }) == true
+            let url = store.repository.assetURL(projectID: job.reservedProjectID, filename: filename)
+            if !published, FileManager.default.fileExists(atPath: url.path) {
+                try FileManager.default.removeItem(at: url)
             }
         }
     }

@@ -765,11 +765,12 @@ public struct StorybirdMCPService: Sendable {
             Tool(
                 name: "storybird_render_preview",
                 title: "Render a composited preview frame",
-                description: "Return a project-resolution PNG, its actual rendered project time, visible layer IDs and incomplete Cue IDs. Non-frame-aligned requests resolve to a frame; use the returned time for verification. Does not edit the project.",
+                description: "Return a project-resolution composited PNG, actual project time, visible layer IDs and incomplete Cue IDs. With asset_id, inspect an owned source thumbnail instead: time is source-relative (0 for images), and the result reports source_time plus thumbnail/source dimensions. Use returned times for verification. Does not edit the project.",
                 inputSchema: Self.objectSchema(
                     properties: [
                         "project_id": .object(["type": "string"]),
                         "time": .object(["type": "number", "minimum": 0]),
+                        "asset_id": .object(["type": "string", "description": "Optional owned media ID for raw source-card inspection, including unplaced media."]),
                     ],
                     required: ["project_id", "time"]
                 ),

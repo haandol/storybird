@@ -17,7 +17,8 @@ enum VideoTimelineCompositionBuilder {
         project: DemoProject,
         sourceTrack: AVAssetTrack,
         sourceAudioTrack: AVAssetTrack? = nil,
-        sourceAudioTimeRange: CMTimeRange? = nil
+        sourceAudioTimeRange: CMTimeRange? = nil,
+        mediaSources: [UUID: VideoMediaSource] = [:]
     ) throws -> VideoTimelineComposition {
         let composition = AVMutableComposition()
         guard let track = composition.addMutableTrack(
@@ -26,12 +27,13 @@ enum VideoTimelineCompositionBuilder {
         ) else {
             throw LayeredVideoExportError.cannotReadVideo
         }
-        let audioTrack = sourceAudioTrack.flatMap { _ in
+        let hasAudio = sourceAudioTrack != nil || mediaSources.values.contains { $0.audioTrack != nil }
+        let audioTrack = hasAudio ? (
             composition.addMutableTrack(
                 withMediaType: .audio,
                 preferredTrackID: kCMPersistentTrackID_Invalid
             )
-        }
+        ) : nil
         let schedule = VideoTimelineSchedule(project: project)
         guard schedule.isStructurallyValid else {
             throw LayeredVideoExportError.recordingMetadataMismatch
@@ -42,23 +44,41 @@ enum VideoTimelineCompositionBuilder {
         for item in schedule.items {
             switch item {
             case let .card(card):
+                let id = card.sourceClip?.kind == .image ? project.id : (card.sourceClip?.mediaAssetID ?? project.id)
+                let selected = mediaSources[id]
                 try insertStillFrame(
-                    at: mediaStartTime + card.sourceFrameTime,
+                    at: (selected?.geometry.mediaStartTime ?? mediaStartTime) + card.sourceFrameTime,
                     endTime: card.projectEnd,
-                    sourceTrack: sourceTrack,
+                    sourceTrack: selected?.track ?? sourceTrack,
                     compositionTrack: track,
                     cursor: &cursor,
-                    sourceStart: mediaStartTime,
-                    sourceDuration: project.recording?.duration ?? 0
+                    sourceStart: selected?.geometry.mediaStartTime ?? mediaStartTime,
+                    sourceDuration: selected?.geometry.duration ?? project.recording?.duration ?? 0
                 )
             case let .clip(scheduled):
+                let id = scheduled.clip.kind == .image ? project.id : (scheduled.clip.mediaAssetID ?? project.id)
+                let selected = mediaSources[id]
+                guard id == project.id || selected != nil else {
+                    throw LayeredVideoExportError.cannotReadVideo
+                }
+                let videoSource = selected?.track ?? sourceTrack
+                let audioSource = selected?.audioTrack ?? (id == project.id ? sourceAudioTrack : nil)
+                let audioRange = selected?.audioRange ?? (id == project.id ? sourceAudioTimeRange : nil)
+                let selectedStart = selected?.geometry.mediaStartTime ?? mediaStartTime
+                if scheduled.clip.kind != .video {
+                    try insertStillFrame(at: selectedStart + scheduled.clip.sourceStart,
+                        endTime: scheduled.projectEnd, sourceTrack: videoSource,
+                        compositionTrack: track, cursor: &cursor, sourceStart: selectedStart,
+                        sourceDuration: selected?.geometry.duration ?? project.recording?.duration ?? 0)
+                    continue
+                }
                 let sourceRange = sourceRange(
                     for: scheduled.clip,
-                    mediaStartTime: mediaStartTime
+                    mediaStartTime: selectedStart
                 )
                 try track.insertTimeRange(
                     sourceRange,
-                    of: sourceTrack,
+                    of: videoSource,
                     at: cursor
                 )
                 // Convert absolute boundaries on the same clock as narration.
@@ -74,9 +94,9 @@ enum VideoTimelineCompositionBuilder {
                     toDuration: outputDuration
                 )
                 if scheduled.clip.kind == .video,
-                   let sourceAudioTrack,
+                   let sourceAudioTrack = audioSource,
                    let audioTrack,
-                   let sourceAudioTimeRange {
+                   let sourceAudioTimeRange = audioRange {
                     let audioSourceRange = CMTimeRangeGetIntersection(
                         sourceRange,
                         otherRange: sourceAudioTimeRange
@@ -133,7 +153,7 @@ enum VideoTimelineCompositionBuilder {
                 start: start,
                 duration: end - start
             )
-        case .freeze:
+        case .freeze, .image:
             return CMTimeRange(
                 start: CMTime(
                     seconds: mediaStartTime + clip.sourceStart,

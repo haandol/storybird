@@ -125,11 +125,11 @@ final class StorybirdExternalControlHost {
                     return try Self.jsonResponse(store.startVoiceModelRemoval(model))
                 }
                 return try Self.jsonResponse(store.voiceModelSnapshot(model))
-            case "storybird_import_video", "storybird_import_audio":
+            case "storybird_import_video", "storybird_import_audio", "storybird_import_media":
                 return try Self.jsonResponse(store.mediaImports.start(
-                    kind: request.name == "storybird_import_video" ? .video : .audio,
+                    kind: request.name == "storybird_import_video" ? .video : request.name == "storybird_import_audio" ? .audio : .media,
                     path: Self.string("path", in: arguments),
-                    projectID: request.name == "storybird_import_audio"
+                    projectID: request.name != "storybird_import_video"
                         ? Self.uuid("project_id", in: arguments) : nil,
                     key: Self.string("idempotency_key", in: arguments)
                 ))
@@ -137,6 +137,18 @@ final class StorybirdExternalControlHost {
                 return try Self.jsonResponse(store.mediaImports.get(id: Self.uuid("job_id", in: arguments)))
             case "storybird_cancel_import":
                 return try Self.jsonResponse(store.mediaImports.cancel(id: Self.uuid("job_id", in: arguments)))
+            case "storybird_list_media_assets":
+                return try Self.jsonResponse(project(from: arguments).availableMediaAssets)
+            case "storybird_place_media_asset":
+                let a = AgentEditArguments(values: arguments)
+                try a.requireKnown(["asset_id", "destination_index", "duration", "source_start", "source_end", "playback_rate"])
+                return try Self.jsonResponse(store.placeMediaAsset(projectID: a.id("project_id"),
+                    assetID: a.id("asset_id"), expectedRevision: Self.requiredInt("expected_revision", in: arguments),
+                    destination: Self.requiredInt("destination_index", in: arguments),
+                    duration: a.has("duration") ? a.number("duration") : nil,
+                    sourceStart: a.number("source_start", default: 0),
+                    sourceEnd: a.has("source_end") ? a.number("source_end") : nil,
+                    playbackRate: a.number("playback_rate", default: 1)))
             case "storybird_list_sources",
                  "storybird_start_session",
                  "storybird_observe",
@@ -568,14 +580,34 @@ final class StorybirdExternalControlHost {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             decoder.userInfo[.strictProjectEdits] = true
+            let current = try Self.unwrap(store.project(id: projectID), message: "The project does not exist.")
+            let input = Data(try Self.string("project_json", in: arguments).utf8)
+            guard var object = try JSONSerialization.jsonObject(with: input) as? [String: Any] else {
+                throw StorybirdControlWireError.invalidMessage
+            }
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            let stored = try JSONSerialization.jsonObject(with: encoder.encode(current)) as! [String: Any]
+            // Old clients may omit fields introduced with visual media. Preserve
+            // those fields for the same IDs rather than silently reverting origins.
+            if object["canvas"] == nil { object["canvas"] = stored["canvas"] }
+            if var recording = object["recording"] as? [String: Any], recording["hasAudio"] == nil {
+                recording["hasAudio"] = (stored["recording"] as? [String: Any])?["hasAudio"]
+                object["recording"] = recording
+            }
+            if var clips = object["clips"] as? [[String: Any]], let storedClips = stored["clips"] as? [[String: Any]] {
+                for index in clips.indices {
+                    guard let id = clips[index]["id"] as? String,
+                          let original = storedClips.first(where: { ($0["id"] as? String)?.lowercased() == id.lowercased() }) else { continue }
+                    for key in ["mediaAssetID", "placement"] where clips[index][key] == nil {
+                        clips[index][key] = original[key]
+                    }
+                }
+                object["clips"] = clips
+            }
             let replacement = try decoder.decode(
                 DemoProject.self,
-                from: Data(
-                    try Self.string(
-                        "project_json",
-                        in: arguments
-                    ).utf8
-                )
+                from: JSONSerialization.data(withJSONObject: object)
             )
             guard replacement.id == projectID else {
                 throw StorybirdControlWireError.invalidMessage
@@ -737,6 +769,23 @@ final class StorybirdExternalControlHost {
             return StorybirdControlResponse(text: "Preview opened.")
         case "storybird_render_preview":
             let project = try project(from: arguments)
+            if arguments["asset_id"] != nil {
+                try VideoProjectValidator.validate(project)
+                let id = try Self.uuid("asset_id", in: arguments)
+                guard let asset = project.availableMediaAssets.first(where: { $0.id == id }) else {
+                    throw VideoProjectValidationError.invalidMediaAsset(id)
+                }
+                let frame = try await ProjectMediaFiles.preview(asset: asset,
+                    url: store.repository.assetURL(projectID: project.id, filename: asset.filename),
+                    time: AgentEditArguments(values: arguments).number("time"))
+                let metadata: [String: Any] = [
+                    "asset_id": id.uuidString, "source_time": frame.sourceTime,
+                    "width": frame.image.width, "height": frame.image.height,
+                    "source_width": asset.width, "source_height": asset.height,
+                ]
+                return StorybirdControlResponse(text: String(decoding: try JSONSerialization.data(withJSONObject: metadata), as: UTF8.self),
+                    imageData: try ProjectMediaFiles.png(frame.image))
+            }
             guard let recording = project.recording else {
                 throw VideoProjectValidationError.missingRecording
             }

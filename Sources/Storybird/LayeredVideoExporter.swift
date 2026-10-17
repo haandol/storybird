@@ -91,26 +91,12 @@ actor LayeredVideoExporter {
             try? fileManager.removeItem(at: temporaryURL)
         }
 
-        let sourceAsset = AVURLAsset(url: sourceURL)
-        guard let sourceTrack = try await sourceAsset.loadTracks(
-            withMediaType: .video
-        ).first else {
-            throw LayeredVideoExportError.missingVideoTrack
-        }
-        let audioSourceAsset = try await AmplifiedAudioFiles.sourceAsset(
-            asset: sourceAsset, url: sourceURL, gain: project.sourceAudioMuted ? 1 : project.sourceAudioVolume
-        )
-        // Keep the decoded asset alive while loading and inserting its track.
-        defer { withExtendedLifetime(audioSourceAsset) {} }
-        let sourceAudioTrack = try await audioSourceAsset.loadTracks(withMediaType: .audio).first
-        let sourceAudioTimeRange: CMTimeRange?
-        if let sourceAudioTrack {
-            sourceAudioTimeRange = try await sourceAudioTrack.load(
-                .timeRange
-            )
-        } else {
-            sourceAudioTimeRange = nil
-        }
+        let mediaSources = try await VideoMediaSources.load(project: project, sourceURL: sourceURL, audio: true)
+        guard let primary = mediaSources[project.id] else { throw LayeredVideoExportError.missingVideoTrack }
+        let sourceAsset = primary.asset
+        let sourceTrack = primary.track
+        let sourceAudioTrack = primary.audioTrack
+        let sourceAudioTimeRange = primary.audioRange
         let sourceDuration = try await sourceAsset.load(.duration)
         let sourceVideoTimeRange = try await sourceTrack.load(.timeRange)
         let durationSeconds = CMTimeGetSeconds(
@@ -126,9 +112,6 @@ actor LayeredVideoExporter {
               abs(
                   mediaStartTime - (recording.mediaStartTime ?? 0)
               ) <= 0.1,
-              project.clicks.allSatisfy({
-                  $0.sourceTime <= durationSeconds + 0.001
-              }),
               project.subtitles.allSatisfy({
                   $0.endTime <= project.timelineDuration + 0.001
               })
@@ -140,6 +123,7 @@ actor LayeredVideoExporter {
         }
         let usesOriginalTrack =
             project.clips.count == 1
+                && (project.clips[0].mediaAssetID == nil || project.clips[0].mediaAssetID == project.id)
                 && project.clips[0].kind == .video
                 && abs(project.clips[0].sourceStart) <= 0.001
                 && abs(project.clips[0].sourceEnd - durationSeconds) <= 0.001
@@ -167,9 +151,10 @@ actor LayeredVideoExporter {
                 project: project,
                 sourceTrack: sourceTrack,
                 sourceAudioTrack: sourceAudioTrack,
-                sourceAudioTimeRange: sourceAudioTimeRange
+                sourceAudioTimeRange: sourceAudioTimeRange,
+                mediaSources: mediaSources
             )
-            AmplifiedAudioFiles.retainLeases(from: audioSourceAsset, on: timeline.asset)
+            VideoMediaSources.retainAudio(mediaSources, on: timeline.asset)
             asset = timeline.asset
             videoTrack = timeline.track
             let audio = try await NarrationCompositionBuilder.addNarrations(
@@ -182,13 +167,8 @@ actor LayeredVideoExporter {
             audioMix = audio.audioMix
             duration = timeline.duration
         }
-        let videoComposition = try await makeVideoComposition(
-            project: project,
-            track: videoTrack,
-            duration: duration,
-            sourceAsset: sourceAsset,
-            sourceTrack: sourceTrack
-        )
+        let videoComposition = try await MediaVideoComposition.make(project: project,
+            track: videoTrack, duration: duration, sources: mediaSources, sourceURL: sourceURL)
 
         let reader = try AVAssetReader(asset: asset)
         AmplifiedAudioFiles.retainLeases(from: asset, on: reader)
@@ -372,6 +352,7 @@ actor LayeredVideoExporter {
         else {
             throw LayeredVideoExportError.recordingMetadataMismatch
         }
+        let mediaSources = try await VideoMediaSources.load(project: project, sourceURL: sourceURL, audio: false)
         let sourceAsset = AVURLAsset(url: sourceURL)
         guard let sourceTrack = try await sourceAsset.loadTracks(withMediaType: .video).first else {
             throw LayeredVideoExportError.missingVideoTrack
@@ -380,15 +361,11 @@ actor LayeredVideoExporter {
         // including offsets, repeated clips, speed changes, freezes and cards.
         let timeline = try VideoTimelineCompositionBuilder.build(
             project: project,
-            sourceTrack: sourceTrack
+            sourceTrack: sourceTrack,
+            mediaSources: mediaSources
         )
-        let composition = try await makeVideoComposition(
-            project: project,
-            track: timeline.track,
-            duration: timeline.duration,
-            sourceAsset: sourceAsset,
-            sourceTrack: sourceTrack
-        )
+        let composition = try await MediaVideoComposition.make(project: project,
+            track: timeline.track, duration: timeline.duration, sources: mediaSources, sourceURL: sourceURL)
         let generator = AVAssetImageGenerator(asset: timeline.asset)
         generator.videoComposition = composition
         // Default tolerances permit distant keyframes, which cannot establish
@@ -795,52 +772,6 @@ actor LayeredVideoExporter {
             timescale: configuration.sampleRate
         )
         return (start + chunkDuration, true)
-    }
-
-    /// Builds one composition whose video pixels and overlay layers share the same zero-based clock.
-    private func makeVideoComposition(
-        project: DemoProject,
-        track: AVAssetTrack,
-        duration: CMTime,
-        sourceAsset: AVAsset,
-        sourceTrack: AVAssetTrack
-    ) async throws -> AVMutableVideoComposition {
-        let naturalSize = try await sourceTrack.load(.naturalSize)
-        let preferredTransform = try await sourceTrack.load(.preferredTransform)
-        let transformedRect = CGRect(
-            origin: .zero,
-            size: naturalSize
-        ).applying(preferredTransform)
-        let renderSize = CGSize(
-            width: abs(transformedRect.width),
-            height: abs(transformedRect.height)
-        )
-        guard renderSize.width > 0, renderSize.height > 0 else {
-            throw LayeredVideoExportError.cannotReadVideo
-        }
-
-        var normalizedTransform = preferredTransform
-        normalizedTransform.tx -= transformedRect.minX
-        normalizedTransform.ty -= transformedRect.minY
-
-        let instruction = AVMutableVideoCompositionInstruction()
-        instruction.timeRange = CMTimeRange(start: .zero, duration: duration)
-        let layerInstruction = AVMutableVideoCompositionLayerInstruction(
-            assetTrack: track
-        )
-        layerInstruction.setTransform(normalizedTransform, at: .zero)
-        instruction.layerInstructions = [layerInstruction]
-
-        let composition = AVMutableVideoComposition()
-        composition.instructions = [instruction]
-        composition.renderSize = renderSize
-        composition.frameDuration = try await VideoFrameCadence.frameDuration(
-            sourceAsset: sourceAsset,
-            sourceTrack: sourceTrack,
-            project: project
-        )
-
-        return composition
     }
 
     /// Keeps the existing raster test seam while delegating pixel composition.

@@ -134,7 +134,7 @@ final class TimelineLayerDragTests: XCTestCase {
         let store = try storeFixture()
         let original = try XCTUnwrap(store.projects.first)
         let url = store.repository.assetURL(projectID: original.id, filename: "synthetic.mp4")
-        _ = try await TestVideoFactory.makeMovie(at: url, includeAudio: false, duration: 20)
+        _ = try await TestVideoFactory.makeMovie(at: url, includeAudio: false, duration: 20, displaySize: CGSize(width: 1280, height: 720))
         var project = original
         project.subtitles += (1...15).map {
             TimedSubtitle(startTime: 2, endTime: 4, text: "Overlapping subtitle \($0)")
@@ -203,7 +203,7 @@ final class TimelineLayerDragTests: XCTestCase {
         let store = try storeFixture()
         var project = try XCTUnwrap(store.projects.first)
         let url = store.repository.assetURL(projectID: project.id, filename: "synthetic.mp4")
-        _ = try await TestVideoFactory.makeMovie(at: url, includeAudio: false, duration: 20)
+        _ = try await TestVideoFactory.makeMovie(at: url, includeAudio: false, duration: 20, displaySize: CGSize(width: 1280, height: 720))
         project.subtitles = (0..<6).map { index in
             let start = 2 + Double(index) * 2
             return TimedSubtitle(startTime: start, endTime: start + 2, text: "Sequential subtitle \(index + 1)")
@@ -224,8 +224,10 @@ final class TimelineLayerDragTests: XCTestCase {
             defer { window.close() }
             try await Task.sleep(for: .milliseconds(400))
 
-            let canvas = try XCTUnwrap(descendants(view).compactMap { $0 as? NSScrollView }
-                .compactMap(\.documentView).first { $0.bounds.width >= 960 })
+            // Other horizontal controls can be as wide as the timeline; identify
+            // its scroll document through the bridge instead of width alone.
+            let bridge = try XCTUnwrap(descendants(view).compactMap { $0 as? TimelineScrollBridgeView }.first)
+            let canvas = try XCTUnwrap(bridge.enclosingScrollView?.documentView)
             XCTAssertEqual(canvas.bounds.height, 310, accuracy: 1)
             try snapshot(view, name: "view-mode-automatic-\(Int(width))")
 

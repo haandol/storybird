@@ -12,6 +12,7 @@ public struct VideoTimelineSchedule: Sendable {
         public let projectStart: Double
         public let projectEnd: Double
         public let sourceFrameTime: Double
+        public let sourceClip: VideoClip?
     }
 
     public enum Item: Sendable {
@@ -47,9 +48,11 @@ public struct VideoTimelineSchedule: Sendable {
     public let items: [Item]
     public let duration: Double
     public let isStructurallyValid: Bool
+    public let primaryAssetID: UUID
 
     /// Creates the canonical clip/card order interpreted by validation, preview, and export.
     public init(project: DemoProject) {
+        primaryAssetID = project.id
         let cards = project.effects.filter(\.isFullScreenCard)
             .sorted { $0.startTime < $1.startTime }
         let ctaCount = cards.filter(\.isCTA).count
@@ -72,7 +75,8 @@ public struct VideoTimelineSchedule: Sendable {
                             effect: card,
                             projectStart: cursor,
                             projectEnd: card.endTime,
-                            sourceFrameTime: clip.sourceStart
+                            sourceFrameTime: clip.sourceStart,
+                            sourceClip: clip
                         )
                     )
                 )
@@ -108,8 +112,8 @@ public struct VideoTimelineSchedule: Sendable {
                             effect: card,
                             projectStart: cursor,
                             projectEnd: card.endTime,
-                            sourceFrameTime:
-                                project.recording?.duration ?? 0
+                            sourceFrameTime: project.clips.last.flatMap { project.mediaAsset(for: $0)?.duration } ?? 0,
+                            sourceClip: project.clips.last
                         )
                     )
                 )
@@ -163,10 +167,10 @@ public struct VideoTimelineSchedule: Sendable {
                                 * clip.clip.playbackRate,
                         clipOffset: projectTime - clip.projectStart
                     )
-                case .freeze:
+                case .freeze, .image:
                     return SourceLocation(
                         clipID: clip.clip.id,
-                        clipKind: .freeze,
+                        clipKind: clip.clip.kind,
                         sourceTime: clip.clip.sourceStart,
                         clipOffset: projectTime - clip.projectStart
                     )
@@ -200,7 +204,7 @@ public struct VideoTimelineSchedule: Sendable {
                     return clip.clip.sourceStart
                         + (projectTime - clip.projectStart)
                             * clip.clip.playbackRate
-                case .freeze:
+                case .freeze, .image:
                     return clip.clip.sourceStart
                 }
             }

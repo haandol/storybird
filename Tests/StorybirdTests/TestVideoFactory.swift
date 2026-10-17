@@ -59,7 +59,8 @@ enum TestVideoFactory {
         toneFrequency: Double = 440,
         duration: Double = 1,
         width: Int = 64,
-        height: Int = 48
+        height: Int = 48,
+        displaySize: CGSize? = nil
     ) async throws -> ScreenVideoRecordingResult {
         let root = destinationURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(
@@ -111,6 +112,10 @@ enum TestVideoFactory {
         compositionVideo.preferredTransform = try await videoTrack.load(
             .preferredTransform
         )
+        if let displaySize {
+            compositionVideo.preferredTransform = CGAffineTransform(
+                scaleX: displaySize.width / Double(width), y: displaySize.height / Double(height))
+        }
 
         var audioURL: URL?
         if includeAudio {

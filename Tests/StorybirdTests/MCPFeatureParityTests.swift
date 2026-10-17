@@ -202,7 +202,7 @@ final class MCPFeatureParityTests: XCTestCase {
             "storybird_start_narration_draft", "storybird_cancel_narration_draft",
             "storybird_render_audio_preview", "storybird_start_export",
             "storybird_cancel_export", "storybird_export_project", "storybird_delete_project",
-            "storybird_import_video", "storybird_import_audio", "storybird_cancel_import",
+            "storybird_import_video", "storybird_import_audio", "storybird_import_media", "storybird_cancel_import",
             "storybird_select_voice_model", "storybird_prepare_voice_model", "storybird_remove_voice_model",
             "storybird_set_recording_auto_approval",
         ]

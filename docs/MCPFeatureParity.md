@@ -183,6 +183,14 @@ project-editing tools. Changing their scope requires checking the owning ADR.
 
 ## Verification scope
 
+### Project visual media
+
+| UI action / property | MCP path | Shared behavior and evidence |
+|---|---|---|
+| Import additional MP4/MOV or PNG/JPEG into the current project | `storybird_import_media`: project_id, path, idempotency_key; `storybird_get_import` / `storybird_cancel_import` | MediaImportController → AppStore.importProjectMedia → owned-copy inspection → atomic asset registration. No edit revision; replay, cancellation and restart reuse the existing journal. |
+| Inspect original and reusable media cards | `storybird_list_media_assets`; project mediaAssets in `storybird_get_project` / `storybird_get_edit_context`; `storybird_render_preview` with asset_id and source-relative time | Stable visual IDs, kind, name, source dimensions/duration and available audio metadata. The app-owned source thumbnail path also works before placement and never edits project data. |
+| Place a video range or an image duration at a clip insertion boundary | `storybird_place_media_asset`: project_id, expected_revision, asset_id, destination_index; image duration or video source_start/source_end/playback_rate | MediaAssetEditor → app validation/save/undo. Same registry and source resolution for playback, frame preview, export and project copying. |
+
 `MCPInitializationTests` sends raw external-client JSON through the production
 transport adapter, including object-valued experimental capabilities. It checks
 initialization, tool discovery, repeated-initialization rejection and standard-field validation

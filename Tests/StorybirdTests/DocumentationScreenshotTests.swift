@@ -6,6 +6,24 @@ import XCTest
 
 @MainActor
 final class DocumentationScreenshotTests: XCTestCase {
+    func test_generateProjectMediaScreenshot() async throws {
+        guard ProcessInfo.processInfo.environment["STORYBIRD_UPDATE_DOC_SCREENSHOTS"] == "1" else {
+            throw XCTSkip("Set STORYBIRD_UPDATE_DOC_SCREENSHOTS=1 to update project media screenshots.")
+        }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("media-docs-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = AppStore(repository: ProjectRepository(rootURL: root))
+        let movie = root.appendingPathComponent("Product walkthrough.mp4")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        _ = try await TestVideoFactory.makeMovie(at: movie, includeAudio: false, duration: 2)
+        let id = try await store.importVideo(from: movie)
+        let detail = root.appendingPathComponent("Result detail.mp4")
+        _ = try await TestVideoFactory.makeMovie(at: detail, includeAudio: false, duration: 1)
+        _ = try await store.importProjectMedia(projectID: id, sourceURL: detail)
+        try await render(TimelineMediaPanel(store: store, projectID: id, playhead: 1, onPlaced: { _ in }),
+            size: CGSize(width: 340, height: 420), to: imageDirectory.appendingPathComponent("project-media.png"),
+            hostedInWindow: true)
+    }
     func test_generateSubtitleScreenshots() async throws {
         guard ProcessInfo.processInfo.environment["STORYBIRD_UPDATE_DOC_SCREENSHOTS"] == "1" else {
             throw XCTSkip("Set STORYBIRD_UPDATE_DOC_SCREENSHOTS=1 to update subtitle screenshots.")

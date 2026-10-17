@@ -215,6 +215,20 @@ cards stay at the end, and matching spotlight or pan/zoom effects cannot overlap
 The source video stays intact. **Undo** and **Redo** operate on the edits. Use
 **Duplicate** in the project header before making an independent variant.
 
+Open **Media** above the timeline to add another MP4/MOV or a PNG/JPEG image to
+the current video project. The cards show reusable originals; **Add** places
+one at the clip boundary nearest the playhead. Images ask for a positive duration
+in seconds. Importing alone leaves the timeline and edit revision unchanged.
+Each video keeps its own source range and original sound. Duplicate copies the
+used media into the new project, so the versions remain independent.
+
+<img src="docs/images/project-media.png" width="340" alt="Synthetic project media panel with reusable source cards and import/add actions" />
+
+An agent can use `storybird_import_media`, poll `storybird_get_import`, inspect
+`storybird_list_media_assets`, and place a source with `storybird_place_media_asset`.
+For an unplaced source thumbnail, call `storybird_render_preview` with its
+`asset_id` and source-relative `time` (zero for an image).
+
 ### 3. Create a voice profile once (optional)
 
 Use a profile when generating narration in a cloned voice. Built-in voices need

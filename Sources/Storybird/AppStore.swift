@@ -651,6 +651,54 @@ final class AppStore: ObservableObject {
         return try saveProject(edited, expectedRevision: expectedRevision)
     }
 
+    /// Registers an owned visual source without placing a clip or changing
+    /// revision/undo. Never remove or overwrite a pre-existing destination.
+    func importProjectMedia(projectID: UUID, sourceURL: URL, assetID: UUID = UUID()) async throws -> ProjectMediaAsset {
+        guard let initial = project(id: projectID), initial.recording != nil else {
+            throw VideoProjectValidationError.missingRecording
+        }
+        let suffix = sourceURL.pathExtension.lowercased()
+        guard ProjectMediaFiles.supportedExtensions.contains(suffix),
+              !initial.availableMediaAssets.contains(where: { $0.id == assetID }) else {
+            throw AgentEditError.invalidField("path or asset_id")
+        }
+        let operation = beginStorageOperation(.importing)
+        defer { endStorageOperation(operation) }
+        try repository.prepare()
+        let directory = repository.assetsDirectory(projectID: projectID)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let destination = directory.appendingPathComponent(ProjectMediaFiles.filename(assetID: assetID, fileExtension: suffix))
+        guard !FileManager.default.fileExists(atPath: destination.path) else {
+            throw AgentEditError.invalidField("asset_id")
+        }
+        do {
+            let asset = try await ProjectMediaFiles.copyAndInspect(source: sourceURL, destination: destination, assetID: assetID)
+            try Task.checkCancellation()
+            guard let index = projects.firstIndex(where: { $0.id == projectID }) else {
+                throw RecordingStoreError.projectNotFound
+            }
+            var updated = projects
+            updated[index].mediaAssets.append(asset)
+            try VideoProjectValidator.validate(updated[index])
+            try repository.saveProjects(updated)
+            projects = updated
+            return asset
+        } catch {
+            try? FileManager.default.removeItem(at: destination)
+            throw error
+        }
+    }
+
+    func placeMediaAsset(projectID: UUID, assetID: UUID, expectedRevision: Int, destination: Int,
+                         duration: Double? = nil, sourceStart: Double = 0, sourceEnd: Double? = nil,
+                         playbackRate: Double = 1) throws -> DemoProject {
+        guard let current = project(id: projectID) else { throw RecordingStoreError.projectNotFound }
+        guard current.revision == expectedRevision else { throw RecordingStoreError.revisionConflict(current.revision) }
+        let edited = try MediaAssetEditor.place(assetID: assetID, in: current, destination: destination,
+            duration: duration, sourceStart: sourceStart, sourceEnd: sourceEnd, playbackRate: playbackRate)
+        return try saveProject(edited, expectedRevision: expectedRevision)
+    }
+
     /// Regenerates on text or CustomVoice speaker/instruction input, retaining
     /// omitted text/language. Audio and metadata publish in one revision-checked
     /// edit; synthesis or save failure preserves the old layer and undo history.
@@ -859,6 +907,9 @@ final class AppStore: ObservableObject {
         guard project.recording == current.recording else {
             throw VideoProjectValidationError.invalidRecording
         }
+        guard project.mediaAssets.allSatisfy({ current.mediaAssets.contains($0) }) else {
+            throw VideoProjectValidationError.invalidAssetFilename
+        }
         guard current.revision == expectedRevision else {
             throw RecordingStoreError.revisionConflict(current.revision)
         }
@@ -870,6 +921,7 @@ final class AppStore: ObservableObject {
         var comparable = project
         comparable.narrationDrafts = current.narrationDrafts
         comparable.audioAssets = current.audioAssets
+        comparable.mediaAssets = current.mediaAssets
         // History is an already validated snapshot. Reinterpreting restoration
         // as a source replacement would erase the original split-fade envelope.
         if recordUndo {
@@ -1272,7 +1324,8 @@ final class AppStore: ObservableObject {
                     filename: filename,
                     duration: result.duration,
                     width: result.width,
-                    height: result.height
+                    height: result.height,
+                    hasAudio: false
                 ),
                 clicks: clicks.map { $0.bounded(to: result.duration) }
             )
@@ -1320,7 +1373,8 @@ final class AppStore: ObservableObject {
                     duration: metadata.duration,
                     width: metadata.width,
                     height: metadata.height,
-                    mediaStartTime: metadata.mediaStartTime
+                    mediaStartTime: metadata.mediaStartTime,
+                    hasAudio: metadata.hasAudio
                 )
             )
             try publishNewVideoProject(project)
@@ -1357,16 +1411,44 @@ final class AppStore: ObservableObject {
         copy.updatedAt = copy.createdAt
         copy.narrationDrafts = []
         copy.audioAssets = source.availableAudioAssets.filter { asset in source.narrations.contains { $0.filename == asset.filename } }
+        copy.mediaAssets = source.mediaAssets.filter { asset in source.clips.contains { $0.mediaAssetID == asset.id } }
+        // Explicit references to the primary source use the duplicate's visual
+        // namespace; nil legacy references already resolve to the new primary.
+        for index in copy.clips.indices where copy.clips[index].mediaAssetID == source.id {
+            copy.clips[index].mediaAssetID = newID
+        }
         guard !copy.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw VoiceProfileError.invalidInput
         }
         let directory = repository.assetsDirectory(projectID: newID)
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            _ = try await LocalVideoImporter.copyAndInspect(
+            let copiedPrimary = try await LocalVideoImporter.copyAndInspect(
                 sourceURL: repository.assetURL(projectID: projectID, filename: recording.filename),
                 destinationURL: directory.appendingPathComponent(recording.filename)
             )
+            // A legacy primary can describe the content interval after a leading
+            // empty edit. Copy all bytes while preserving that declared clock.
+            let declaredStart = recording.mediaStartTime ?? 0
+            guard copiedPrimary.width == recording.width, copiedPrimary.height == recording.height,
+                  copiedPrimary.mediaStartTime <= declaredStart + 0.001,
+                  copiedPrimary.mediaStartTime + copiedPrimary.duration >= declaredStart + recording.duration - 0.001,
+                  recording.hasAudio == nil || recording.hasAudio == copiedPrimary.hasAudio else {
+                throw LayeredVideoExportError.recordingMetadataMismatch
+            }
+            for asset in copy.mediaAssets {
+                let copied = try await ProjectMediaFiles.copyAndInspect(
+                    source: repository.assetURL(projectID: projectID, filename: asset.filename),
+                    destination: directory.appendingPathComponent(asset.filename), assetID: asset.id
+                )
+                guard copied.kind == asset.kind, copied.width == asset.width, copied.height == asset.height,
+                      (copied.duration == nil && asset.duration == nil)
+                        || abs((copied.duration ?? -1) - (asset.duration ?? -2)) <= 0.1,
+                      abs(copied.mediaStartTime - asset.mediaStartTime) <= 0.1,
+                      asset.hasAudio == nil || copied.hasAudio == asset.hasAudio else {
+                    throw LayeredVideoExportError.recordingMetadataMismatch
+                }
+            }
             for filename in Set(source.narrations.map(\.filename)) {
                 let destination = directory.appendingPathComponent(filename)
                 try FileManager.default.copyItem(

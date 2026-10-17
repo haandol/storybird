@@ -368,7 +368,7 @@ final class TimelineAudioTests: XCTestCase {
         let (store, initial) = try fixture()
         let url = store.repository.assetURL(projectID: initial.id, filename: initial.recording!.filename)
         try FileManager.default.removeItem(at: url)
-        _ = try await TestVideoFactory.makeMovie(at: url, includeAudio: false, duration: 20)
+        _ = try await TestVideoFactory.makeMovie(at: url, includeAudio: false, duration: 20, displaySize: CGSize(width: 1280, height: 720))
         for width in [1100.0, 760.0] {
             let view = NSHostingView(rootView: ProjectWorkspaceView(store: store, projectID: initial.id)
                 .frame(width: width, height: 760)

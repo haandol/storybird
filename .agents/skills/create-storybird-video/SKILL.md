@@ -30,6 +30,16 @@ names when they are absent from discovery. The legacy profile keeps direct field
 - **External video or audio file:** read [importing.md](references/importing.md).
   Use the advertised path-import tools without asking for a file picker or folder
   approval. Continue editing with the returned project or audio asset ID.
+
+- To combine additional shots or still images, use `storybird_import_media` on
+  the existing video project with an absolute MP4/MOV/PNG/JPEG path and a stable
+  request key. Poll `storybird_get_import`. Registration leaves revision and
+  playback unchanged. Read `storybird_list_media_assets` and use
+  `storybird_place_media_asset` with a current revision and zero-based insertion
+  index; images require an explicit positive duration. Video source ranges refer
+  to that asset, not the first recording. Inspect an unplaced source with
+  `storybird_render_preview` plus `asset_id` and source-relative `time`; image
+  time is zero. Keep source thumbnails distinct from composited project previews.
 - **Narration or audio changes:** use the generation rules below and
   [MCP narration guidance](../../../docs/MCP.md#narration-and-retries).
   Read [audio.md](references/audio.md) for generation, placement, timing and mix guidance.

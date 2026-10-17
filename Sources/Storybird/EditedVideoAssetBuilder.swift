@@ -11,48 +11,35 @@ enum EditedVideoAssetBuilder {
     ) async throws -> (
         asset: AVAsset,
         duration: Double,
-        audioMix: AVAudioMix?
+        audioMix: AVAudioMix?,
+        videoComposition: AVVideoComposition
     ) {
-        let source = AVURLAsset(url: sourceURL)
-        guard let sourceTrack = try await source.loadTracks(
-            withMediaType: .video
-        ).first else {
-            throw LayeredVideoExportError.missingVideoTrack
-        }
-        let audioSourceAsset = try await AmplifiedAudioFiles.sourceAsset(
-            asset: source, url: sourceURL, gain: project.sourceAudioMuted ? 1 : project.sourceAudioVolume
-        )
-        // Keep the decoded asset alive while loading and inserting its track.
-        defer { withExtendedLifetime(audioSourceAsset) {} }
-        let sourceAudioTrack = try await audioSourceAsset.loadTracks(withMediaType: .audio).first
-        let sourceAudioTimeRange: CMTimeRange?
-        if let sourceAudioTrack {
-            sourceAudioTimeRange = try await sourceAudioTrack.load(
-                .timeRange
-            )
-        } else {
-            sourceAudioTimeRange = nil
-        }
+        let mediaSources = try await VideoMediaSources.load(project: project, sourceURL: sourceURL, audio: true)
+        guard let primary = mediaSources[project.id] else { throw LayeredVideoExportError.missingVideoTrack }
+        let sourceTrack = primary.track
+        let sourceAudioTrack = primary.audioTrack
+        let sourceAudioTimeRange = primary.audioRange
         let timeline = try VideoTimelineCompositionBuilder.build(
             project: project,
             sourceTrack: sourceTrack,
             sourceAudioTrack: sourceAudioTrack,
-            sourceAudioTimeRange: sourceAudioTimeRange
+            sourceAudioTimeRange: sourceAudioTimeRange,
+            mediaSources: mediaSources
         )
-        AmplifiedAudioFiles.retainLeases(from: audioSourceAsset, on: timeline.asset)
-        timeline.track.preferredTransform = try await sourceTrack.load(
-            .preferredTransform
-        )
+        VideoMediaSources.retainAudio(mediaSources, on: timeline.asset)
         let audio = try await NarrationCompositionBuilder.addNarrations(
             project: project,
             assetsDirectory: sourceURL.deletingLastPathComponent(),
             composition: timeline.asset,
             sourceAudioTrack: timeline.audioTrack
         )
+        let composition = try await MediaVideoComposition.make(project: project, track: timeline.track,
+            duration: timeline.duration, sources: mediaSources, sourceURL: sourceURL)
         return (
             timeline.asset,
             CMTimeGetSeconds(timeline.duration),
-            audio.audioMix
+            audio.audioMix,
+            composition
         )
     }
 }

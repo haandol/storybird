@@ -29,6 +29,7 @@ struct ImportedVideoMetadata: Sendable {
     let width: Int
     let height: Int
     let mediaStartTime: Double
+    var hasAudio: Bool = false
 }
 
 enum LocalVideoImporter {
@@ -144,7 +145,8 @@ enum LocalVideoImporter {
             duration: duration,
             width: width,
             height: height,
-            mediaStartTime: mediaStartTime
+            mediaStartTime: mediaStartTime,
+            hasAudio: audioTrack != nil
         )
     }
 }

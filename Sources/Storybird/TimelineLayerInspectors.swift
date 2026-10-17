@@ -126,12 +126,20 @@ struct ClipLayerInspector: View {
     var body: some View {
         Form {
             Section("Clip") {
-                Picker("Kind", selection: $clip.kind) {
-                    Text("Video").tag(VideoClipKind.video)
-                    Text("Freeze").tag(VideoClipKind.freeze)
+                LabeledContent("Kind", value: clip.kind.rawValue.capitalized)
+                if clip.kind == .video {
+                    TextField("Source start", value: $clip.sourceStart, format: .number)
+                    TextField("Source end", value: $clip.sourceEnd, format: .number)
+                } else if clip.kind == .freeze {
+                    TextField("Source frame", value: Binding(
+                        get: { clip.sourceStart },
+                        set: { value in
+                            var changed = clip
+                            changed.sourceStart = value; changed.sourceEnd = value
+                            clip = changed
+                        }
+                    ), format: .number)
                 }
-                TextField("Source start", value: $clip.sourceStart, format: .number)
-                TextField("Source end", value: $clip.sourceEnd, format: .number)
                 if clip.kind == .video {
                     HStack {
                         Button("1×") { clip.playbackRate = 1 }
@@ -147,7 +155,7 @@ struct ClipLayerInspector: View {
                     }
                 } else {
                     TextField(
-                        "Freeze duration",
+                        "Duration",
                         value: $clip.freezeDuration,
                         format: .number
                     )

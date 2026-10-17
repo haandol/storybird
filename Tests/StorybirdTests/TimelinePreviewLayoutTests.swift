@@ -328,7 +328,7 @@ final class TimelinePreviewLayoutTests: XCTestCase {
         try repository.prepare()
         let id = UUID()
         let asset = try repository.prepareVideoRecordingURL(projectID: id)
-        _ = try await TestVideoFactory.makeMovie(at: asset.url, includeAudio: false, duration: 3)
+        _ = try await TestVideoFactory.makeMovie(at: asset.url, includeAudio: false, duration: 3, displaySize: CGSize(width: 1280, height: 720))
         var project = DemoProject(id: id, name: "Preview layout",
             recording: VideoRecordingAsset(filename: asset.filename, duration: 3, width: 1280, height: 720))
         project.subtitles = (0..<20).map {
