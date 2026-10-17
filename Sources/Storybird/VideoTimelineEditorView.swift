@@ -74,17 +74,21 @@ struct VideoTimelineEditorView: View {
     @State private var selectedTargets: Set<ProjectEditReference> = []
     @State private var bulkStyleSession: CaptionStyleSession?
     @State private var propertySession: BatchPropertySession?
+    @State private var canvasSession: CanvasEditorSession?
+    @State private var placementSession: ClipPlacementSession?
     @State private var isInspectorPresented = false
     @State private var isPlacingClick = false
     @State private var previewLayout = TimelinePreviewLayout()
     @State private var previewPhase: VideoPreviewPhase = .loading
     @State private var showAudioComposer = false
     @State private var showMediaLibrary = false
+    @State private var showCaptions = false
     @StateObject private var audioModel = TimelineAudioModel()
     @StateObject private var audition = AudioAuditionPlayer()
     @State private var editingNarration: NarrationClip?
     @StateObject private var layerDrag = TimelineLayerDragModel()
     @StateObject private var clipEdit = TimelineClipEditModel()
+    @StateObject private var effectEdit = PreviewEffectEditModel()
     @State private var snapEnabled = true
     @GestureState private var isDraggingLayer = false
     @State private var expandedTrackKinds: Set<TimelineTrack.Kind> = []
@@ -178,6 +182,8 @@ struct VideoTimelineEditorView: View {
         .sheet(item: $propertySession) { session in
             BatchPropertySheet(store: store, session: session)
         }
+        .sheet(item: $canvasSession) { CanvasEditorSheet(store: store, session: $0) }
+        .sheet(item: $placementSession) { ClipPlacementSheet(store: store, session: $0) }
         .sheet(isPresented: $isInspectorPresented) {
             PlaybackDrivenView(playback: playback) { _ in inspector }
                 .frame(width: 360, height: 520)
@@ -191,6 +197,7 @@ struct VideoTimelineEditorView: View {
             audition.stop()
             layerDrag.cancel()
             clipEdit.cancel()
+            effectEdit.cancel()
             audioModel.cancel()
             dragRows = nil
             scrubFeedback.cancel()
@@ -202,6 +209,7 @@ struct VideoTimelineEditorView: View {
             previewPhase = .loading
             layerDrag.cancel()
             clipEdit.cancel()
+            effectEdit.cancel()
             selectedTargets = []
             selection = nil
             audioModel.cancel()
@@ -230,10 +238,11 @@ struct VideoTimelineEditorView: View {
             else if case let .narration(selected) = selection, selected == previous { selection = nil }
         }
         .onReceive(NotificationCenter.default.publisher(for: .storybirdOpenProjectAudio)) { notification in
-            if notification.object as? UUID == project.id { showAudioComposer = true }
+            if notification.object as? UUID == project.id { showAudioComposer = true; showMediaLibrary = false; showCaptions = false }
         }
         .onChange(of: selection) { previous, next in
             audioModel.cancelAdjustment()
+            if effectEdit.draft?.id != next?.editReference?.id { effectEdit.cancel() }
             if case let .narration(id) = previous { audition.stop(id: .layer(id)) }
             if let ref = next?.editReference {
                 if !selectedTargets.contains(ref) { selectedTargets = [ref] }
@@ -251,6 +260,7 @@ struct VideoTimelineEditorView: View {
         .onChange(of: timelineScroll.viewportWidth) { _, _ in
             if project.timelineDuration > 0 { setTimelineZoom(timelineZoom.pointsPerSecond) }
         }
+        .onExitCommand { effectEdit.cancel(); clipEdit.cancel(); layerDrag.cancel(); audioModel.cancelAdjustment() }
     }
 
     /// Gives AppKit's horizontal split an explicit height instead of its content's ideal size.
@@ -261,7 +271,8 @@ struct VideoTimelineEditorView: View {
                 .frame(height: height)
 
             Group {
-                if showMediaLibrary { mediaPanel }
+                if showCaptions { captionPanel }
+                else if showMediaLibrary { mediaPanel }
                 else if showAudioComposer { audioPanel }
                 else { PlaybackDrivenView(playback: playback) { _ in inspector } }
             }
@@ -309,11 +320,20 @@ struct VideoTimelineEditorView: View {
         }
     }
 
+    private var captionPanel: some View {
+        TimelineCaptionPanel(store: store, projectID: project.id,
+            selection: Binding(get: { selectedTargets }, set: { targets in
+                selectedTargets = targets
+                selection = ProjectEditPlanner.references(in: project).first { targets.contains($0) }.flatMap(TimelineLayerSelection.init)
+            }), onSeek: { playback.seek(to: $0) }, onAdd: addSubtitle,
+            onStyle: { bulkStyleSession = $0 })
+    }
+
     /// Budgets the compact audio panel before the split, preserving playback and layer access.
     private func editingWorkspace(compact: Bool) -> some View {
         GeometryReader { proxy in
-            let audioHeight: CGFloat = compact && (showAudioComposer || showMediaLibrary)
-                ? min(190, max(80, proxy.size.height * 0.24)) : 0
+            let audioHeight: CGFloat = compact && showCaptions ? min(260, max(140, proxy.size.height * 0.4))
+                : compact && (showAudioComposer || showMediaLibrary) ? min(190, max(80, proxy.size.height * 0.24)) : 0
             let toolsHeight: CGFloat = (selectedNarrationID == nil ? 204 : 248) + (selectedTargets.count > 1 ? 44 : 0)
             TimelinePreviewSplitView(
                 layout: $previewLayout,
@@ -323,9 +343,9 @@ struct VideoTimelineEditorView: View {
             } timeline: {
                 VStack(spacing: 0) {
                     PlaybackDrivenView(playback: playback) { _ in playbackControls }.frame(height: 48)
-                    if compact && (showAudioComposer || showMediaLibrary) {
+                    if compact && (showAudioComposer || showMediaLibrary || showCaptions) {
                         Group {
-                            if showMediaLibrary { mediaPanel } else { audioPanel }
+                            if showCaptions { captionPanel } else if showMediaLibrary { mediaPanel } else { audioPanel }
                         }.frame(height: audioHeight)
                         Divider()
                     }
@@ -342,7 +362,8 @@ struct VideoTimelineEditorView: View {
 
     private var playerStage: some View {
         GeometryReader { proxy in
-            let camera = activeCamera
+            let previewProject = effectEdit.displayedProject(project)
+            let camera = VideoOverlayPresentation.camera(in: previewProject, at: playback.currentTime)
             let displayPhase: VideoPreviewPhase = playback.isPreparing ? .loading : previewPhase
             let frame = AspectFit.frame(
                 contentSize: project.canvasSize,
@@ -350,6 +371,8 @@ struct VideoTimelineEditorView: View {
             )
             ZStack(alignment: .topLeading) {
                 Color(nsColor: .controlBackgroundColor)
+                RoundedRectangle(cornerRadius: 10).fill(Color(hex: project.canvas.backgroundHex))
+                    .frame(width: frame.width, height: frame.height).position(x: frame.midX, y: frame.midY)
                 ZStack(alignment: .topLeading) {
                     RoundedRectangle(cornerRadius: 10)
                         .fill(.black)
@@ -404,15 +427,27 @@ struct VideoTimelineEditorView: View {
                         y: (frame.minY + CGFloat(camera.y) * frame.height) / max(proxy.size.height, 1)
                     )
                 )
+                .offset(x: (0.5 - camera.x) * frame.width, y: (0.5 - camera.y) * frame.height)
+                .mask {
+                    Rectangle().frame(width: frame.width, height: frame.height)
+                        .position(x: frame.midX, y: frame.midY)
+                }
+                VideoSpotlightCanvas(project: previewProject, time: playback.currentTime, imageFrame: frame)
                 VideoOverlayCanvas(
-                    project: project, time: playback.currentTime,
+                    project: previewProject, time: playback.currentTime,
                     imageFrame: frame, camera: camera
                 )
                 VideoScreenOverlayCanvas(
-                    project: project,
+                    project: previewProject,
                     time: playback.currentTime,
                     imageFrame: frame
                 )
+                if !isPlacingClick, let id = selectedEffectID,
+                   let effect = project.effects.first(where: { $0.id == id }), !effect.isFullScreenCard,
+                   effect.startTime <= playback.currentTime, playback.currentTime <= effect.endTime {
+                    PreviewEffectControls(store: store, model: effectEdit, project: project, effect: effect,
+                        time: playback.currentTime, imageFrame: frame, onBegin: { playback.player.pause() })
+                }
                 if isPlacingClick {
                     Text("Click a point in the video")
                         .font(.callout.weight(.semibold))
@@ -574,16 +609,23 @@ struct VideoTimelineEditorView: View {
                 }
                 Button {
                     showAudioComposer.toggle()
-                    if showAudioComposer { showMediaLibrary = false }
+                    if showAudioComposer { showMediaLibrary = false; showCaptions = false }
                 } label: {
                     Label(showAudioComposer ? "Close Audio" : "Add Audio", systemImage: "waveform.badge.plus")
                 }
                 .accessibilityIdentifier("timeline-audio-toggle")
                 Button {
                     showMediaLibrary.toggle()
-                    if showMediaLibrary { showAudioComposer = false }
+                    if showMediaLibrary { showAudioComposer = false; showCaptions = false }
                 } label: { Label(showMediaLibrary ? "Close Media" : "Media", systemImage: "photo.on.rectangle") }
                 .accessibilityIdentifier("timeline-media-toggle")
+                Button {
+                    showCaptions.toggle()
+                    if showCaptions { showAudioComposer = false; showMediaLibrary = false }
+                } label: { Label(showCaptions ? "Close Captions" : "Captions", systemImage: "captions.bubble") }
+                .accessibilityIdentifier("timeline-captions-toggle")
+                Button("Canvas…") { canvasSession = CanvasEditorSession(projectID: project.id, revision: project.revision, canvas: project.canvas) }
+                    .accessibilityIdentifier("timeline-canvas")
                 Toggle(isOn: $snapEnabled) { Label("Snap", systemImage: "scope") }
                     .toggleStyle(.button).accessibilityIdentifier("timeline-snap-toggle")
                     .help("Snap to playhead and boundaries. Hold Option to bypass during a drag.")
@@ -609,6 +651,12 @@ struct VideoTimelineEditorView: View {
                         Label("Duplicate", systemImage: "plus.square.on.square")
                     }
                     .accessibilityIdentifier("timeline-duplicate-clip")
+                    Button("Placement…") {
+                        if let clip = selectedClip {
+                            placementSession = ClipPlacementSession(projectID: project.id, revision: project.revision,
+                                clipID: clip.id, placement: clip.placement)
+                        }
+                    }.accessibilityIdentifier("timeline-clip-placement")
 
                     Menu {
                         Button("Remove before playhead") {
@@ -1220,6 +1268,9 @@ struct VideoTimelineEditorView: View {
                     },
                     onDelete: {
                         deleteSelectedClip()
+                    }, onPlacement: {
+                        placementSession = ClipPlacementSession(projectID: project.id, revision: project.revision,
+                            clipID: project.clips[index].id, placement: project.clips[index].placement)
                     }
                 )
             } else if let index = project.clicks.firstIndex(where: {
@@ -1486,11 +1537,13 @@ struct VideoTimelineEditorView: View {
         guard videoSize.width > 0, videoSize.height > 0 else { return }
         let existingIDs = Set(project.clicks.map(\.id))
         do {
+            let point = ProjectContentGeometry.sourcePoint(canvasX: location.x / videoSize.width,
+                canvasY: location.y / videoSize.height, frame: ProjectContentGeometry.frame(in: project, at: playback.currentTime), camera: .identity)
             project = try VideoTimelineEditor.addClickCue(
                 to: project,
                 at: playback.currentTime,
-                x: min(max(location.x / videoSize.width, 0), 1),
-                y: min(max(location.y / videoSize.height, 0), 1)
+                x: point.x,
+                y: point.y
             )
             selection = project.clicks.first {
                 !existingIDs.contains($0.id)

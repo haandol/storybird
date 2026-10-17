@@ -95,7 +95,7 @@
       "adrs": [
         {
           "path": "docs/adr/authoring/0001-timeline-overlay-editor.md",
-          "status": "Proposed",
+          "status": "Accepted (2026-10-17)",
           "summary": "직접 컷·자막 일괄 편집·화면 조절과 캔버스를 UI와 MCP 공통 명령으로 제공한다"
         }
       ],

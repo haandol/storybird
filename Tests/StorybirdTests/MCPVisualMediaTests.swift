@@ -14,6 +14,157 @@ import XCTest
 final class MCPVisualMediaTests: XCTestCase {
     private typealias Response = (content: [Tool.Content], isError: Bool?)
 
+    func test_canvasPlacement_bothProfilesMatchPNGAndMP4PixelsAndUndo() async throws {
+        for profile in StorybirdMCPToolProfile.allCases {
+            try await withClient(profile: profile, primarySize: CGSize(width: 640, height: 360)) { client, store, initial, root in
+                let picture = root.appendingPathComponent("asymmetric.png")
+                let context = try XCTUnwrap(CGContext(data: nil, width: 80, height: 40, bitsPerComponent: 8,
+                    bytesPerRow: 320, space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+                context.setFillColor(CGColor(colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!, components: [1, 0, 0, 1])!)
+                context.fill(CGRect(x: 0, y: 0, width: 40, height: 40))
+                context.setFillColor(CGColor(colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!, components: [0, 1, 0, 1])!)
+                context.fill(CGRect(x: 40, y: 0, width: 40, height: 40))
+                try ProjectMediaFiles.png(XCTUnwrap(context.makeImage())).write(to: picture)
+                let originalBytes = try Data(contentsOf: picture)
+                let registered = try await importMedia(client, projectID: initial.id, path: picture, key: "canvas")
+                let imageID = try XCTUnwrap(registered.result?.assetID)
+                let placed: DemoProject = try decode(await client.callTool(name: "storybird_place_media_asset", arguments: [
+                    "project_id": .string(initial.id.uuidString), "expected_revision": .int(initial.revision),
+                    "asset_id": .string(imageID.uuidString), "destination_index": 1, "duration": 0.3]))
+                let deleted: ProjectBatchEditResult = try decode(await client.callTool(name: "storybird_apply_edits", arguments: [
+                    "project_id": .string(initial.id.uuidString), "expected_revision": .int(placed.revision),
+                    "edits": .array([.object(["target": "clip", "id": .string(initial.clips[0].id.uuidString), "action": "delete"])])]))
+                var project = deleted.project
+                // Source is twice as wide as tall. Fit/top leaves blue at the
+                // bottom; portrait Fill/left and Fill/right isolate opposite halves.
+                let cases: [(ProjectCanvas.Preset, MediaPlacement.Mode, Double, Double, [Int])] = [
+                    (.original, .fit, 0.5, 0, [0, 1, 2]),
+                    (.landscape, .fit, 0.5, 0, [0, 1, 2]),
+                    (.portrait, .fill, 0, 0.5, [0, 0, 0]),
+                    (.portrait, .fill, 1, 0.5, [1, 1, 1]),
+                    (.square, .fit, 0.5, 0, [0, 1, 2])]
+                for (preset, mode, x, y, expected) in cases {
+                    let before = try XCTUnwrap(store.project(id: project.id))
+                    let args: [String: Value] = ["project_id": .string(project.id.uuidString), "expected_revision": .int(project.revision),
+                        "edits": .array([
+                            .object(["target": "project", "id": .string(project.id.uuidString), "action": "update", "values": .object([
+                                "canvas_preset": .string(preset.rawValue), "canvas_background_hex": "#0000FF"])]),
+                            .object(["target": "clip", "id": .string(project.clips[0].id.uuidString), "action": "update", "values": .object([
+                                "fit_mode": .string(mode.rawValue), "anchor_x": .double(x), "anchor_y": .double(y)])])])]
+                    let preview: ProjectBatchEditResult = try decode(await client.callTool(name: "storybird_preview_edits", arguments: args))
+                    XCTAssertEqual(store.project(id: project.id), before)
+                    let applied: ProjectBatchEditResult = try decode(await client.callTool(name: "storybird_apply_edits", arguments: args))
+                    project = applied.project
+                    XCTAssertEqual(project.clips, preview.project.clips)
+                    XCTAssertEqual(project.canvas, preview.project.canvas)
+                    let rendered = try await client.callTool(name: "storybird_render_preview", arguments: [
+                        "project_id": .string(project.id.uuidString), "time": 0.1])
+                    XCTAssertNotEqual(rendered.isError, true, text(rendered))
+                    let payload = try XCTUnwrap(rendered.content.compactMap { item -> String? in
+                        if case let .image(base64, _, _, _) = item { return base64 }; return nil
+                    }.first)
+                    let source = try XCTUnwrap(CGImageSourceCreateWithData(XCTUnwrap(Data(base64Encoded: payload)) as CFData, nil))
+                    let png = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
+                    let exported = try await client.callTool(name: "storybird_export_project", arguments: [
+                        "project_id": .string(project.id.uuidString), "parent_directory": .string(root.path)])
+                    XCTAssertNotEqual(exported.isError, true, text(exported))
+                    let movie = AVURLAsset(url: URL(fileURLWithPath: text(exported)))
+                    let generator = AVAssetImageGenerator(asset: movie)
+                    generator.appliesPreferredTrackTransform = true
+                    let mp4 = try await generator.image(at: CMTime(seconds: 0.1, preferredTimescale: 600)).image
+                    XCTAssertEqual(png.width, Int(project.canvasSize.width)); XCTAssertEqual(png.height, Int(project.canvasSize.height))
+                    XCTAssertEqual(mp4.width, png.width); XCTAssertEqual(mp4.height, png.height)
+                    for (point, channel) in zip([(0.15, 0.2), (0.85, 0.2), (0.5, 0.98)], expected) {
+                        for image in [png, mp4] {
+                            let rgb = try sample(image, x: point.0, y: point.1)
+                            print("CANVAS_PIXEL", preset, mode, x, point, image === png ? "PNG" : "MP4", rgb)
+                            XCTAssertGreaterThan(rgb[channel], 220, "\(preset) \(mode) \(x) \(point): \(rgb)")
+                            for other in 0..<3 where other != channel { XCTAssertLessThan(rgb[other], 35) }
+                        }
+                    }
+                    let undone = try store.undo(projectID: project.id)
+                    XCTAssertEqual(undone.canvas, before.canvas); XCTAssertEqual(undone.clips, before.clips)
+                    project = try store.redo(projectID: project.id)
+                    XCTAssertEqual(try Data(contentsOf: picture), originalBytes)
+                }
+            }
+        }
+    }
+
+    /// Samples in top-left canvas coordinates, independent of media placement code.
+    private func sample(_ image: CGImage, x: Double, y: Double) throws -> [UInt8] {
+        var pixels = [UInt8](repeating: 0, count: image.width * image.height * 4)
+        try pixels.withUnsafeMutableBytes { bytes in
+            let context = try XCTUnwrap(CGContext(data: bytes.baseAddress, width: image.width, height: image.height,
+                bitsPerComponent: 8, bytesPerRow: image.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        }
+        let offset = (Int(y * Double(image.height)) * image.width + Int(x * Double(image.width))) * 4
+        return Array(pixels[offset..<(offset + 3)])
+    }
+
+    func test_contentCueAndCamera_followPlacedSourceInPNGAndMP4() async throws {
+        try await withClient { client, store, initial, root in
+            let picture = root.appendingPathComponent("portrait-red.png")
+            try image(at: picture) // 20×40 source; Fit on 1920×1080 is 540×1080 at x=690.
+            let imported = try await importMedia(client, projectID: initial.id, path: picture, key: "cue-projection")
+            var project = try store.placeMediaAsset(projectID: initial.id, assetID: XCTUnwrap(imported.result?.assetID),
+                expectedRevision: initial.revision, destination: 1, duration: 0.3)
+            project.canvas.preset = .landscape
+            project = try VideoTimelineEditor.addClickCue(to: project, at: 1.1, x: 0.75, y: 0.25)
+            project.clicks[0].indicator.colorHex = "#FFFFFF"
+            project.clicks[0].description.text = "Source point"
+            project.clicks[0].description.position = .custom
+            project.clicks[0].description.x = 0.05
+            project.clicks[0].description.y = 0.05
+            project.clicks[0].cueSubtitle.text = "Caption on the canvas"
+            let camera = PanZoomEffect(startTime: 1, endTime: 1.3, startScale: 1, endX: 0.5, endY: 0.5, endScale: 1)
+            project.effects = [.panZoom(camera)]
+            project = try store.saveProject(project, expectedRevision: project.revision)
+            for center in [CGPoint(x: 1095, y: 270), CGPoint(x: 960, y: 540)] {
+                if center.x == 960 {
+                    let result: ProjectBatchEditResult = try decode(await client.callTool(name: "storybird_apply_edits", arguments: [
+                        "project_id": .string(project.id.uuidString), "expected_revision": .int(project.revision),
+                        "edits": .array([.object(["target": "effect", "id": .string(camera.id.uuidString), "action": "update",
+                            "values": .object(["start_x": 0.75, "start_y": 0.25, "start_scale": 1.5,
+                                               "end_x": 0.75, "end_y": 0.25, "end_scale": 1.5])])])]))
+                    project = result.project
+                }
+                let response = try await client.callTool(name: "storybird_render_preview", arguments: ["project_id": .string(project.id.uuidString), "time": 1.1])
+                XCTAssertNotEqual(response.isError, true, text(response))
+                let payload = try XCTUnwrap(response.content.compactMap { item -> String? in
+                    if case let .image(value, _, _, _) = item { return value }; return nil
+                }.first)
+                let source = try XCTUnwrap(CGImageSourceCreateWithData(XCTUnwrap(Data(base64Encoded: payload)) as CFData, nil))
+                let png = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
+                let exported = try await client.callTool(name: "storybird_export_project", arguments: ["project_id": .string(project.id.uuidString), "parent_directory": .string(root.path)])
+                XCTAssertNotEqual(exported.isError, true, text(exported))
+                let generator = AVAssetImageGenerator(asset: AVURLAsset(url: URL(fileURLWithPath: text(exported))))
+                generator.appliesPreferredTrackTransform = true
+                generator.requestedTimeToleranceBefore = .zero; generator.requestedTimeToleranceAfter = .zero
+                let movie = try await generator.image(at: CMTime(seconds: 1.1, preferredTimescale: 600)).image
+                for image in [png, movie] {
+                    let bitmap = NSBitmapImageRep(cgImage: image)
+                    var count = 0.0, xSum = 0.0, ySum = 0.0
+                    for y in (Int(center.y) - 60)..<(Int(center.y) + 60) {
+                        for x in (Int(center.x) - 60)..<(Int(center.x) + 60) {
+                            let color = try XCTUnwrap(bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB))
+                            if min(color.redComponent, color.greenComponent, color.blueComponent) > 0.8 {
+                                count += 1; xSum += Double(x); ySum += Double(y)
+                            }
+                        }
+                    }
+                    XCTAssertGreaterThan(count, 20)
+                    XCTAssertEqual(xSum / count, center.x, accuracy: 2)
+                    XCTAssertEqual(ySum / count, center.y, accuracy: 2)
+                }
+                XCTAssertEqual(store.project(id: project.id)?.clicks[0].x, 0.75)
+                XCTAssertEqual(store.project(id: project.id)?.clicks[0].y, 0.25)
+            }
+        }
+    }
+
     func test_visualMedia_bothProfilesRegisterInspectPlaceUndoCopyAndExportOwnedSources() async throws {
         for profile in StorybirdMCPToolProfile.allCases {
             try await withClient(profile: profile) { client, store, initial, root in
@@ -472,20 +623,20 @@ final class MCPVisualMediaTests: XCTestCase {
     }
     private func image(at url: URL) throws {
         let context = try XCTUnwrap(CGContext(data: nil, width: 20, height: 40, bitsPerComponent: 8,
-            bytesPerRow: 80, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            bytesPerRow: 80, space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: 20, height: 40))
         try ProjectMediaFiles.png(XCTUnwrap(context.makeImage())).write(to: url)
     }
 
-    private func withClient(profile: StorybirdMCPToolProfile = .legacy,
+    private func withClient(profile: StorybirdMCPToolProfile = .legacy, primarySize: CGSize = CGSize(width: 128, height: 72),
                             _ body: @MainActor (Client, AppStore, DemoProject, URL) async throws -> Void) async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("visual-media-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }
         let repository = ProjectRepository(rootURL: root)
         let id = UUID()
         let target = try repository.prepareVideoRecordingURL(projectID: id)
-        let video = try await TestVideoFactory.makeMovie(at: target.url, includeAudio: false, duration: 1, width: 128, height: 72)
+        let video = try await TestVideoFactory.makeMovie(at: target.url, includeAudio: false, duration: 1, width: Int(primarySize.width), height: Int(primarySize.height))
         var project = DemoProject(id: id, name: "Primary", recording: VideoRecordingAsset(filename: target.filename,
             duration: video.duration, width: video.width, height: video.height, hasAudio: false))
         project.theme.showsBranding = false

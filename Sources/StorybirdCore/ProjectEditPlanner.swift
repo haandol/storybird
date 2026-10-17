@@ -25,16 +25,23 @@ public enum ProjectEditPlanner {
         let original = snapshots(project)
         var requested = Set<ProjectEditReference>()
         for (index, edit) in edits.enumerated() {
-            let ref = ProjectEditReference(target: edit.target, id: edit.id)
-            guard original[ref] != nil else {
-                throw ProjectEditError(code: "missing_target", operationIndex: index, targetID: edit.id,
-                    property: "id", allowedRange: "existing stable target IDs from get_edit_context",
-                    message: "The explicit target does not exist. Refresh the edit context.")
+            if !edit.relatedIDs.isEmpty, edit.action != .merge || edit.target != .subtitle {
+                throw ProjectEditError(code: "unknown_property", operationIndex: index, targetID: edit.id,
+                    property: "related_ids", message: "Related IDs are only supported for independent caption merge.")
             }
-            guard requested.insert(ref).inserted else {
-                throw ProjectEditError(code: "duplicate_target", operationIndex: index, targetID: edit.id,
-                    property: "id", allowedRange: "one explicit edit per target",
-                    message: "Specify each target once in a batch.")
+            for id in [edit.id] + edit.relatedIDs {
+                let ref = ProjectEditReference(target: edit.target, id: id)
+                let property = id == edit.id ? "id" : "related_ids"
+                guard original[ref] != nil else {
+                    throw ProjectEditError(code: "missing_target", operationIndex: index, targetID: id,
+                        property: property, allowedRange: "existing stable target IDs from get_edit_context",
+                        message: "The explicit target does not exist. Refresh the edit context.")
+                }
+                guard requested.insert(ref).inserted else {
+                    throw ProjectEditError(code: "duplicate_target", operationIndex: index, targetID: id,
+                        property: property, allowedRange: "one explicit edit per target",
+                        message: "Specify each target once in a batch.")
+                }
             }
         }
         var result = project
@@ -252,8 +259,19 @@ public enum ProjectEditPlanner {
             case .audio:
                 try requireOnly(edit, ["time"])
                 result = try AudioLayerEditor.split(layerID: edit.id, in: result, at: number("time", edit), validateResult: false)
+            case .subtitle:
+                try requireOnly(edit, ["time", "text_offset"])
+                result = try SubtitleEditing.split(edit.id, in: result, at: number("time", edit), textOffset: integer("text_offset", edit))
             default: throw unsupported(edit)
             }
+        case .merge:
+            guard edit.target == .subtitle else { throw unsupported(edit) }
+            try requireOnly(edit, Set(ProjectEditFields.subtitle.keys).subtracting(["start_time", "end_time"]))
+            guard let text = edit.values["text"]?.string else {
+                throw ProjectEditError(code: "invalid_value", property: "text", message: "Supply the exact combined caption text.")
+            }
+            result = try SubtitleEditing.merge(edit.id, relatedIDs: edit.relatedIDs, text: text, in: result)
+            result = try apply(ProjectEdit(target: .subtitle, id: edit.id, action: .update, values: edit.values), to: result)
         }
         return result
     }

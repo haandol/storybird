@@ -100,6 +100,22 @@ targeted commands. Update an existing subtitle with its ID and current required
 start/end times; omit unchanged optional properties. Change one title through its
 effect ID, and one spoken sentence through its narration ID.
 
+For multiple targets, read `storybird_get_edit_context`, then send explicit
+`target`, `id`, `action`, and changed `values` to `storybird_preview_edits` and
+`storybird_apply_edits` with the same current revision. Preview never writes;
+its generated IDs are provisional. Use IDs returned by apply for later edits.
+The context includes complete independent/Cue `captions`, editable fields,
+source references and alignment candidates. Agent editing calls these commands;
+it never needs to synthesize editor keys or manipulate the app's selection.
+
+Set the project `canvas_preset` (`original`, `landscape`, `portrait`, `square`)
+and `canvas_background_hex` through the shared batch. Set each clip's `fit_mode`
+(`fit` or `fill`) and `anchor_x` / `anchor_y` in 0...1. Check representative PNGs
+after changing the canvas: content Cues/effects follow the source placement,
+while subtitles/cards stay on the canvas. Keep the requested font size and text.
+Spotlight rectangle and pan/zoom start/end centers/scales use the same effect
+fields exposed in the context and the batch update command.
+
 Use full-project replacement only when targeted commands cannot express the edit.
 Submit it through Storybird with the current revision; preserve unrelated fields,
 immutable source media and app-owned draft states. Each successful edit supplies
@@ -133,6 +149,15 @@ word boundaries, preserving every word and punctuation mark. Use actual speech
 timing and retain one style across those segments. If even one word cannot fit,
 adjust the common size for the sequence or follow the user's explicit styling;
 do not break that word or silently alter text.
+
+Use independent-caption `split` only with both an internal project `time` and
+`text_offset` counted in Unicode grapheme clusters. Use `merge` with the earliest
+caption ID, adjacent non-overlapping `related_ids`, and explicit combined `text`.
+Cue captions remain Cue components. Import an existing UTF-8 SRT with
+`storybird_import_subtitles` (`project_id`, `expected_revision`, absolute `path`);
+it appends all entries atomically. Export SRT only when requested, with an explicit
+`scope` (`independent`, `cue`, `both`) and optional output directory. Read the
+returned new path; export leaves the project and existing files unchanged.
 
 Read back the saved subtitles and compare their ordered text with the source,
 allowing only whitespace changes caused by wrapping/segmentation. Save the MCP

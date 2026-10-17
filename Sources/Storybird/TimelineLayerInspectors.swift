@@ -122,11 +122,16 @@ struct ClipLayerInspector: View {
     let onMoveLeft: () -> Void
     let onMoveRight: () -> Void
     let onDelete: () -> Void
+    var onPlacement: (() -> Void)? = nil
 
     var body: some View {
         Form {
             Section("Clip") {
                 LabeledContent("Kind", value: clip.kind.rawValue.capitalized)
+                if let onPlacement {
+                    Button("Fit / Fill and anchors…", action: onPlacement)
+                        .accessibilityIdentifier("clip-inspector-placement")
+                }
                 if clip.kind == .video {
                     TextField("Source start", value: $clip.sourceStart, format: .number)
                     TextField("Source end", value: $clip.sourceEnd, format: .number)

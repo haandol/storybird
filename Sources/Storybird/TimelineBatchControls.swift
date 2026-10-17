@@ -146,7 +146,7 @@ struct CaptionBulkStyleSheet: View {
             Text("Style \(session.targets.count) captions").font(.headline)
             Text("Only checked properties are applied to the selected captions.")
                 .font(.caption).foregroundStyle(.secondary)
-            Form {
+            VStack(alignment: .leading, spacing: 14) {
                 property("Text color", key: "foreground_hex") {
                     ColorPicker("", selection: Binding(get: { Color(hex: style.foregroundHex) }, set: {
                         style.foregroundHex = $0.hexRGB; changed.insert("foreground_hex")
@@ -169,6 +169,7 @@ struct CaptionBulkStyleSheet: View {
                 }
             }
             if let error { Text(error).foregroundStyle(.red).font(.caption).textSelection(.enabled) }
+            Spacer(minLength: 0)
             HStack {
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Spacer()

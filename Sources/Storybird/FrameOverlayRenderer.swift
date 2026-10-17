@@ -21,7 +21,8 @@ enum FrameOverlayRenderer {
             in: project,
             at: time
         )
-        var result = applyCamera(camera, to: source, frame: frame)
+        let background = CIImage(color: CIColor(cgColor: color(hex: project.canvas.backgroundHex, opacity: 1))).cropped(to: frame)
+        var result = applyCamera(camera, to: source, frame: frame).composited(over: background)
 
         if let spotlight = project.effects.compactMap({
             if case let .spotlight(value) = $0,
@@ -32,15 +33,16 @@ enum FrameOverlayRenderer {
             return nil
         }).first,
             let mask = makeSpotlightImage(
-                spotlight,
+                ProjectContentGeometry.spotlight(spotlight, in: project, at: time),
                 frame: frame
             ) {
             result = CIImage(cgImage: mask).composited(over: result)
         }
 
-        for click in project.clicks where
-            click.indicator.startTime <= time
-                && time <= click.indicator.endTime {
+        for original in project.clicks where
+            original.indicator.startTime <= time
+                && time <= original.indicator.endTime {
+            let click = ProjectContentGeometry.click(original, in: project, at: time)
             let presentation = VideoOverlayPresentation.clickRing(
                 for: click,
                 at: time,
@@ -75,12 +77,13 @@ enum FrameOverlayRenderer {
             }
         }
 
-        for click in project.clicks where
-            !click.caption.trimmingCharacters(
+        for original in project.clicks where
+            !original.caption.trimmingCharacters(
                 in: .whitespacesAndNewlines
             ).isEmpty
-                && click.description.startTime <= time
-                && time <= click.description.endTime {
+                && original.description.startTime <= time
+                && time <= original.description.endTime {
+            let click = ProjectContentGeometry.click(original, in: project, at: time)
             let transformed = VideoOverlayPresentation.descriptionPoint(
                 for: click,
                 camera: camera

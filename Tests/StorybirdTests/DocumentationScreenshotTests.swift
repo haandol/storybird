@@ -6,6 +6,35 @@ import XCTest
 
 @MainActor
 final class DocumentationScreenshotTests: XCTestCase {
+    func test_generateCaptionCanvasScreenshots() async throws {
+        guard ProcessInfo.processInfo.environment["STORYBIRD_UPDATE_DOC_SCREENSHOTS"] == "1" else {
+            throw XCTSkip("Set STORYBIRD_UPDATE_DOC_SCREENSHOTS=1 to update caption/canvas screenshots.")
+        }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("authoring-docs-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repository = ProjectRepository(rootURL: root)
+        var project = DemoProject(name: "Product walkthrough", recording: VideoRecordingAsset(
+            filename: "synthetic.mp4", duration: 10, width: 1280, height: 720))
+        project.subtitles = [TimedSubtitle(startTime: 0, endTime: 2.5, text: "Select a project and arrange the clips."),
+            TimedSubtitle(startTime: 4, endTime: 7, text: "영상과 자막을 같은 시간축에서 편집합니다.")]
+        var cue = TimedPointerClick(time: 3, x: 0.4, y: 0.5, caption: "Open the caption list")
+        cue.cueSubtitle.text = "Review the complete caption before export."
+        project.clicks = [cue]
+        try repository.saveProjects([project])
+        let store = AppStore(repository: repository)
+        try await render(TimelineCaptionPanel(store: store, projectID: project.id,
+            selection: .constant([ProjectEditReference(target: .subtitle, id: project.subtitles[0].id)]),
+            onSeek: { _ in }, onAdd: {}, onStyle: { _ in }), size: CGSize(width: 360, height: 620),
+            to: imageDirectory.appendingPathComponent("caption-list.png"), hostedInWindow: true)
+        try await render(CanvasEditorSheet(store: store, session: CanvasEditorSession(projectID: project.id,
+            revision: project.revision, canvas: project.canvas)), size: CGSize(width: 420, height: 300),
+            to: imageDirectory.appendingPathComponent("canvas-settings.png"), hostedInWindow: true)
+        try await render(CaptionBulkStyleSheet(store: store, session: CaptionStyleSession(projectID: project.id,
+            revision: project.revision, targets: project.subtitles.map { ProjectEditReference(target: .subtitle, id: $0.id) },
+            style: .default, mixedFields: ["foreground_hex", "font_size"])), size: CGSize(width: 380, height: 420),
+            to: imageDirectory.appendingPathComponent("caption-style.png"), hostedInWindow: true)
+    }
+
     func test_generateProjectMediaScreenshot() async throws {
         guard ProcessInfo.processInfo.environment["STORYBIRD_UPDATE_DOC_SCREENSHOTS"] == "1" else {
             throw XCTSkip("Set STORYBIRD_UPDATE_DOC_SCREENSHOTS=1 to update project media screenshots.")

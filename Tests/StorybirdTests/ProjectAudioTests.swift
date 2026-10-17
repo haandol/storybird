@@ -183,9 +183,16 @@ final class ProjectAudioTests: XCTestCase {
             XCTAssertGreaterThan(toneAmplitude(samples, frequency: frequency, start: 1.3, end: 2.5), 0.1)
         }
         let output = root.appendingPathComponent("layered.mp4")
-        _ = try await LayeredVideoExporter().export(project: project, sourceURL: source, destinationURL: output)
-        let audio = try await AVURLAsset(url: output).loadTracks(withMediaType: .audio)
-        XCTAssertEqual(audio.count, 1)
+        // Repeat the leading/trailing-silence mix: a shared A/V reader can stall
+        // one output while the single append loop needs to drain the other.
+        for _ in 0..<5 {
+            _ = try await LayeredVideoExporter().export(project: project, sourceURL: source, destinationURL: output)
+            let asset = AVURLAsset(url: output)
+            let audio = try await asset.loadTracks(withMediaType: .audio)
+            let duration = try await asset.load(.duration)
+            XCTAssertEqual(audio.count, 1)
+            XCTAssertEqual(duration.seconds, 5, accuracy: 0.001)
+        }
         let exported = try await AudioPreviewRenderer.render(
             project: DemoProject(name: "Export inspection", recording: VideoRecordingAsset(
                 filename: output.lastPathComponent, duration: 5, width: 64, height: 48

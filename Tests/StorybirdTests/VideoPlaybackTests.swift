@@ -85,6 +85,27 @@ final class VideoPlaybackTests: XCTestCase {
         }
     }
 
+    func test_normalizedSliderSeek_keepsExactClockTickAtDecimalFrameBoundaries() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("seek-rounding-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("source.mp4")
+        let media = try await TestVideoFactory.makeMovie(at: source, includeAudio: false, duration: 32)
+        let project = DemoProject(name: "Clock tick", recording: VideoRecordingAsset(filename: source.lastPathComponent,
+            duration: media.duration, width: media.width, height: media.height))
+        let playback = VideoPlaybackModel(url: source, project: project)
+        defer { playback.pause() }
+        try await waitUntil { !playback.isPreparing && playback.player.currentItem?.status == .readyToPlay }
+        for seconds in [7.6, 30.4] {
+            playback.seek(to: seconds.nextDown)
+            try await waitUntil { abs(playback.player.currentTime().seconds - seconds) < 1.0 / 30 }
+            XCTAssertEqual(playback.player.currentTime().seconds, seconds, accuracy: 0.000001)
+        }
+        let current = playback.currentTime
+        playback.seek(to: .nan)
+        playback.seek(to: .infinity)
+        XCTAssertEqual(playback.currentTime, current)
+    }
+
     private func waitUntil(
         file: StaticString = #filePath, line: UInt = #line,
         _ condition: () -> Bool

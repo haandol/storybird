@@ -164,8 +164,8 @@ enum SubtitleTextRenderer {
     }
 
     static func validate(_ project: DemoProject, at time: Double? = nil) throws {
-        guard let recording = project.recording else { return }
-        let size = CGSize(width: recording.width, height: recording.height)
+        guard project.recording != nil else { return }
+        let size = project.canvasSize
         let subtitles = project.subtitles + project.clicks.map {
             TimedSubtitle(id: $0.id, startTime: $0.cueSubtitle.startTime, endTime: $0.cueSubtitle.endTime,
                           text: $0.cueSubtitle.text, position: $0.cueSubtitle.position, style: $0.cueSubtitle.style)

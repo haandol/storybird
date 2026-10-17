@@ -5,7 +5,7 @@ import SwiftUI
 /// Recognizer modifiers preserve the actual Command/Option gesture contract.
 @MainActor
 enum TimelinePointerGestures {
-    static func drag(minimumDistance: CGFloat = 4, updating state: GestureState<Bool>,
+    static func drag(minimumDistance: CGFloat = 4, coordinateSpace: String = "timeline-layer-canvas", updating state: GestureState<Bool>,
                      onChanged: @escaping (DragGesture.Value, NSEvent.ModifierFlags) -> Void,
                      onEnded: @escaping (DragGesture.Value, NSEvent.ModifierFlags) -> Void) -> some Gesture {
         func flags(_ modifiers: EventModifiers) -> NSEvent.ModifierFlags {
@@ -15,7 +15,7 @@ enum TimelinePointerGestures {
             return flags
         }
         func branch(_ modifiers: EventModifiers) -> some Gesture {
-            DragGesture(minimumDistance: minimumDistance, coordinateSpace: .named("timeline-layer-canvas"))
+            DragGesture(minimumDistance: minimumDistance, coordinateSpace: .named(coordinateSpace))
                 .modifiers(modifiers)
                 .updating(state) { _, active, _ in active = true }
                 .onChanged { onChanged($0, flags(modifiers)) }

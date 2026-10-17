@@ -40,6 +40,42 @@ final class MCPFeatureParityTests: XCTestCase {
         }
     }
 
+    func test_captionFilesCanvasAndDirectEffects_advertiseEveryRequiredInput() throws {
+        for profile in StorybirdMCPToolProfile.allCases {
+            let tools = StorybirdMCPService.toolDefinitions(for: profile)
+            for (name, required) in [("storybird_import_subtitles", ["project_id", "expected_revision", "path"]),
+                                     ("storybird_export_subtitles", ["project_id", "scope"])] {
+                let tool = try XCTUnwrap(tools.first { $0.name == name })
+                XCTAssertEqual(Set(tool.inputSchema.objectValue?["required"]?.arrayValue?.compactMap(\.stringValue) ?? []), Set(required))
+            }
+            let tool = try XCTUnwrap(tools.first { $0.name == "storybird_apply_edits" })
+            let branches = try XCTUnwrap(tool.inputSchema.objectValue?["properties"]?.objectValue?["edits"]?.objectValue?["items"]?.objectValue?["oneOf"]?.arrayValue)
+            for (target, fields) in [("project", ["canvas_preset", "canvas_background_hex"]),
+                ("clip", ["fit_mode", "anchor_x", "anchor_y"]),
+                ("effect", ["x", "y", "width", "height", "start_x", "start_y", "start_scale", "end_x", "end_y", "end_scale"])] {
+                let branch = try XCTUnwrap(branches.first {
+                    let properties = $0.objectValue?["properties"]?.objectValue
+                    return properties?["target"]?.objectValue?["const"]?.stringValue == target
+                        && properties?["action"]?.objectValue?["const"]?.stringValue == "update"
+                })
+                let properties = try XCTUnwrap(branch.objectValue?["properties"]?.objectValue?["values"]?.objectValue?["properties"]?.objectValue)
+                for field in fields { XCTAssertNotNil(properties[field], "Missing \(target).\(field)") }
+            }
+            let split = try XCTUnwrap(branches.first {
+                let properties = $0.objectValue?["properties"]?.objectValue
+                return properties?["target"]?.objectValue?["const"]?.stringValue == "subtitle"
+                    && properties?["action"]?.objectValue?["const"]?.stringValue == "split"
+            })
+            XCTAssertEqual(Set(split.objectValue?["properties"]?.objectValue?["values"]?.objectValue?["required"]?.arrayValue?.compactMap(\.stringValue) ?? []), ["time", "text_offset"])
+            let merge = try XCTUnwrap(branches.first {
+                let properties = $0.objectValue?["properties"]?.objectValue
+                return properties?["target"]?.objectValue?["const"]?.stringValue == "subtitle"
+                    && properties?["action"]?.objectValue?["const"]?.stringValue == "merge"
+            })
+            XCTAssertTrue(merge.objectValue?["required"]?.arrayValue?.compactMap(\.stringValue).contains("related_ids") ?? false)
+        }
+    }
+
     func test_subtitleSchemas_exposeSharedStyleGuidanceInBothProfiles() throws {
         for profile in StorybirdMCPToolProfile.allCases {
             let tools = StorybirdMCPService.toolDefinitions(for: profile)
@@ -235,7 +271,7 @@ final class MCPFeatureParityTests: XCTestCase {
             "storybird_create_project", "storybird_preview_project",
             "storybird_start_narration_draft", "storybird_cancel_narration_draft",
             "storybird_render_audio_preview", "storybird_start_export",
-            "storybird_cancel_export", "storybird_export_project", "storybird_delete_project",
+            "storybird_cancel_export", "storybird_export_project", "storybird_export_subtitles", "storybird_delete_project",
             "storybird_import_video", "storybird_import_audio", "storybird_import_media", "storybird_cancel_import",
             "storybird_select_voice_model", "storybird_prepare_voice_model", "storybird_remove_voice_model",
             "storybird_set_recording_auto_approval",

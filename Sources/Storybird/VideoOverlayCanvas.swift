@@ -13,7 +13,8 @@ struct VideoOverlayCanvas: View {
             ForEach(project.clicks.filter {
                 $0.indicator.startTime <= time
                     && time <= $0.indicator.endTime
-            }) { click in
+            }) { original in
+                let click = ProjectContentGeometry.click(original, in: project, at: time)
                 let presentation = VideoOverlayPresentation.clickRing(
                     for: click,
                     at: time,
@@ -53,7 +54,8 @@ struct VideoOverlayCanvas: View {
                 ).isEmpty
                     && $0.description.startTime <= time
                     && time <= $0.description.endTime
-            }) { click in
+            }) { original in
+                let click = ProjectContentGeometry.click(original, in: project, at: time)
                 VideoClickCaptionOverlay(
                     click: click,
                     imageFrame: imageFrame,
@@ -62,14 +64,18 @@ struct VideoOverlayCanvas: View {
                 )
             }
         }
+        .mask {
+            Rectangle().frame(width: imageFrame.width, height: imageFrame.height)
+                .position(x: imageFrame.midX, y: imageFrame.midY)
+        }
         .allowsHitTesting(false)
     }
 }
 
 private extension DemoProject {
-    /// Exported frames are rendered at the recording size.
+    /// Overlay layout uses the selected output canvas, including portrait/square.
     var overlayRenderSize: CGSize? {
-        recording.map { CGSize(width: $0.width, height: $0.height) }
+        recording == nil ? nil : canvasSize
     }
 }
 
@@ -81,15 +87,6 @@ struct VideoScreenOverlayCanvas: View {
     var body: some View {
         let metrics = VideoOverlayMetrics(frameSize: imageFrame.size, renderSize: project.overlayRenderSize)
         ZStack {
-            ForEach(project.subtitles.filter {
-                $0.startTime <= time && time <= $0.endTime
-            }) { subtitle in
-                VideoSubtitleOverlay(
-                    subtitle: subtitle,
-                    imageFrame: imageFrame,
-                    renderSize: project.overlayRenderSize ?? imageFrame.size
-                )
-            }
             ForEach(project.clicks.filter {
                 $0.cueSubtitle.startTime <= time
                     && time <= $0.cueSubtitle.endTime
@@ -110,14 +107,19 @@ struct VideoScreenOverlayCanvas: View {
                     renderSize: project.overlayRenderSize ?? imageFrame.size
                 )
             }
+            ForEach(project.subtitles.filter {
+                $0.startTime <= time && time <= $0.endTime
+            }) { subtitle in
+                VideoSubtitleOverlay(
+                    subtitle: subtitle,
+                    imageFrame: imageFrame,
+                    renderSize: project.overlayRenderSize ?? imageFrame.size
+                )
+            }
             ForEach(activeEffects) { effect in
                 switch effect {
-                case let .spotlight(value):
-                    SpotlightShape(value: value, frame: imageFrame)
-                        .fill(
-                            Color.black.opacity(value.dimOpacity),
-                            style: FillStyle(eoFill: true)
-                        )
+                case .spotlight:
+                    EmptyView()
                 case let .title(value):
                     card(
                         title: value.title,
@@ -136,6 +138,18 @@ struct VideoScreenOverlayCanvas: View {
                     EmptyView()
                 }
             }
+            if project.theme.showsBranding {
+                let size = CGSize(width: min(180 * metrics.scale, imageFrame.width / 2), height: 18 * metrics.scale)
+                if let image = FrameOverlayRenderer.makeTextImage("Made with Storybird", fontSize: 12 * metrics.scale, size: size) {
+                    Image(decorative: image, scale: 2).resizable().frame(width: size.width, height: size.height)
+                        .position(x: imageFrame.maxX - size.width / 2 - metrics.subtitleInset,
+                                  y: imageFrame.maxY - 10 * metrics.scale - size.height / 2)
+                }
+            }
+        }
+        .mask {
+            Rectangle().frame(width: imageFrame.width, height: imageFrame.height)
+                .position(x: imageFrame.midX, y: imageFrame.midY)
         }
         .allowsHitTesting(false)
     }
@@ -195,6 +209,27 @@ struct VideoScreenOverlayCanvas: View {
     }
 }
 
+struct VideoSpotlightCanvas: View {
+    let project: DemoProject
+    let time: Double
+    let imageFrame: CGRect
+
+    var body: some View {
+        if let value = project.effects.compactMap({ effect -> SpotlightEffect? in
+            guard case let .spotlight(value) = effect, value.startTime <= time, time <= value.endTime else { return nil }
+            return value
+        }).first {
+            SpotlightShape(value: ProjectContentGeometry.spotlight(value, in: project, at: time), frame: imageFrame)
+                .fill(Color.black.opacity(value.dimOpacity), style: FillStyle(eoFill: true))
+                .mask {
+                    Rectangle().frame(width: imageFrame.width, height: imageFrame.height)
+                        .position(x: imageFrame.midX, y: imageFrame.midY)
+                }
+                .allowsHitTesting(false)
+        }
+    }
+}
+
 private struct SpotlightShape: Shape {
     let value: SpotlightEffect
     let frame: CGRect
@@ -202,14 +237,13 @@ private struct SpotlightShape: Shape {
     func path(in rect: CGRect) -> Path {
         var path = Path()
         path.addRect(frame)
-        path.addRoundedRect(
-            in: CGRect(
+        path.addRect(
+            CGRect(
                 x: frame.minX + CGFloat(value.x) * frame.width,
                 y: frame.minY + CGFloat(value.y) * frame.height,
                 width: CGFloat(value.width) * frame.width,
                 height: CGFloat(value.height) * frame.height
-            ),
-            cornerSize: CGSize(width: 10, height: 10)
+            )
         )
         return path
     }

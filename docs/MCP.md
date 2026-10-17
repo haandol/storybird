@@ -678,6 +678,25 @@ unsupported formats, and invalid media fail without a partial project.
 
 ## Atomic edit review and application
 
+Independent subtitle `split` requires project `time` and `text_offset` counted
+in Unicode grapheme clusters from the original text. Both positions must be
+internal and both resulting strings nonblank. `merge` uses the earliest
+independent subtitle as `id`, later selected IDs in `related_ids`, and the exact
+combined `values.text`. The selection must be adjacent in time order and must
+not overlap. The first caption retains its style/position/start ownership;
+optional explicit style values can accompany the merge. Cue captions are not
+converted to independent captions.
+
+`storybird_import_subtitles` appends a local UTF-8 SRT using `project_id`,
+`expected_revision`, and absolute `path`. Existing captions remain. Every entry
+must be valid and inside the project; a failure saves none of the import.
+`storybird_export_subtitles` requires `project_id` and `scope` (`independent`,
+`cue`, or `both`), with optional absolute `parent_directory`. It returns a unique
+SRT `path`, source `revision`, and `caption_count`, without changing the project
+or rendering MP4. Times round to nearest milliseconds, exact halves upward.
+Collapsed intervals and text containing SRT blank-line separators fail without
+altering text. Existing files are never overwritten.
+
 `storybird_preview_edits` and `storybird_apply_edits` accept the same
 `project_id`, `expected_revision` and nonempty `edits` array. Each edit has a
 `target` (`clip`, `click`, `subtitle`, `audio`, `effect`, or `project`), stable
@@ -716,6 +735,15 @@ entry. Apply rechecks the revision and returns `status: applied`, `revision`,
 successful apply for later edits. A successful no-op keeps its revision and undo.
 Rejections include `current_revision` and an error with a code and applicable
 operation index, target, property and allowed range.
+
+Canvas edits use project `values`: `canvas_preset` is `original`, `landscape`
+(1920×1080), `portrait` (1080×1920), or `square` (1080×1080);
+`canvas_background_hex` is an RGB color. Clip `fit_mode` is `fit` or `fill`,
+with `anchor_x` and `anchor_y` in 0...1. Content coordinates follow this placement;
+caption and card layout uses the canvas. These edits preserve the first source's
+original dimensions, and participate in the same revision/undo operation.
+Spotlight and pan/zoom direct controls use the effect fields returned by the
+context; agents update those values through the same atomic command.
 
 The edit context also exposes `timeline_duration`, `media_assets`, and `targets`
 with current values and field constraints, plus

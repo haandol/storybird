@@ -198,6 +198,14 @@ actor LayeredVideoExporter {
                 AVVideoCodecKey: AVVideoCodecType.h264,
                 AVVideoWidthKey: width,
                 AVVideoHeightKey: height,
+                // Match the sRGB frames rendered below at every canvas size.
+                // Otherwise the encoder's SD defaults shift saturated colors
+                // even though the same composition looks correct as a PNG.
+                AVVideoColorPropertiesKey: [
+                    AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
+                    AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2,
+                    AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2,
+                ],
             ]
         )
         // Preserve the chosen rational output cadence in encoded timestamps.
@@ -206,20 +214,25 @@ actor LayeredVideoExporter {
             throw LayeredVideoExportError.cannotCreateWriter
         }
         writer.add(input)
+        let audioReader: AVAssetReader?
         let audioOutput: AVAssetReaderAudioMixOutput?
         let audioInput: AVAssetWriterInput?
         let audioConfig: AudioEncodingConfiguration?
         if !audioTracks.isEmpty {
+            // One reader per media stream prevents a blocking video read from
+            // waiting for this same loop to drain the reader's audio buffers.
+            let separateAudioReader = try AVAssetReader(asset: asset)
+            AmplifiedAudioFiles.retainLeases(from: asset, on: separateAudioReader)
             let configuration = try makeAudioConfiguration()
             let output = AVAssetReaderAudioMixOutput(
                 audioTracks: audioTracks,
                 audioSettings: configuration.readerSettings
             )
             output.audioMix = audioMix
-            guard reader.canAdd(output) else {
+            guard separateAudioReader.canAdd(output) else {
                 throw LayeredVideoExportError.cannotReadVideo
             }
-            reader.add(output)
+            separateAudioReader.add(output)
             let input = AVAssetWriterInput(
                 mediaType: .audio,
                 outputSettings: configuration.writerSettings
@@ -228,10 +241,12 @@ actor LayeredVideoExporter {
                 throw LayeredVideoExportError.cannotCreateWriter
             }
             writer.add(input)
+            audioReader = separateAudioReader
             audioOutput = output
             audioInput = input
             audioConfig = configuration
         } else {
+            audioReader = nil
             audioOutput = nil
             audioInput = nil
             audioConfig = nil
@@ -260,6 +275,12 @@ actor LayeredVideoExporter {
                 underlying: (reader.error ?? LayeredVideoExportError.cannotReadVideo) as NSError
             )
         }
+        if let audioReader, !audioReader.startReading() {
+            reader.cancelReading()
+            writer.cancelWriting()
+            throw LayeredVideoExportError.mediaFailure(stage: "audio reader startup", revision: project.revision,
+                underlying: (audioReader.error ?? LayeredVideoExportError.cannotReadVideo) as NSError)
+        }
         writer.startSession(atSourceTime: .zero)
 
         do {
@@ -268,6 +289,7 @@ actor LayeredVideoExporter {
                 reader: reader,
                 videoInput: input,
                 audioOutput: audioOutput,
+                audioReader: audioReader,
                 audioInput: audioInput,
                 audioConfiguration: audioConfig,
                 adaptor: adaptor,
@@ -279,6 +301,7 @@ actor LayeredVideoExporter {
             )
         } catch {
             reader.cancelReading()
+            audioReader?.cancelReading()
             writer.cancelWriting()
             if error is CancellationError { throw error }
             throw LayeredVideoExportError.mediaFailure(
@@ -439,6 +462,7 @@ actor LayeredVideoExporter {
         reader: AVAssetReader,
         videoInput: AVAssetWriterInput,
         audioOutput: AVAssetReaderAudioMixOutput?,
+        audioReader: AVAssetReader?,
         audioInput: AVAssetWriterInput?,
         audioConfiguration: AudioEncodingConfiguration?,
         adaptor: AVAssetWriterInputPixelBufferAdaptor,
@@ -560,6 +584,9 @@ actor LayeredVideoExporter {
             if !appendedSample {
                 try await Task.sleep(for: .milliseconds(5))
             }
+        }
+        if let audioReader, audioReader.status != .completed {
+            throw audioReader.error ?? LayeredVideoExportError.exportFailed("The audio reader stopped before completion.")
         }
         guard reader.status == .completed else {
             throw reader.error

@@ -70,11 +70,11 @@ public enum VideoOverlayPresentation {
             ),
             1
         )
+        let center = ProjectContentGeometry.point(x: effect.startX + (effect.endX - effect.startX) * progress,
+            y: effect.startY + (effect.endY - effect.startY) * progress, in: project, at: time)
         return VideoCameraPresentation(
-            x: effect.startX
-                + (effect.endX - effect.startX) * progress,
-            y: effect.startY
-                + (effect.endY - effect.startY) * progress,
+            x: center.x,
+            y: center.y,
             scale: effect.startScale
                 + (effect.endScale - effect.startScale) * progress
         )

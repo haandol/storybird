@@ -170,6 +170,8 @@ final class StorybirdExternalControlHost {
                  "storybird_set_source_audio",
                  "storybird_render_audio_preview":
                 return try await handleAudioCommand(request.name, arguments: arguments)
+            case "storybird_import_subtitles", "storybird_export_subtitles":
+                return await handleSubtitleFiles(request.name, arguments: arguments)
             case "storybird_preview_edits", "storybird_apply_edits":
                 return handleBatchEdits(request.name, arguments: arguments)
             case "storybird_get_edit_context",
@@ -550,24 +552,67 @@ final class StorybirdExternalControlHost {
             }
             return try Self.jsonResponse(store.editProject(projectID: id, expectedRevision: revision,
                 edits: edits, preview: name == "storybird_preview_edits"))
-        } catch {
-            let failure: ProjectEditError
-            if let value = error as? ProjectEditError { failure = value }
-            else if case RecordingStoreError.revisionConflict = error {
-                failure = ProjectEditError(code: "revision_conflict", targetID: projectID,
-                    property: "expected_revision", message: error.localizedDescription)
-            } else {
-                failure = ProjectEditError(code: "edit_failed", targetID: projectID, message: error.localizedDescription)
+        } catch { return projectEditError(error, projectID: projectID) }
+    }
+
+    private func handleSubtitleFiles(_ name: String, arguments: [String: Any]) async -> StorybirdControlResponse {
+        let id = (arguments["project_id"] as? String).flatMap(UUID.init(uuidString:))
+        do {
+            let known: Set<String> = name == "storybird_import_subtitles"
+                ? ["project_id", "expected_revision", "path"] : ["project_id", "scope", "parent_directory"]
+            if let unknown = Set(arguments.keys).subtracting(known).sorted().first {
+                throw ProjectEditError(code: "unknown_property", property: unknown, message: "Unknown caption-file argument: \(unknown).")
             }
-            struct Rejection: Encodable {
-                var status = "rejected"
-                var current_revision: Int?
-                var error: ProjectEditError
+            let projectID = try Self.uuid("project_id", in: arguments)
+            if name == "storybird_import_subtitles" {
+                let revision = try Self.requiredInt("expected_revision", in: arguments)
+                return try Self.jsonResponse(await store.importSubtitles(projectID: projectID,
+                    expectedRevision: revision, sourceURL: LocalMediaFile.url(path: Self.string("path", in: arguments))))
             }
-            let rejection = Rejection(current_revision: projectID.flatMap { store.project(id: $0)?.revision }, error: failure)
-            let response = (try? Self.jsonResponse(rejection)) ?? StorybirdControlResponse(text: failure.message)
-            return StorybirdControlResponse(text: response.text, isError: true)
+            guard let scope = SRTCaptionScope(rawValue: try Self.string("scope", in: arguments)) else {
+                throw AgentEditError.invalidField("scope")
+            }
+            let parent = try arguments["parent_directory"].map { _ in
+                try LocalMediaFile.url(path: Self.string("parent_directory", in: arguments))
+            } ?? FileManager.default.temporaryDirectory
+            return try Self.jsonResponse(store.exportSubtitles(projectID: projectID, scope: scope, parentDirectory: parent))
+        } catch { return projectEditError(error, projectID: id) }
+    }
+
+    /// All new editing/file tools report the current project revision alongside
+    /// recoverable input and validation details; no failure is a partial success.
+    private func projectEditError(_ error: Error, projectID: UUID?) -> StorybirdControlResponse {
+        let failure: ProjectEditError
+        if let value = error as? ProjectEditError { failure = value }
+        else if case RecordingStoreError.revisionConflict = error {
+            failure = ProjectEditError(code: "revision_conflict", targetID: projectID,
+                property: "expected_revision", message: error.localizedDescription)
+        } else if case let AgentEditError.invalidField(field) = error {
+            failure = ProjectEditError(code: "invalid_value", targetID: projectID, property: field, message: error.localizedDescription)
+        } else if let srt = error as? SRTError {
+            switch srt {
+            case let .collapsedInterval(id), let .unrepresentableText(id):
+                failure = ProjectEditError(code: "invalid_srt_output", targetID: id, property: "text/start_time/end_time",
+                    allowedRange: "nonblank SRT text and a positive millisecond interval", message: srt.localizedDescription)
+            default:
+                failure = ProjectEditError(code: "invalid_srt_input", targetID: projectID, property: "path",
+                    allowedRange: "complete UTF-8 SRT captions", message: srt.localizedDescription)
+            }
+        } else if case let VideoProjectValidationError.invalidSubtitle(id) = error {
+            failure = ProjectEditError(code: "invalid_caption", targetID: id, property: "text/start_time/end_time",
+                allowedRange: "nonblank text; 0 <= start < end <= \(projectID.flatMap { store.project(id: $0)?.timelineDuration } ?? 0)",
+                message: error.localizedDescription)
+        } else {
+            failure = ProjectEditError(code: "edit_failed", targetID: projectID, message: error.localizedDescription)
         }
+        struct Rejection: Encodable {
+            var status = "rejected"
+            var current_revision: Int?
+            var error: ProjectEditError
+        }
+        let rejection = Rejection(current_revision: projectID.flatMap { store.project(id: $0)?.revision }, error: failure)
+        let response = (try? Self.jsonResponse(rejection)) ?? StorybirdControlResponse(text: failure.message)
+        return StorybirdControlResponse(text: response.text, isError: true)
     }
 
     /// Handles revision-checked project edits, preview, and confirmed deletion.
@@ -597,7 +642,8 @@ final class StorybirdExternalControlHost {
             let targets: [[String: Any]] = try references.map { reference in
                 var actions = ["update"]
                 if reference.target != .project { actions += ["move", "duplicate", "delete"] }
-                if reference.target == .clip || reference.target == .audio { actions += ["split"] }
+                if reference.target == .clip || reference.target == .audio || reference.target == .subtitle { actions += ["split"] }
+                if reference.target == .subtitle { actions += ["merge"] }
                 if let effect = project.effects.first(where: { $0.id == reference.id }), effect.isCTA {
                     actions.removeAll { $0 == "duplicate" || $0 == "move" }
                 }
@@ -608,6 +654,7 @@ final class StorybirdExternalControlHost {
             }
             let data = try JSONSerialization.data(withJSONObject: [
                 "project": model, "scenes": scenes, "targets": targets, "timeline_duration": project.timelineDuration,
+                "captions": try JSONSerialization.jsonObject(with: encoder.encode(CaptionListEntry.entries(in: project))),
                 "media_assets": try JSONSerialization.jsonObject(with: encoder.encode(project.availableMediaAssets)),
                 "alignment_candidates": try JSONSerialization.jsonObject(with: encoder.encode(TimelineSnapping.candidates(in: project, playhead: playhead))),
                 "guidance": "Scene numbers are one-based clip order, excluding title/CTA cards. Times are seconds. Use stable IDs and current revision. Preview/apply atomic edits share target/action/values semantics. Clip/card structure is processed first, linked times once, then explicit layer fields. Preview IDs are provisional; use IDs from a successful apply. Equal-distance snapping prefers playhead, clip boundary, layer boundary, then earlier time."

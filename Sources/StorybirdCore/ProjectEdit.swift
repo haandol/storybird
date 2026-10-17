@@ -40,7 +40,7 @@ public enum ProjectEditTarget: String, Codable, CaseIterable, Sendable {
 }
 
 public enum ProjectEditAction: String, Codable, CaseIterable, Sendable {
-    case update, move, duplicate, delete, split
+    case update, move, duplicate, delete, split, merge
 }
 
 public struct ProjectEdit: Codable, Hashable, Sendable {
@@ -48,22 +48,24 @@ public struct ProjectEdit: Codable, Hashable, Sendable {
     public var id: UUID
     public var action: ProjectEditAction
     public var values: [String: ProjectEditValue]
+    public var relatedIDs: [UUID]
 
     public init(target: ProjectEditTarget, id: UUID, action: ProjectEditAction,
-                values: [String: ProjectEditValue] = [:]) {
+                values: [String: ProjectEditValue] = [:], relatedIDs: [UUID] = []) {
         self.target = target
         self.id = id
         self.action = action
         self.values = values
+        self.relatedIDs = relatedIDs
     }
 
-    private enum CodingKeys: String, CodingKey { case target, id, action, values }
+    private enum CodingKeys: String, CodingKey { case target, id, action, values; case relatedIDs = "related_ids" }
 
     /// Rejects unknown envelope keys too; accepting them would make a reviewed
     /// request mean something different from what its caller intended.
     public init(from decoder: Decoder) throws {
         let raw = try decoder.container(keyedBy: EditCodingKey.self)
-        let known: Set<String> = ["target", "id", "action", "values"]
+        let known: Set<String> = ["target", "id", "action", "values", "related_ids"]
         if let unknown = raw.allKeys.first(where: { !known.contains($0.stringValue) }) {
             throw ProjectEditError(code: "unknown_property", property: unknown.stringValue,
                 message: "Unknown edit property. No changes were saved.")
@@ -72,7 +74,20 @@ public struct ProjectEdit: Codable, Hashable, Sendable {
         target = try values.decode(ProjectEditTarget.self, forKey: .target)
         id = try values.decode(UUID.self, forKey: .id)
         action = try values.decode(ProjectEditAction.self, forKey: .action)
+        if values.contains(.relatedIDs), action != .merge {
+            throw ProjectEditError(code: "unknown_property", property: "related_ids", message: "Related IDs are only valid for merge.")
+        }
         self.values = try values.decodeIfPresent([String: ProjectEditValue].self, forKey: .values) ?? [:]
+        relatedIDs = try values.decodeIfPresent([UUID].self, forKey: .relatedIDs) ?? []
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(target, forKey: .target)
+        try container.encode(id, forKey: .id)
+        try container.encode(action, forKey: .action)
+        try container.encode(values, forKey: .values)
+        if action == .merge || !relatedIDs.isEmpty { try container.encode(relatedIDs, forKey: .relatedIDs) }
     }
 }
 

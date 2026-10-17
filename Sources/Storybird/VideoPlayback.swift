@@ -161,9 +161,14 @@ final class VideoPlaybackModel: ObservableObject {
 
     /// Seeks the video and overlay preview to one bounded project-time value.
     func seek(to seconds: Double) {
+        guard seconds.isFinite else { return }
         let bounded = min(max(seconds, 0), duration)
+        // Native slider normalization can put 7.6/30.4 seconds one floating-point
+        // step below the intended clock tick. Round before constructing CMTime
+        // so conversion cannot silently seek one 1/600-second tick earlier.
+        guard let ticks = Int64(exactly: (bounded * 600).rounded()) else { return }
         player.seek(
-            to: CMTime(seconds: bounded, preferredTimescale: 600),
+            to: CMTime(value: ticks, timescale: 600),
             toleranceBefore: .zero,
             toleranceAfter: .zero
         )

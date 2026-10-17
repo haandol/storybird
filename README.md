@@ -201,6 +201,23 @@ style editing also lets you choose which style properties to apply. One undo
 restores the complete edit. Agents use the same planner through
 `storybird_preview_edits` and `storybird_apply_edits`.
 
+Open **Captions** to review the full text, times and completion state of independent
+and Cue captions together. Select rows to edit or apply selected style fields.
+Split an independent caption at a time and a Unicode character boundary, or merge
+adjacent captions with the combined text you choose. **Import SRT…** appends
+UTF-8 captions; **Export SRT** writes independent captions, Cue captions or both
+to a new file. Existing text and files remain intact after a failed operation.
+
+<img src="docs/images/caption-list.png" width="360" alt="Synthetic caption panel showing complete English and Korean text, Cue descriptions, times and editing actions" />
+
+**Canvas** chooses the original size, 1920×1080, 1080×1920 or 1080×1080 and a
+background color. Select a clip and open **Placement…** to fit the whole source
+or fill the canvas, with horizontal and vertical anchors. Content-linked Cues
+and effects follow that placement; subtitles and cards follow the canvas.
+Select a spotlight to drag its center or corners directly in the preview. A
+selected pan/zoom exposes start/end centers and zoom sliders. Numeric editing
+remains available, and the handles do not appear in the exported video.
+
 Subtitles default to bottom-center and wrap between words across the available
 frame width. Preview and MP4 use the same font and layout without shrinking long
 captions or cutting them off at three lines. Keep one subtitle size throughout

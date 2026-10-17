@@ -118,7 +118,7 @@ public struct StorybirdMCPService: Sendable {
 
     /// Defines the public computer-use surface and its side-effect hints.
     static var toolDefinitions: [Tool] {
-        sourceTools + projectTools + layerTools + voiceTools + draftTools + audioTools + exportTools + importTools + voiceModelTools + updateTools + batchTools
+        sourceTools + projectTools + layerTools + voiceTools + draftTools + audioTools + exportTools + importTools + voiceModelTools + updateTools + batchTools + captionFileTools
     }
 
     private static let exposedTools = Dictionary(uniqueKeysWithValues: toolDefinitions.map { ($0.name, $0) })
@@ -886,7 +886,7 @@ public struct StorybirdMCPService: Sendable {
            schema["additionalProperties"]?.boolValue == false,
            let properties = schema["properties"]?.objectValue,
            let unknown = Set(arguments.keys).subtracting(properties.keys).sorted().first {
-            if ["storybird_preview_edits", "storybird_apply_edits"].contains(parameters.name) {
+            if ["storybird_preview_edits", "storybird_apply_edits", "storybird_import_subtitles", "storybird_export_subtitles"].contains(parameters.name) {
                 // The app rejects the same unknown key while attaching the
                 // current revision and exact batch target to its error.
                 return await callApp(name: parameters.name, arguments: arguments)

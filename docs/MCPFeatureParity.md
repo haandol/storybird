@@ -183,6 +183,26 @@ project-editing tools. Changing their scope requires checking the owning ADR.
 
 ## Verification scope
 
+### Caption authoring, canvas and direct effects
+
+| Action/property | MCP path | Shared boundary |
+| --- | --- | --- |
+| Read all independent/Cue caption text, timing and completion state; seek to a row | `storybird_get_edit_context`, `storybird_render_preview` at explicit time | Same project records; seeking/selection is view state. |
+| Split independent text by internal time and Unicode grapheme offset; merge adjacent independent captions with supplied text | `storybird_preview_edits` / `storybird_apply_edits`, subtitle split/merge actions and explicit related IDs | Shared subtitle editor and one final revisioned save; Cue captions remain Cue components. |
+| Append UTF-8 SRT and export independent/Cue/both captions | `storybird_import_subtitles`, `storybird_export_subtitles` | App-owned local file I/O; atomic append, explicit export scope, stable ordering and millisecond rounding. |
+
+| Canvas original/1920×1080/1080×1920/1080×1080 and RGB background | `storybird_preview_edits` / `storybird_apply_edits`: project update `canvas_preset`, `canvas_background_hex` | ProjectEditFields → ProjectEditPlanner → app validation/save/undo. Native Canvas sheet captures the same revision. |
+| Per-clip Fit/Fill and horizontal/vertical 0...1 anchor | Same batch: clip update `fit_mode`, `anchor_x`, `anchor_y` | MediaPlacement, project validation and shared composition. MCPVisualMediaTests samples actual PNG/MP4 pixels across presets and both tool profiles. |
+| Move/resize spotlight; move pan/zoom start/end centers and scales | Same batch: effect update `x`, `y`, `width`, `height`, `start_x`, `start_y`, `start_scale`, `end_x`, `end_y`, `end_scale`; numeric effect tools remain supported | PreviewEffectEditModel keeps local drafts and commits one app-owned edit on release. PreviewEffectInteractionTests exercises actual corner/center drags and keyboard sliders, cancellation, stale input, write failure and undo. |
+
+CaptionCanvasInteractionTests exercises native editing/splitting/merging, import,
+selected style fields, canvas/placement controls and preserved drafts after
+revision/write failures. SubtitleEditingTests verifies Unicode boundaries,
+merge constraints, UTF-8 parsing, scope/order and millisecond rounding.
+MCPBatchEditingTests drives production handlers in both profiles, including
+all-or-nothing append, stale revision, missing related IDs and invalid canvas
+properties. View-only seek and selection use the existing authoring exception.
+
 ### Project visual media
 
 | UI action / property | MCP path | Shared behavior and evidence |
