@@ -80,7 +80,8 @@ public enum VideoTimelineEditor {
     public static func split(
         project: DemoProject,
         clipID: UUID,
-        sourceTime: Double
+        sourceTime: Double,
+        remapLayers: Bool = true
     ) throws -> DemoProject {
         var result = project
         guard let index = result.clips.firstIndex(where: { $0.id == clipID }) else {
@@ -133,10 +134,100 @@ public enum VideoTimelineEditor {
             )
         }
         result = SceneTiming.transferSplit(in: result, originalID: clipID, left: left, right: right)
-        return remapContentLayers(result)
+        return remapLayers ? remapContentLayers(result) : result
     }
 
-    /// Trims a video clip and removes content-linked layers outside every remaining source range.
+    /// Splits a held frame at its local seconds. Both children reuse the exact
+    /// source and geometry; a start on the boundary belongs only to the right.
+    public static func splitHeld(project: DemoProject, clipID: UUID, clipOffset: Double,
+                                 remapLayers: Bool = true) throws -> DemoProject {
+        guard let index = project.clips.firstIndex(where: { $0.id == clipID }) else {
+            throw VideoTimelineEditError.clipNotFound
+        }
+        let clip = project.clips[index]
+        guard clip.kind != .video, clipOffset.isFinite, clipOffset > 0, clipOffset < clip.outputDuration else {
+            throw VideoTimelineEditError.invalidSplit
+        }
+        var left = clip
+        var right = clip
+        left.id = UUID()
+        right.id = UUID()
+        left.freezeDuration = clipOffset
+        right.freezeDuration = clip.outputDuration - clipOffset
+        var result = project
+        result.clips.replaceSubrange(index...index, with: [left, right])
+        for index in result.clicks.indices {
+            guard var anchor = result.clicks[index].sourceAnchor, anchor.clipID == clipID else { continue }
+            let isRight = anchor.clipOffset >= clipOffset
+            anchor.clipID = isRight ? right.id : left.id
+            if isRight { anchor.clipOffset -= clipOffset }
+            result.clicks[index].sourceAnchor = anchor
+        }
+        result.effects = result.effects.flatMap { transferEffect($0, from: clipID, to: left, or: right) }
+        result = SceneTiming.transferSplit(in: result, originalID: clipID, left: left, right: right)
+        return remapLayers ? remapContentLayers(result) : result
+    }
+
+    /// Duplicates the exact scene and its owned layers with fresh identities.
+    /// Fixed-time layers and original asset files remain shared, unchanged data.
+    /// A batch caller defers remapping until all structural edits are complete.
+    public static func duplicate(project: DemoProject, clipID: UUID, destination: Int,
+                                 remapLayers: Bool = true) throws -> DemoProject {
+        guard var copy = project.clips.first(where: { $0.id == clipID }) else {
+            throw VideoTimelineEditError.clipNotFound
+        }
+        guard (0...project.clips.count).contains(destination) else { throw VideoTimelineEditError.invalidDestination }
+        var result = project
+        // Materialize legacy Cue ownership before inserting a matching source
+        // range earlier in the timeline; otherwise the original could be adopted.
+        let schedule = VideoTimelineSchedule(project: project)
+        result.clicks = result.clicks.map { remappedClick($0, in: schedule) ?? $0 }
+        copy.id = UUID()
+        result.clips.insert(copy, at: destination)
+        var clickIDs: [UUID: UUID] = [:]
+        for original in result.clicks where original.sourceAnchor?.clipID == clipID {
+            var duplicate = original
+            duplicate.id = UUID()
+            duplicate.sourceAnchor?.clipID = copy.id
+            clickIDs[original.id] = duplicate.id
+            result.clicks.append(duplicate)
+        }
+        for original in project.subtitles where original.sceneAnchor?.clipID == clipID {
+            var duplicate = original
+            duplicate.id = UUID()
+            duplicate.sceneAnchor?.clipID = copy.id
+            result.subtitles.append(duplicate)
+        }
+        for original in project.narrations where original.sceneAnchor?.clipID == clipID {
+            var duplicate = original
+            duplicate.id = UUID()
+            duplicate.sceneAnchor?.clipID = copy.id
+            result.narrations.append(duplicate)
+        }
+        var effectIDs: [UUID: UUID] = [:]
+        for effect in project.effects {
+            guard var anchor = effectAnchor(effect), anchor.clipID == clipID else { continue }
+            anchor.clipID = copy.id
+            let duplicate = effectWithAnchor(reidentifiedEffect(effect), anchor)
+            effectIDs[effect.id] = duplicate.id
+            result.effects.append(duplicate)
+        }
+        for suggestion in project.suggestions {
+            guard let clickID = clickIDs[suggestion.clickID] else { continue }
+            var duplicate = suggestion
+            duplicate.id = UUID()
+            duplicate.clickID = clickID
+            duplicate.spotlight.id = effectIDs[suggestion.spotlight.id] ?? UUID()
+            duplicate.panZoom.id = effectIDs[suggestion.panZoom.id] ?? UUID()
+            if duplicate.spotlight.sourceAnchor?.clipID == clipID { duplicate.spotlight.sourceAnchor?.clipID = copy.id }
+            if duplicate.panZoom.sourceAnchor?.clipID == clipID { duplicate.panZoom.sourceAnchor?.clipID = copy.id }
+            result.suggestions.append(duplicate)
+        }
+        return remapLayers ? remapContentLayers(result) : result
+    }
+
+    /// Trims or extends within the owned original, then removes content-linked
+    /// layers whose start/range no longer belongs to the resulting scene.
     public static func trim(
         project: DemoProject,
         clipID: UUID,
@@ -149,8 +240,9 @@ public enum VideoTimelineEditor {
         }
         let clip = result.clips[index]
         guard clip.kind == .video,
-              sourceStart >= clip.sourceStart,
-              sourceEnd <= clip.sourceEnd,
+              sourceStart.isFinite, sourceEnd.isFinite,
+              sourceStart >= 0,
+              sourceEnd <= (project.mediaAsset(for: clip)?.duration ?? 0),
               sourceStart < sourceEnd
         else {
             throw VideoTimelineEditError.invalidTrim
@@ -163,21 +255,23 @@ public enum VideoTimelineEditor {
     /// Removes one clip without touching the immutable recording asset.
     public static func delete(
         project: DemoProject,
-        clipID: UUID
+        clipID: UUID,
+        remapLayers: Bool = true
     ) throws -> DemoProject {
         var result = project
         guard let index = result.clips.firstIndex(where: { $0.id == clipID }) else {
             throw VideoTimelineEditError.clipNotFound
         }
         result.clips.remove(at: index)
-        return remapContentLayers(result)
+        return remapLayers ? remapContentLayers(result) : result
     }
 
     /// Reorders one clip and remaps source-linked cues onto the resulting project clock.
     public static func move(
         project: DemoProject,
         clipID: UUID,
-        destination: Int
+        destination: Int,
+        remapLayers: Bool = true
     ) throws -> DemoProject {
         var result = project
         guard let index = result.clips.firstIndex(where: { $0.id == clipID }) else {
@@ -188,7 +282,7 @@ public enum VideoTimelineEditor {
         }
         let clip = result.clips.remove(at: index)
         result.clips.insert(clip, at: min(destination, result.clips.count))
-        return remapContentLayers(result)
+        return remapLayers ? remapContentLayers(result) : result
     }
 
     /// Applies the approved 0.25×...4× speed range and keeps linked layers on the same content.
@@ -204,6 +298,7 @@ public enum VideoTimelineEditor {
         guard let index = result.clips.firstIndex(where: { $0.id == clipID }) else {
             throw VideoTimelineEditError.clipNotFound
         }
+        guard result.clips[index].kind == .video else { throw VideoTimelineEditError.invalidSpeed }
         result.clips[index].playbackRate = rate
         return remapContentLayers(result)
     }
@@ -513,40 +608,28 @@ public enum VideoTimelineEditor {
         return effectWithTimesAndAnchor(effect, start, end, updated)
     }
 
-    /// Partitions an anchored video effect across zero, one, or two split children,
-    /// assigning a distinct ID when both child-owned source intervals remain.
+    /// Partitions source intervals or held-frame offsets across split children.
+    /// Only a second surviving segment receives a new effect identity.
     private static func transferEffect(
-        _ effect: DemoEffect,
-        from oldClipID: UUID,
-        to left: VideoClip,
-        or right: VideoClip
+        _ effect: DemoEffect, from oldClipID: UUID, to left: VideoClip, or right: VideoClip
     ) -> [DemoEffect] {
-        guard let anchor = effectAnchor(effect),
-              anchor.clipID == oldClipID,
-              anchor.clipKind == .video else {
-            return [effect]
-        }
-        let leftStart = max(anchor.sourceStart, left.sourceStart)
-        let leftEnd = min(anchor.sourceEnd, left.sourceEnd)
-        let rightStart = max(anchor.sourceStart, right.sourceStart)
-        let rightEnd = min(anchor.sourceEnd, right.sourceEnd)
+        guard let anchor = effectAnchor(effect), anchor.clipID == oldClipID,
+              anchor.clipKind == left.kind else { return [effect] }
+        let video = left.kind == .video
+        let start = video ? anchor.sourceStart : anchor.clipStartOffset
+        let end = video ? anchor.sourceEnd : anchor.clipEndOffset
+        let ranges: [(VideoClip, Double, Double)] = video
+            ? [(left, left.sourceStart, left.sourceEnd), (right, right.sourceStart, right.sourceEnd)]
+            : [(left, 0, left.outputDuration), (right, left.outputDuration, left.outputDuration + right.outputDuration)]
         var transferred: [DemoEffect] = []
-        if leftStart < leftEnd {
-            var leftAnchor = anchor
-            leftAnchor.clipID = left.id
-            leftAnchor.sourceStart = leftStart
-            leftAnchor.sourceEnd = leftEnd
-            transferred.append(effectWithAnchor(effect, leftAnchor))
-        }
-        if rightStart < rightEnd {
-            var rightAnchor = anchor
-            rightAnchor.clipID = right.id
-            rightAnchor.sourceStart = rightStart
-            rightAnchor.sourceEnd = rightEnd
-            let rightEffect = transferred.isEmpty
-                ? effect
-                : reidentifiedEffect(effect)
-            transferred.append(effectWithAnchor(rightEffect, rightAnchor))
+        for (clip, lower, upper) in ranges {
+            let lo = max(start, lower), hi = min(end, upper)
+            guard lo < hi else { continue }
+            var updated = anchor
+            updated.clipID = clip.id
+            if video { updated.sourceStart = lo; updated.sourceEnd = hi }
+            else { updated.clipStartOffset = lo - lower; updated.clipEndOffset = hi - lower }
+            transferred.append(effectWithAnchor(transferred.isEmpty ? effect : reidentifiedEffect(effect), updated))
         }
         return transferred
     }
@@ -678,9 +761,35 @@ public enum DemoEffectEditError: LocalizedError, Equatable {
 }
 
 public enum DemoEffectEditor {
+    /// Copies a title at a valid card boundary and shifts later layers once.
+    /// CTA duplication remains forbidden by the single-terminal-card rule.
+    public static func duplicateTitle(_ id: UUID, in project: DemoProject, at start: Double,
+                                      validateResult: Bool = true) throws -> DemoProject {
+        guard case var .title(copy) = project.effects.first(where: { $0.id == id }) else {
+            throw DemoEffectEditError.effectNotFound
+        }
+        guard start.isFinite, start >= 0 else { throw DemoEffectEditError.invalidTitlePosition }
+        let schedule = VideoTimelineSchedule(project: project)
+        if start != 0 {
+            guard let index = schedule.items.firstIndex(where: { abs($0.projectStart - start) < 0.001 }),
+                  schedule.items[index...].contains(where: { if case .clip = $0 { true } else { false } }) else {
+                throw DemoEffectEditError.invalidTitlePosition
+            }
+        }
+        let duration = copy.endTime - copy.startTime
+        var result = shiftProjectTimes(in: project, from: start, by: duration)
+        copy.id = UUID()
+        copy.startTime = start
+        copy.endTime = start + duration
+        result.effects.append(.title(copy))
+        if validateResult { try VideoProjectValidator.validate(result) }
+        return result
+    }
+
     /// Replaces card timing by closing the old gap and inserting the new one.
     /// Fixed-time and scene-linked layers use the same shifts as card insertion.
-    public static func replaceCard(_ replacement: DemoEffect, in project: DemoProject) throws -> DemoProject {
+    public static func replaceCard(_ replacement: DemoEffect, in project: DemoProject,
+                                   validateResult: Bool = true) throws -> DemoProject {
         guard let old = project.effects.first(where: { $0.id == replacement.id }),
               old.isFullScreenCard, replacement.isFullScreenCard,
               old.isCTA == replacement.isCTA else { throw DemoEffectEditError.effectNotFound }
@@ -709,7 +818,7 @@ public enum DemoEffectEditor {
         }
         var result = shiftProjectTimes(in: removed, from: replacement.startTime, by: duration)
         result.effects.append(replacement)
-        try VideoProjectValidator.validate(result)
+        if validateResult { try VideoProjectValidator.validate(result) }
         return result
     }
 

@@ -6,6 +6,40 @@ import XCTest
 
 @MainActor
 final class MCPFeatureParityTests: XCTestCase {
+    func test_atomicEditSchemas_shareInputsAndExposeAllTargetProperties() throws {
+        for profile in StorybirdMCPToolProfile.allCases {
+            let tools = StorybirdMCPService.toolDefinitions(for: profile)
+            let preview = try XCTUnwrap(tools.first { $0.name == "storybird_preview_edits" })
+            let apply = try XCTUnwrap(tools.first { $0.name == "storybird_apply_edits" })
+            XCTAssertEqual(preview.inputSchema, apply.inputSchema)
+            XCTAssertEqual(preview.annotations.readOnlyHint, true)
+            XCTAssertEqual(apply.annotations.readOnlyHint, false)
+            let schema = try XCTUnwrap(apply.inputSchema.objectValue)
+            XCTAssertEqual(Set(schema["required"]?.arrayValue?.compactMap(\.stringValue) ?? []),
+                ["project_id", "expected_revision", "edits"])
+            let branches = try XCTUnwrap(schema["properties"]?.objectValue?["edits"]?.objectValue?["items"]?.objectValue?["oneOf"]?.arrayValue)
+            let clipSplits = branches.filter {
+                let fields = $0.objectValue?["properties"]?.objectValue
+                return fields?["target"]?.objectValue?["const"]?.stringValue == "clip"
+                    && fields?["action"]?.objectValue?["const"]?.stringValue == "split"
+            }
+            XCTAssertEqual(clipSplits.count, 2)
+            XCTAssertEqual(Set(clipSplits.flatMap {
+                $0.objectValue?["properties"]?.objectValue?["values"]?.objectValue?["required"]?.arrayValue?.compactMap(\.stringValue) ?? []
+            }), ["source_time", "clip_offset"])
+            for target in ProjectEditTarget.allCases {
+                let branch = try XCTUnwrap(branches.first {
+                    let values = $0.objectValue?["properties"]?.objectValue
+                    return values?["target"]?.objectValue?["const"]?.stringValue == target.rawValue
+                        && values?["action"]?.objectValue?["const"]?.stringValue == "update"
+                })
+                let values = try XCTUnwrap(branch.objectValue?["properties"]?.objectValue?["values"]?.objectValue)
+                XCTAssertEqual(values["additionalProperties"], false)
+                XCTAssertFalse(values["properties"]?.objectValue?.isEmpty ?? true)
+            }
+        }
+    }
+
     func test_subtitleSchemas_exposeSharedStyleGuidanceInBothProfiles() throws {
         for profile in StorybirdMCPToolProfile.allCases {
             let tools = StorybirdMCPService.toolDefinitions(for: profile)

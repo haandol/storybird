@@ -5,6 +5,15 @@ public enum TimelineLayerTarget: Hashable, Sendable {
     case subtitle(UUID)
     case narration(UUID)
     case effect(UUID)
+
+    public var editReference: ProjectEditReference {
+        switch self {
+        case let .click(id): ProjectEditReference(target: .click, id: id)
+        case let .subtitle(id): ProjectEditReference(target: .subtitle, id: id)
+        case let .narration(id): ProjectEditReference(target: .audio, id: id)
+        case let .effect(id): ProjectEditReference(target: .effect, id: id)
+        }
+    }
 }
 
 public enum TimelineLayerMoveError: LocalizedError {
@@ -23,7 +32,8 @@ public enum TimelineLayerEditor {
     /// Translates one complete layer without trimming it. New scene ownership,
     /// effect conflicts, and project bounds are validated before any publication.
     public static func move(
-        _ target: TimelineLayerTarget, by delta: Double, in project: DemoProject
+        _ target: TimelineLayerTarget, by delta: Double, in project: DemoProject,
+        validateResult: Bool = true
     ) throws -> DemoProject {
         guard delta.isFinite else { throw TimelineLayerMoveError.invalidMove }
         var result = project
@@ -78,14 +88,14 @@ public enum TimelineLayerEditor {
                 throw TimelineLayerMoveError.layerNotFound
             }
             layer.startTime += delta
-            return try AudioLayerEditor.replace(layer, in: project)
+            return try AudioLayerEditor.replace(layer, in: project, validateResult: validateResult)
         case let .effect(id):
             guard let index = result.effects.firstIndex(where: { $0.id == id }) else {
                 throw TimelineLayerMoveError.layerNotFound
             }
             let moved = translated(result.effects[index], by: delta)
             if moved.isFullScreenCard {
-                return try DemoEffectEditor.replaceCard(moved, in: project)
+                return try DemoEffectEditor.replaceCard(moved, in: project, validateResult: validateResult)
             }
             let schedule = VideoTimelineSchedule(project: project)
             guard moved.startTime >= 0, moved.endTime <= project.timelineDuration,
@@ -98,7 +108,7 @@ public enum TimelineLayerEditor {
                 moved, in: project, at: moved.startTime
             )
         }
-        try VideoProjectValidator.validate(result)
+        if validateResult { try VideoProjectValidator.validate(result) }
         return result
     }
 

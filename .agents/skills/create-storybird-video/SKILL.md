@@ -22,6 +22,15 @@ operation's fields in `input`. The [profile table](../../../docs/MCP.md#choose-a
 maps actions. Use `input: {}` for history operations. Do not call replaced legacy
 names when they are absent from discovery. The legacy profile keeps direct fields.
 
+When `storybird_apply_edits` is advertised, use it for multiple explicit targets
+that must succeed together. `storybird_preview_edits` accepts the same revision
+and edit array and can inspect the prospective result without saving. Preview
+IDs are provisional; use created IDs from a successful apply for later requests.
+Read each target's fields and source bounds from `storybird_get_edit_context`.
+Do not directly retime a scene-linked layer in conflict with its clip's move;
+combine the clip move with style/text edits instead. Batch rejection saves no
+partial result, and a successful edit is one undo unit.
+
 - **Existing video:** start with `storybird_get_edit_context`. Resolve one-based
   scene numbers, clip times and layer IDs. Do not start a recording, inspect voice
   profiles, or generate speech for an edit that does not need them.

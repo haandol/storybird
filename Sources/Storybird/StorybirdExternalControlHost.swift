@@ -170,6 +170,8 @@ final class StorybirdExternalControlHost {
                  "storybird_set_source_audio",
                  "storybird_render_audio_preview":
                 return try await handleAudioCommand(request.name, arguments: arguments)
+            case "storybird_preview_edits", "storybird_apply_edits":
+                return handleBatchEdits(request.name, arguments: arguments)
             case "storybird_get_edit_context",
                  "storybird_create_project",
                  "storybird_create_click",
@@ -519,6 +521,55 @@ final class StorybirdExternalControlHost {
         }
     }
 
+    /// Returns a complete batch outcome or a structured, revision-bearing error.
+    /// Decoding and planning cannot write; the app owns the sole commit boundary.
+    private func handleBatchEdits(_ name: String, arguments: [String: Any]) -> StorybirdControlResponse {
+        let projectID = (arguments["project_id"] as? String).flatMap(UUID.init(uuidString:))
+        do {
+            if let unknown = Set(arguments.keys).subtracting(["project_id", "expected_revision", "edits"]).sorted().first {
+                throw ProjectEditError(code: "unknown_property", property: unknown, message: "Unknown batch argument: \(unknown).")
+            }
+            let id = try Self.uuid("project_id", in: arguments)
+            let revision = try Self.requiredInt("expected_revision", in: arguments)
+            guard revision >= 0 else {
+                throw ProjectEditError(code: "invalid_value", property: "expected_revision", allowedRange: "integer >= 0", message: "Invalid expected revision.")
+            }
+            guard let inputs = arguments["edits"] as? [[String: Any]] else {
+                throw ProjectEditError(code: "invalid_value", property: "edits", allowedRange: "array of explicit edit objects", message: "Specify an edits array.")
+            }
+            var edits: [ProjectEdit] = []
+            for (index, input) in inputs.enumerated() {
+                do { edits.append(try JSONDecoder().decode(ProjectEdit.self, from: JSONSerialization.data(withJSONObject: input))) }
+                catch {
+                    var failure = error as? ProjectEditError ?? ProjectEditError(code: "invalid_input",
+                        property: "edits", message: "Invalid edit object: \(error.localizedDescription)")
+                    failure.operationIndex = index
+                    failure.targetID = (input["id"] as? String).flatMap(UUID.init(uuidString:))
+                    throw failure
+                }
+            }
+            return try Self.jsonResponse(store.editProject(projectID: id, expectedRevision: revision,
+                edits: edits, preview: name == "storybird_preview_edits"))
+        } catch {
+            let failure: ProjectEditError
+            if let value = error as? ProjectEditError { failure = value }
+            else if case RecordingStoreError.revisionConflict = error {
+                failure = ProjectEditError(code: "revision_conflict", targetID: projectID,
+                    property: "expected_revision", message: error.localizedDescription)
+            } else {
+                failure = ProjectEditError(code: "edit_failed", targetID: projectID, message: error.localizedDescription)
+            }
+            struct Rejection: Encodable {
+                var status = "rejected"
+                var current_revision: Int?
+                var error: ProjectEditError
+            }
+            let rejection = Rejection(current_revision: projectID.flatMap { store.project(id: $0)?.revision }, error: failure)
+            let response = (try? Self.jsonResponse(rejection)) ?? StorybirdControlResponse(text: failure.message)
+            return StorybirdControlResponse(text: response.text, isError: true)
+        }
+    }
+
     /// Handles revision-checked project edits, preview, and confirmed deletion.
     private func handleProjectCommand(
         _ name: String,
@@ -527,6 +578,8 @@ final class StorybirdExternalControlHost {
         switch name {
         case "storybird_get_edit_context":
             let project = try project(from: arguments)
+            let playhead = arguments["playhead"] == nil ? nil : try AgentEditArguments(values: arguments)
+                .number("playhead", range: 0...project.timelineDuration)
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             let model = try JSONSerialization.jsonObject(with: encoder.encode(project))
@@ -537,11 +590,27 @@ final class StorybirdExternalControlHost {
                 return ["scene_number": sceneNumber, "clip_id": clip.clip.id.uuidString,
                         "start_time": clip.projectStart, "end_time": clip.projectEnd,
                         "source_start": clip.clip.sourceStart, "source_end": clip.clip.sourceEnd,
-                        "kind": clip.clip.kind.rawValue, "playback_rate": clip.clip.playbackRate]
+                        "kind": clip.clip.kind.rawValue, "playback_rate": clip.clip.playbackRate,
+                        "asset_id": (clip.clip.mediaAssetID ?? project.id).uuidString]
+            }
+            let references = ProjectEditPlanner.references(in: project)
+            let targets: [[String: Any]] = try references.map { reference in
+                var actions = ["update"]
+                if reference.target != .project { actions += ["move", "duplicate", "delete"] }
+                if reference.target == .clip || reference.target == .audio { actions += ["split"] }
+                if let effect = project.effects.first(where: { $0.id == reference.id }), effect.isCTA {
+                    actions.removeAll { $0 == "duplicate" || $0 == "move" }
+                }
+                return ["target": reference.target.rawValue, "id": reference.id.uuidString, "actions": actions,
+                    "values": try JSONSerialization.jsonObject(with: encoder.encode(ProjectEditPlanner.values(for: reference, in: project))),
+                    "fields": try JSONSerialization.jsonObject(with: encoder.encode(
+                        ProjectEditPlanner.fields(for: reference.target, id: reference.id, in: project)))]
             }
             let data = try JSONSerialization.data(withJSONObject: [
-                "project": model, "scenes": scenes,
-                "guidance": "Scene numbers are one-based clip order, excluding title/CTA cards. Resolve the user's text against these IDs and current text; use expected_revision on edits."
+                "project": model, "scenes": scenes, "targets": targets, "timeline_duration": project.timelineDuration,
+                "media_assets": try JSONSerialization.jsonObject(with: encoder.encode(project.availableMediaAssets)),
+                "alignment_candidates": try JSONSerialization.jsonObject(with: encoder.encode(TimelineSnapping.candidates(in: project, playhead: playhead))),
+                "guidance": "Scene numbers are one-based clip order, excluding title/CTA cards. Times are seconds. Use stable IDs and current revision. Preview/apply atomic edits share target/action/values semantics. Clip/card structure is processed first, linked times once, then explicit layer fields. Preview IDs are provisional; use IDs from a successful apply. Equal-distance snapping prefers playhead, clip boundary, layer boundary, then earlier time."
             ], options: [.sortedKeys])
             return StorybirdControlResponse(text: String(decoding: data, as: UTF8.self))
         case "storybird_create_project":

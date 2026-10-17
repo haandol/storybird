@@ -400,7 +400,7 @@ struct SubtitleLayerInspector: View {
     }
 }
 
-private struct OverlayStyleEditor: View {
+struct OverlayStyleEditor: View {
     @Binding var style: TextOverlayStyle
 
     var body: some View {

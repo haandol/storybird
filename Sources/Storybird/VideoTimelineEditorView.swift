@@ -10,6 +10,28 @@ private enum TimelineLayerSelection: Equatable {
     case narration(UUID)
     case effect(UUID)
     case suggestion(UUID)
+
+    var editReference: ProjectEditReference? {
+        switch self {
+        case let .clip(id): ProjectEditReference(target: .clip, id: id)
+        case let .click(id): ProjectEditReference(target: .click, id: id)
+        case let .subtitle(id): ProjectEditReference(target: .subtitle, id: id)
+        case let .narration(id): ProjectEditReference(target: .audio, id: id)
+        case let .effect(id): ProjectEditReference(target: .effect, id: id)
+        case .suggestion: nil
+        }
+    }
+
+    init?(_ reference: ProjectEditReference) {
+        switch reference.target {
+        case .clip: self = .clip(reference.id)
+        case .click: self = .click(reference.id)
+        case .subtitle: self = .subtitle(reference.id)
+        case .audio: self = .narration(reference.id)
+        case .effect: self = .effect(reference.id)
+        case .project: return nil
+        }
+    }
 }
 
 private struct PlaybackCompositionState: Equatable {
@@ -49,6 +71,9 @@ struct VideoTimelineEditorView: View {
     @State private var trackCache = TimelineTrackCache()
     private let videoURL: URL
     @State private var selection: TimelineLayerSelection?
+    @State private var selectedTargets: Set<ProjectEditReference> = []
+    @State private var bulkStyleSession: CaptionStyleSession?
+    @State private var propertySession: BatchPropertySession?
     @State private var isInspectorPresented = false
     @State private var isPlacingClick = false
     @State private var previewLayout = TimelinePreviewLayout()
@@ -59,6 +84,8 @@ struct VideoTimelineEditorView: View {
     @StateObject private var audition = AudioAuditionPlayer()
     @State private var editingNarration: NarrationClip?
     @StateObject private var layerDrag = TimelineLayerDragModel()
+    @StateObject private var clipEdit = TimelineClipEditModel()
+    @State private var snapEnabled = true
     @GestureState private var isDraggingLayer = false
     @State private var expandedTrackKinds: Set<TimelineTrack.Kind> = []
     @State private var dragRows: [TimelineTrack]?
@@ -145,6 +172,12 @@ struct VideoTimelineEditorView: View {
         .sheet(item: $editingNarration) { layer in
             TimelineNarrationEditor(store: store, projectID: project.id, layer: layer)
         }
+        .sheet(item: $bulkStyleSession) { session in
+            CaptionBulkStyleSheet(store: store, session: session)
+        }
+        .sheet(item: $propertySession) { session in
+            BatchPropertySheet(store: store, session: session)
+        }
         .sheet(isPresented: $isInspectorPresented) {
             PlaybackDrivenView(playback: playback) { _ in inspector }
                 .frame(width: 360, height: 520)
@@ -157,6 +190,7 @@ struct VideoTimelineEditorView: View {
             playback.player.pause()
             audition.stop()
             layerDrag.cancel()
+            clipEdit.cancel()
             audioModel.cancel()
             dragRows = nil
             scrubFeedback.cancel()
@@ -167,6 +201,9 @@ struct VideoTimelineEditorView: View {
             audition.stop()
             previewPhase = .loading
             layerDrag.cancel()
+            clipEdit.cancel()
+            selectedTargets = []
+            selection = nil
             audioModel.cancel()
             dragRows = nil
             expandedTrackKinds = []
@@ -188,15 +225,22 @@ struct VideoTimelineEditorView: View {
             previewPhase = .loading
             playback.rebuild(url: videoURL, project: project)
         }
-        .onChange(of: audioModel.selectedLayerID) { _, id in
-            selection = id.map(TimelineLayerSelection.narration)
+        .onChange(of: audioModel.selectedLayerID) { previous, id in
+            if let id { selection = .narration(id) }
+            else if case let .narration(selected) = selection, selected == previous { selection = nil }
         }
         .onReceive(NotificationCenter.default.publisher(for: .storybirdOpenProjectAudio)) { notification in
             if notification.object as? UUID == project.id { showAudioComposer = true }
         }
-        .onChange(of: selection) { previous, _ in
+        .onChange(of: selection) { previous, next in
             audioModel.cancelAdjustment()
             if case let .narration(id) = previous { audition.stop(id: .layer(id)) }
+            if let ref = next?.editReference {
+                if !selectedTargets.contains(ref) { selectedTargets = [ref] }
+            } else { selectedTargets = [] }
+        }
+        .onChange(of: project.revision) { _, _ in
+            selectedTargets.formIntersection(Set(ProjectEditPlanner.references(in: project)))
         }
         .onChange(of: previewLayout.visibility) { _, visibility in
             if visibility == .hidden { previewPhase = .loading }
@@ -270,7 +314,7 @@ struct VideoTimelineEditorView: View {
         GeometryReader { proxy in
             let audioHeight: CGFloat = compact && (showAudioComposer || showMediaLibrary)
                 ? min(190, max(80, proxy.size.height * 0.24)) : 0
-            let toolsHeight: CGFloat = selectedNarrationID == nil ? 204 : 248
+            let toolsHeight: CGFloat = (selectedNarrationID == nil ? 204 : 248) + (selectedTargets.count > 1 ? 44 : 0)
             TimelinePreviewSplitView(
                 layout: $previewLayout,
                 minimumTimelineHeight: toolsHeight + 48 + audioHeight
@@ -472,6 +516,22 @@ struct VideoTimelineEditorView: View {
         VStack(alignment: .leading, spacing: 10) {
             PlaybackDrivenView(playback: playback) { _ in timelineToolbar }
                 .fixedSize(horizontal: false, vertical: true)
+            if selectedTargets.count > 1 {
+                PlaybackDrivenView(playback: playback) { playback in
+                    TimelineBatchControls(store: store, project: project,
+                        targets: ProjectEditPlanner.references(in: project).filter { selectedTargets.contains($0) },
+                        playhead: playback.currentTime,
+                        onSelect: { references in
+                            selectedTargets = Set(references)
+                            selection = references.first.flatMap(TimelineLayerSelection.init)
+                        }, onStyle: { bulkStyleSession = $0 }, onProperties: { propertySession = $0 })
+                }
+            }
+            if !clipEdit.previewSummary.isEmpty {
+                Text(clipEdit.previewSummary).font(.caption.monospacedDigit())
+                    .foregroundStyle(clipEdit.error == nil ? Color.secondary : .red)
+                    .lineLimit(2).allowsHitTesting(false)
+            }
             if let layer = project.narrations.first(where: { $0.id == selectedNarrationID }) {
                 PlaybackDrivenView(playback: playback) { playback in
                     TimelineAudioToolbar(
@@ -524,6 +584,9 @@ struct VideoTimelineEditorView: View {
                     if showMediaLibrary { showAudioComposer = false }
                 } label: { Label(showMediaLibrary ? "Close Media" : "Media", systemImage: "photo.on.rectangle") }
                 .accessibilityIdentifier("timeline-media-toggle")
+                Toggle(isOn: $snapEnabled) { Label("Snap", systemImage: "scope") }
+                    .toggleStyle(.button).accessibilityIdentifier("timeline-snap-toggle")
+                    .help("Snap to playhead and boundaries. Hold Option to bypass during a drag.")
                 Menu("Source Audio") {
                     Toggle("Mute original audio", isOn: $project.sourceAudioMuted)
                     Button("Original volume") { project.sourceAudioVolume = 1 }
@@ -531,7 +594,7 @@ struct VideoTimelineEditorView: View {
                     TextField("Volume", value: $project.sourceAudioVolume, format: .number)
                 }
 
-                if selectedClip != nil {
+                if selectedClip != nil && selectedTargets.count < 2 {
                     Divider()
                         .frame(height: 20)
                     Button {
@@ -540,6 +603,12 @@ struct VideoTimelineEditorView: View {
                         Label("Split", systemImage: "scissors")
                     }
                     .disabled(!canSplitSelectedClip)
+                    .accessibilityIdentifier("timeline-split")
+
+                    Button { duplicateSelectedClip() } label: {
+                        Label("Duplicate", systemImage: "plus.square.on.square")
+                    }
+                    .accessibilityIdentifier("timeline-duplicate-clip")
 
                     Menu {
                         Button("Remove before playhead") {
@@ -740,6 +809,16 @@ struct VideoTimelineEditorView: View {
                         delegate: TimelineAudioDropDelegate(model: audioModel, store: store, project: project, width: width))
                 }
             }
+            if let guide = clipEdit.guide ?? layerDrag.guide?.time ?? audioModel.snapGuide?.time {
+                Rectangle().fill(clipEdit.error == nil ? Color.orange : Color.red)
+                    .frame(width: 1, height: timelineCanvasHeight)
+                    .offset(x: timelineX(for: guide, width: width)).allowsHitTesting(false)
+                Text(clipEdit.guide != nil ? clipEdit.guideLabel : snapLabel(layerDrag.guide ?? audioModel.snapGuide))
+                    .font(.caption.monospacedDigit()).padding(4)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 4))
+                    .offset(x: min(timelineX(for: guide, width: width), max(0, width - 200)), y: 18)
+                    .allowsHitTesting(false)
+            }
             PlaybackDrivenView(playback: playback) { playback in
                 let playheadX = timelineX(for: playback.currentTime, width: width)
                 Rectangle()
@@ -759,18 +838,29 @@ struct VideoTimelineEditorView: View {
     }
 
     /// Shares block selection and timing movement across editable layer kinds.
-    /// Video clips and suggestions retain their existing selection-only behavior.
+    /// Clip gestures use the same revisioned planner as MCP and keep pointer
+    /// previews local until the single mouse-up commit.
     @ViewBuilder
     private func layerBlock(row: TimelineTrack, span: TimelineTrackSpan, width: CGFloat) -> some View {
-        if row.kind == .narration, let layer = timelineSnapshot.narrations[span.id] {
+        if row.kind == .video, let clip = timelineSnapshot.clips[span.id] {
+            PlaybackDrivenView(playback: playback) { playback in
+                TimelineClipBlock(store: store, model: clipEdit, project: project, clip: clip,
+                    start: span.start, end: span.end, canvasWidth: width,
+                    selected: selectedTargets.contains(ProjectEditReference(target: .clip, id: clip.id)), playhead: playback.currentTime, snapEnabled: snapEnabled,
+                    onSelect: { flags in playbackInteraction.activate(); selectLayer(.clip(clip.id), extending: flags.contains(.command)) },
+                    onTap: { playback.seek(to: span.start) },
+                    onBegin: { dragRows = timelineRows; playback.player.pause() }, onEnd: { dragRows = nil })
+            }
+        } else if row.kind == .narration, let layer = timelineSnapshot.narrations[span.id] {
             PlaybackDrivenView(playback: playback) { playback in
                 TimelineAudioBlock(
                     store: store, model: audioModel, move: layerDrag, project: project, layer: layer,
-                    canvasWidth: width, selected: selectedNarrationID == layer.id, playhead: playback.currentTime,
-                    onSelect: {
+                    canvasWidth: width, selected: selectedTargets.contains(ProjectEditReference(target: .audio, id: layer.id)), playhead: playback.currentTime,
+                    snapEnabled: snapEnabled, selectedTargets: selectedTargets,
+                    onSelect: { flags in
                         playbackInteraction.activate()
-                        audioModel.selectedLayerID = layer.id
-                        selection = .narration(layer.id)
+                        selectLayer(.narration(layer.id), extending: flags.contains(.command))
+                        audioModel.selectedLayerID = selectedNarrationID
                     },
                     onEditText: {
                         if layer.voiceProfileID != nil || layer.customVoice != nil { editingNarration = layer }
@@ -783,23 +873,41 @@ struct VideoTimelineEditorView: View {
         } else {
             let selected = layerSelection(kind: row.kind, id: span.id)
             let target = movableLayer(kind: row.kind, id: span.id)
-            let delta = target != nil && layerDrag.target == target ? layerDrag.delta : 0
+            let delta = target.map(layerDrag.includes) == true ? layerDrag.delta : 0
             let displayed = TimelineTrackSpan(id: span.id, start: span.start + delta, end: span.end + delta)
             timelineBlock(
                 title: layerTitle(row: row, id: span.id), systemImage: row.symbol,
                 span: displayed, canvasWidth: width, color: layerColor(row.kind),
-                isSelected: selection == selected,
+                isSelected: selected.editReference.map { selectedTargets.contains($0) } ?? (selection == selected),
                 dragTarget: target,
                 usesSharedRows: row.kind.supportsExpansion && !expandedTrackKinds.contains(row.kind)
             ) {
                 playbackInteraction.activate()
-                selection = selected
+                selectLayer(selected, extending: NSApp.currentEvent?.modifierFlags.contains(.command) == true)
                 playback.seek(to: row.kind == .click
                     ? timelineSnapshot.clicks[span.id]?.time ?? span.start
                     : span.start)
             }
             .zIndex(target != nil && layerDrag.target == target ? 1 : 0)
         }
+    }
+
+    private func selectLayer(_ next: TimelineLayerSelection, extending: Bool) {
+        guard let ref = next.editReference else { selectedTargets = []; selection = next; return }
+        if extending {
+            if selectedTargets.contains(ref) {
+                selectedTargets.remove(ref)
+                selection = ProjectEditPlanner.references(in: project).first { selectedTargets.contains($0) }
+                    .flatMap(TimelineLayerSelection.init)
+            } else { selectedTargets.insert(ref); selection = next }
+        } else { selectedTargets = [ref]; selection = next }
+    }
+
+    private func snapLabel(_ candidate: TimelineSnapCandidate?) -> String {
+        guard let candidate else { return "" }
+        let name: String
+        switch candidate.kind { case .playhead: name = "Playhead"; case .clipBoundary: name = "Clip boundary"; case .layerBoundary: name = "Layer boundary" }
+        return String(format: "%@ · %.2fs", name, candidate.time)
     }
 
     /// Maps a visible row to the existing inspector selection, preserving every
@@ -955,32 +1063,34 @@ struct VideoTimelineEditorView: View {
         .buttonStyle(.plain)
         .offset(x: x)
         .accessibilityIdentifier("timeline-layer-\(span.id.uuidString)")
+        .highPriorityGesture(TimelinePointerGestures.commandTap {
+            if let dragTarget, let selected = TimelineLayerSelection(dragTarget.editReference) {
+                playbackInteraction.activate()
+                selectLayer(selected, extending: true)
+            }
+        }, including: dragTarget == nil ? .none : .all)
         .simultaneousGesture(
-            DragGesture(minimumDistance: 4, coordinateSpace: .named("timeline-layer-canvas"))
-                .updating($isDraggingLayer) { _, active, _ in
-                    if dragTarget != nil { active = true }
-                }
-                .onChanged { value in
-                    guard let dragTarget else { return }
-                    if layerDrag.target == nil {
-                        dragRows = timelineRows
-                        action()
-                        playback.player.pause()
+            TimelinePointerGestures.drag(updating: $isDraggingLayer, onChanged: { value, flags in
+                guard let dragTarget else { return }
+                if layerDrag.target == nil {
+                    dragRows = timelineRows
+                    if !selectedTargets.contains(dragTarget.editReference), let selected = TimelineLayerSelection(dragTarget.editReference) {
+                        playbackInteraction.activate()
+                        selectLayer(selected, extending: flags.contains(.command))
                     }
-                    layerDrag.update(
-                        target: dragTarget, translation: value.translation.width,
-                        canvasWidth: canvasWidth, project: project
-                    )
+                    playback.player.pause()
                 }
-                .onEnded { value in
-                    guard let dragTarget else { return }
-                    layerDrag.update(
-                        target: dragTarget, translation: value.translation.width,
-                        canvasWidth: canvasWidth, project: project
-                    )
-                    layerDrag.finish(in: store)
-                    dragRows = nil
-                },
+                layerDrag.update(target: dragTarget, translation: value.translation.width,
+                    canvasWidth: canvasWidth, project: project, selection: selectedTargets,
+                    playhead: playback.currentTime, snapEnabled: snapEnabled, bypassSnap: flags.contains(.option))
+            }, onEnded: { value, flags in
+                guard let dragTarget else { return }
+                layerDrag.update(target: dragTarget, translation: value.translation.width,
+                    canvasWidth: canvasWidth, project: project, selection: selectedTargets,
+                    playhead: playback.currentTime, snapEnabled: snapEnabled, bypassSnap: flags.contains(.option))
+                layerDrag.finish(in: store)
+                dragRows = nil
+            }),
             including: dragTarget == nil ? .none : .all
         )
         .help(
@@ -1082,7 +1192,20 @@ struct VideoTimelineEditorView: View {
     /// Keeps timing and the selected layer's form inside one split-view column.
     private var inspector: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if let index = project.clips.firstIndex(where: {
+            if selectedTargets.count > 1 {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("\(selectedTargets.count) layers selected").font(.headline)
+                    Text("Edit a common property for the selection, or use the timeline selection actions.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button("Edit common properties…") {
+                        do {
+                            propertySession = try BatchPropertySession.make(project: project,
+                                targets: ProjectEditPlanner.references(in: project).filter { selectedTargets.contains($0) })
+                        } catch { store.errorMessage = error.localizedDescription }
+                    }
+                    Spacer()
+                }.padding(20)
+            } else if let index = project.clips.firstIndex(where: {
                 $0.id == selectedClipID
             }) {
                 ClipLayerInspector(
@@ -1271,13 +1394,19 @@ struct VideoTimelineEditorView: View {
     }
 
     private var canSplitSelectedClip: Bool {
-        guard let clip = selectedClip,
-              let sourceTime = selectedClipSourceTimeAtPlayhead
-        else {
-            return false
+        guard let clip = selectedClip, let offset = selectedClipOffsetAtPlayhead else { return false }
+        return offset > 0.001 && offset < clip.outputDuration - 0.001
+    }
+
+    private var selectedClipOffsetAtPlayhead: Double? {
+        guard let selectedClipID else { return nil }
+        for item in VideoTimelineSchedule(project: project).items {
+            if case let .clip(clip) = item, clip.clip.id == selectedClipID,
+               playback.currentTime >= clip.projectStart, playback.currentTime <= clip.projectEnd {
+                return playback.currentTime - clip.projectStart
+            }
         }
-        return sourceTime > clip.sourceStart + 0.001
-            && sourceTime < clip.sourceEnd - 0.001
+        return nil
     }
 
     private var canTrimSelectedClipBeforePlayhead: Bool {
@@ -1381,23 +1510,27 @@ struct VideoTimelineEditorView: View {
 
     /// Splits the selected source clip at the frame represented by the project playhead.
     private func splitSelectedClip() {
-        guard let selectedClipID,
-              let sourceTime = selectedClipSourceTimeAtPlayhead
-        else { return }
+        guard let clip = selectedClip, let offset = selectedClipOffsetAtPlayhead else { return }
         do {
-            let edited = try VideoTimelineEditor.split(
-                project: project,
-                clipID: selectedClipID,
-                sourceTime: sourceTime
-            )
-            project = edited
-            selection = edited.clips.first {
-                $0.kind == .video
-                    && abs($0.sourceStart - sourceTime) <= 0.001
-            }.map { .clip($0.id) }
+            let previous = Set(project.clips.map(\.id))
+            let values: [String: ProjectEditValue] = clip.kind == .video
+                ? ["source_time": .number(clip.sourceStart + offset * clip.playbackRate)] : ["clip_offset": .number(offset)]
+            let edited = try store.editProject(projectID: project.id, expectedRevision: project.revision,
+                edits: [ProjectEdit(target: .clip, id: clip.id, action: .split, values: values)])
+            selection = edited.project.clips.last { !previous.contains($0.id) }.map { .clip($0.id) }
         } catch {
             store.errorMessage = error.localizedDescription
         }
+    }
+
+    private func duplicateSelectedClip() {
+        guard let id = selectedClipID, let index = project.clips.firstIndex(where: { $0.id == id }) else { return }
+        do {
+            let previous = Set(project.clips.map(\.id))
+            let result = try store.editProject(projectID: project.id, expectedRevision: project.revision,
+                edits: [ProjectEdit(target: .clip, id: id, action: .duplicate, values: ["destination_index": .number(Double(index + 1))])])
+            selection = result.project.clips.first { !previous.contains($0.id) }.map { .clip($0.id) }
+        } catch { store.errorMessage = error.localizedDescription }
     }
 
     /// Inserts one editable one-second freeze segment after the selected clip.

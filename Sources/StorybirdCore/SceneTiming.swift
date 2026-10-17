@@ -99,16 +99,22 @@ public enum SceneTiming {
         in project: DemoProject, originalID: UUID, left: VideoClip, right: VideoClip
     ) -> DemoProject {
         var result = project
+        func transfer(_ input: LayerSceneAnchor) -> LayerSceneAnchor {
+            var anchor = input
+            let isRight = left.kind == .video
+                ? anchor.sourceTime >= right.sourceStart : anchor.clipOffset >= left.outputDuration
+            anchor.clipID = isRight ? right.id : left.id
+            if left.kind != .video, isRight { anchor.clipOffset -= left.outputDuration }
+            return anchor
+        }
         for index in result.narrations.indices {
-            if var anchor = result.narrations[index].sceneAnchor, anchor.clipID == originalID {
-                anchor.clipID = anchor.sourceTime < right.sourceStart ? left.id : right.id
-                result.narrations[index].sceneAnchor = anchor
+            if let anchor = result.narrations[index].sceneAnchor, anchor.clipID == originalID {
+                result.narrations[index].sceneAnchor = transfer(anchor)
             }
         }
         for index in result.subtitles.indices {
-            if var anchor = result.subtitles[index].sceneAnchor, anchor.clipID == originalID {
-                anchor.clipID = anchor.sourceTime < right.sourceStart ? left.id : right.id
-                result.subtitles[index].sceneAnchor = anchor
+            if let anchor = result.subtitles[index].sceneAnchor, anchor.clipID == originalID {
+                result.subtitles[index].sceneAnchor = transfer(anchor)
             }
         }
         return result

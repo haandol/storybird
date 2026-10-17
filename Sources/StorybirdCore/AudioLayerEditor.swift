@@ -27,7 +27,8 @@ public enum AudioLayerEditor {
     /// Updates all requested properties as one value replacement and maintains
     /// scene ownership when a layer's start time changes.
     public static func replace(
-        _ layer: NarrationClip, in project: DemoProject, timingMode: LayerTimingMode? = nil
+        _ layer: NarrationClip, in project: DemoProject, timingMode: LayerTimingMode? = nil,
+        validateResult: Bool = true
     ) throws -> DemoProject {
         var result = project
         guard let index = result.narrations.firstIndex(where: { $0.id == layer.id }) else {
@@ -40,7 +41,7 @@ public enum AudioLayerEditor {
             replacement.sceneAnchor = mode == .scene ? try SceneTiming.anchor(at: layer.startTime, in: project) : nil
         }
         result.narrations[index] = replacement
-        try VideoProjectValidator.validate(result)
+        if validateResult { try VideoProjectValidator.validate(result) }
         return result
     }
 
@@ -74,7 +75,7 @@ public enum AudioLayerEditor {
     /// Reuses the immutable asset with a new layer identity and an explicit
     /// placement. Overlap is intentional and never shifts another layer.
     public static func duplicate(
-        layerID: UUID, in project: DemoProject, startTime: Double? = nil
+        layerID: UUID, in project: DemoProject, startTime: Double? = nil, validateResult: Bool = true
     ) throws -> DemoProject {
         guard var copy = project.narrations.first(where: { $0.id == layerID }) else {
             throw VideoProjectValidationError.invalidNarration(layerID, "Audio layer not found.")
@@ -84,13 +85,14 @@ public enum AudioLayerEditor {
         if copy.sceneAnchor != nil { copy.sceneAnchor = try SceneTiming.anchor(at: copy.startTime, in: project) }
         var result = project
         result.narrations.append(copy)
-        try VideoProjectValidator.validate(result)
+        if validateResult { try VideoProjectValidator.validate(result) }
         return result
     }
 
     /// Splits the selected source range into adjacent, positive-length layers
     /// referencing the same complete file; the split boundary belongs to the right.
-    public static func split(layerID: UUID, in project: DemoProject, at time: Double) throws -> DemoProject {
+    public static func split(layerID: UUID, in project: DemoProject, at time: Double,
+                             validateResult: Bool = true) throws -> DemoProject {
         guard let index = project.narrations.firstIndex(where: { $0.id == layerID }) else {
             throw VideoProjectValidationError.invalidNarration(layerID, "Audio layer not found.")
         }
@@ -116,7 +118,7 @@ public enum AudioLayerEditor {
         if original.sceneAnchor != nil { right.sceneAnchor = try SceneTiming.anchor(at: time, in: project) }
         var result = project
         result.narrations.replaceSubrange(index...index, with: [left, right])
-        try VideoProjectValidator.validate(result)
+        if validateResult { try VideoProjectValidator.validate(result) }
         return result
     }
 }

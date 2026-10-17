@@ -512,7 +512,7 @@ private struct AudioBlockFixture: View {
             Color.clear
             if let project = store.project(id: projectID), let layer = project.narrations.first {
                 TimelineAudioBlock(store: store, model: model, move: move, project: project, layer: layer,
-                    canvasWidth: 960, selected: true, playhead: 3, onSelect: {}, onEditText: {},
+                    canvasWidth: 960, selected: true, playhead: 3, onSelect: { _ in }, onEditText: {},
                     onBegin: {}, onEnd: {})
             }
         }

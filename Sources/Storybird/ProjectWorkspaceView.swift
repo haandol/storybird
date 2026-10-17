@@ -126,8 +126,8 @@ private struct ProjectHeader: View {
     }
 
     private var projectSummary: String {
-        if let recording = project.recording {
-            return "\(Self.time(recording.duration)) · \(project.clicks.count) clicks · \(project.subtitles.count) subtitles"
+        if project.recording != nil {
+            return "\(Self.time(project.timelineDuration)) · \(project.clicks.count) clicks · \(project.subtitles.count) subtitles"
         }
         if !project.steps.isEmpty {
             return "Legacy screenshot project · \(project.steps.count) screens"

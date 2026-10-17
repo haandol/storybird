@@ -676,6 +676,56 @@ before the job can be reported as completed. Project folders cannot be switched
 while an import is active. Missing/unreadable files, directories, special files,
 unsupported formats, and invalid media fail without a partial project.
 
+## Atomic edit review and application
+
+`storybird_preview_edits` and `storybird_apply_edits` accept the same
+`project_id`, `expected_revision` and nonempty `edits` array. Each edit has a
+`target` (`clip`, `click`, `subtitle`, `audio`, `effect`, or `project`), stable
+`id`, explicit `action`, and `values` object. Read `storybird_get_edit_context`
+for the target's available actions, editable fields, source references and bounds.
+All times are seconds; colors use `#RRGGBB`.
+
+```json
+{
+  "project_id": "PROJECT_UUID",
+  "expected_revision": 4,
+  "edits": [
+    {"target": "clip", "id": "CLIP_UUID", "action": "move", "values": {"destination_index": 2}},
+    {"target": "subtitle", "id": "SUBTITLE_UUID", "action": "update", "values": {"font_size": 22}}
+  ]
+}
+```
+
+Clip/card structure is processed first in request order, linked timing is
+derived once, and explicit layer changes are then applied. The complete result
+is validated and saved once. Duplicate explicit targets and unknown keys/types
+reject the whole request. A direct time change that contradicts the selected
+layer's scene movement also rejects it; a style change can accompany that move.
+
+Video `split` uses `source_time`; image/freeze `split` uses `clip_offset` inside
+the held duration. Audio `split` uses project `time`. Clip `move` and `duplicate`
+use `destination_index`; layer `move` uses `delta`, and layer `duplicate` uses
+an explicit `start_time`. Duplication reuses owned media. A duplicated clip
+also duplicates its scene-linked layers; fixed-time layers require their own
+explicit targets. Existing single-operation tools remain available.
+
+Preview returns `status: previewed`, the prospective project and
+`ids_provisional: true`. It creates no jobs/assets, saves nothing and adds no undo
+entry. Apply rechecks the revision and returns `status: applied`, `revision`,
+`timeline_duration`, `direct_changes`, `derived_changes`, and `created` ID mappings. Use IDs from the
+successful apply for later edits. A successful no-op keeps its revision and undo.
+Rejections include `current_revision` and an error with a code and applicable
+operation index, target, property and allowed range.
+
+The edit context also exposes `timeline_duration`, `media_assets`, and `targets`
+with current values and field constraints, plus
+`alignment_candidates`. Optional `playhead` adds a candidate at specified
+project seconds without moving the native player. Equal-distance alignment
+prefers playhead, clip boundary, then layer boundary; within a kind, earlier time
+wins. View selection and scrolling remain local. Registration, synthesis,
+file output and permanent project deletion use their separate tools.
+
+
 ## App version checks
 
 Both tool profiles expose these app-wide actions with no arguments:

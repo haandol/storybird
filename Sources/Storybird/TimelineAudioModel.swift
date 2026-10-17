@@ -25,6 +25,7 @@ final class TimelineAudioModel: ObservableObject {
     @Published var selectedLayerID: UUID?
     @Published private(set) var previewLayer: NarrationClip?
     @Published private(set) var adjustment: Adjustment?
+    @Published var snapGuide: TimelineSnapCandidate?
     @Published private(set) var errorMessage: String?
     @Published private(set) var isPlacing = false
     @Published private(set) var dragging: TimelineAudioReference?
@@ -157,6 +158,7 @@ final class TimelineAudioModel: ObservableObject {
         baseline = nil
         previewLayer = nil
         adjustment = nil
+        snapGuide = nil
     }
 
     /// Cancels view-owned interactions on project switch or dismissal.

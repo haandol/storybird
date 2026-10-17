@@ -22,9 +22,9 @@ final class MCPCompactToolTests: XCTestCase {
     func test_compactSchemas_preserveEveryBranchPropertyAndRequiredField() throws {
         let legacy = Dictionary(uniqueKeysWithValues: StorybirdMCPService.toolDefinitions.map { ($0.name, $0) })
         let compact = Dictionary(uniqueKeysWithValues: StorybirdMCPService.toolDefinitions(for: .compact).map { ($0.name, $0) })
-        XCTAssertEqual(legacy.count, 77)
-        XCTAssertEqual(compact.count, 59)
-        XCTAssertEqual(Set(legacy.keys).intersection(compact.keys).count, 50)
+        XCTAssertEqual(legacy.count, 79)
+        XCTAssertEqual(compact.count, 61)
+        XCTAssertEqual(Set(legacy.keys).intersection(compact.keys).count, 52)
         let removed = Set(MCPProfileTestClient.routes.map { "storybird_" + $0.legacy })
         XCTAssertEqual(Set(legacy.keys).subtracting(compact.keys), removed)
         for route in MCPProfileTestClient.routes where route.legacy != "delete_narration" {
@@ -85,7 +85,7 @@ final class MCPCompactToolTests: XCTestCase {
             XCTAssertTrue(initialization.instructions?.contains("Tool profile: compact") == true)
             let client = MCPProfileTestClient(client: raw, profile: .compact)
             let tools = try await raw.listTools().tools
-            XCTAssertEqual(tools.count, 59)
+            XCTAssertEqual(tools.count, 61)
             let repeated = try await raw.listTools().tools
             XCTAssertEqual(tools.map(\.name), repeated.map(\.name))
             let legacy = Dictionary(uniqueKeysWithValues: StorybirdMCPService.toolDefinitions.map { ($0.name, $0) })

@@ -118,7 +118,7 @@ public struct StorybirdMCPService: Sendable {
 
     /// Defines the public computer-use surface and its side-effect hints.
     static var toolDefinitions: [Tool] {
-        sourceTools + projectTools + layerTools + voiceTools + draftTools + audioTools + exportTools + importTools + voiceModelTools + updateTools
+        sourceTools + projectTools + layerTools + voiceTools + draftTools + audioTools + exportTools + importTools + voiceModelTools + updateTools + batchTools
     }
 
     private static let exposedTools = Dictionary(uniqueKeysWithValues: toolDefinitions.map { ($0.name, $0) })
@@ -144,7 +144,9 @@ public struct StorybirdMCPService: Sendable {
             storybird_edit_audio_layer and storybird_edit_history with an explicit action. \
             storybird_create_visual_effect and storybird_insert_card use kind instead. \
             Put project_id and expected_revision at the top level and operation fields in input \
-            ({} for undo/redo). One call executes one operation. Use layer_id for placed audio, \
+            ({} for undo/redo). One grouped call executes one operation; use \
+            storybird_preview_edits/storybird_apply_edits for atomic multi-target changes. \
+            Use layer_id for placed audio, \
             including generated narration; text regeneration remains storybird_update_narration. \
             Read the selected branch's required fields and units; do not mix actions' fields. \
             Pending suggestion update/reject keeps the output revision; apply edits the project. \
@@ -328,7 +330,10 @@ public struct StorybirdMCPService: Sendable {
         return [
             Tool(name: "storybird_get_edit_context", title: "Resolve text requests to scenes and layers",
                  description: "Read the current revision, one-based scene numbers and clip times, plus current click captions, subtitles, effects and narration. Use returned IDs for text-driven edits; Storybird does not interpret natural language.",
-                 inputSchema: projectIDSchema(), annotations: .init(readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false)),
+                 inputSchema: objectSchema(properties: ["project_id": id,
+                    "playhead": .object(["type": "number", "minimum": 0,
+                        "description": "Optional project seconds for alignment candidates only; does not move the native playhead."])],
+                    required: ["project_id"]), annotations: .init(readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false)),
             Tool(name: "storybird_create_project", title: "Create an empty project",
                  description: "Create a named placeholder. Every later recording still creates a separate video project.",
                  inputSchema: objectSchema(properties: ["name": id], required: ["name"]),
@@ -881,6 +886,11 @@ public struct StorybirdMCPService: Sendable {
            schema["additionalProperties"]?.boolValue == false,
            let properties = schema["properties"]?.objectValue,
            let unknown = Set(arguments.keys).subtracting(properties.keys).sorted().first {
+            if ["storybird_preview_edits", "storybird_apply_edits"].contains(parameters.name) {
+                // The app rejects the same unknown key while attaching the
+                // current revision and exact batch target to its error.
+                return await callApp(name: parameters.name, arguments: arguments)
+            }
             return Self.toolError("Unknown argument for \(parameters.name): \(unknown). No changes were made.")
         }
         return await callApp(name: parameters.name, arguments: arguments)

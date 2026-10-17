@@ -75,7 +75,9 @@ struct TimelineAudioBlock: View {
     let canvasWidth: Double
     let selected: Bool
     let playhead: Double
-    let onSelect: () -> Void
+    var snapEnabled: Bool = false
+    var selectedTargets: Set<ProjectEditReference> = []
+    let onSelect: (NSEvent.ModifierFlags) -> Void
     let onEditText: () -> Void
     let onBegin: () -> Void
     let onEnd: () -> Void
@@ -84,7 +86,7 @@ struct TimelineAudioBlock: View {
     private var scale: Double { canvasWidth / max(project.timelineDuration, 0.001) }
     private var displayed: NarrationClip {
         var result = model.previewLayer?.id == layer.id ? model.previewLayer! : layer
-        if move.target == .narration(layer.id) { result.startTime += move.delta }
+        if move.includes(.narration(layer.id)) { result.startTime += move.delta }
         return result
     }
     private var blockWidth: Double { max(18, displayed.duration * scale) }
@@ -126,7 +128,7 @@ struct TimelineAudioBlock: View {
     }
 
     private var blockBody: some View {
-        Button(action: onSelect) {
+        Button { onSelect(NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags) } label: {
         VStack(alignment: .leading, spacing: 1) {
             HStack(spacing: 4) {
                 if layer.isMuted { Image(systemName: "speaker.slash").font(.caption2) }
@@ -162,21 +164,24 @@ struct TimelineAudioBlock: View {
         .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .simultaneousGesture(TapGesture(count: 2).onEnded { onSelect(); onEditText() })
+        .highPriorityGesture(TimelinePointerGestures.commandTap { onSelect([.command]) })
+        .simultaneousGesture(TapGesture(count: 2).onEnded { onSelect([]); onEditText() })
         .simultaneousGesture(
-            DragGesture(minimumDistance: 0, coordinateSpace: .named("timeline-layer-canvas"))
-                .updating($dragging) { _, state, _ in state = true }
-                .onChanged { value in
-                    if move.target == nil { onSelect(); onBegin() }
-                    move.update(target: .narration(layer.id), translation: value.translation.width,
-                        canvasWidth: canvasWidth, project: project)
+            TimelinePointerGestures.drag(updating: $dragging, onChanged: { value, flags in
+                if move.target == nil {
+                    if !selectedTargets.contains(ProjectEditReference(target: .audio, id: layer.id)) { onSelect(flags) }
+                    onBegin()
                 }
-                .onEnded { value in
-                    move.update(target: .narration(layer.id), translation: value.translation.width,
-                        canvasWidth: canvasWidth, project: project)
-                    move.finish(in: store)
-                    onEnd()
-                }
+                move.update(target: .narration(layer.id), translation: value.translation.width,
+                    canvasWidth: canvasWidth, project: project, selection: selectedTargets,
+                    playhead: playhead, snapEnabled: snapEnabled, bypassSnap: flags.contains(.option))
+            }, onEnded: { value, flags in
+                move.update(target: .narration(layer.id), translation: value.translation.width,
+                    canvasWidth: canvasWidth, project: project, selection: selectedTargets,
+                    playhead: playhead, snapEnabled: snapEnabled, bypassSnap: flags.contains(.option))
+                move.finish(in: store)
+                onEnd()
+            })
         )
     }
 
@@ -207,9 +212,19 @@ struct TimelineAudioBlock: View {
     /// itself moves while dragging. Only release publishes the proposed range.
     private func adjustmentHandle(_ operation: TimelineAudioModel.Adjustment) -> some View {
         TimelineAudioDragHandle(
-            onChange: { translation in
+            onChange: { translation, flags in
                 if model.previewLayer == nil { onBegin() }
-                model.update(layerID: layer.id, adjustment: operation, value: translation / scale, project: project)
+                var delta = translation / scale
+                model.snapGuide = nil
+                if translation != 0, snapEnabled, !flags.contains(.option), operation == .trimStart || operation == .trimEnd {
+                    let edge = operation == .trimStart ? layer.startTime : layer.endTime
+                    if let candidate = TimelineSnapping.nearest(to: edge + delta, tolerance: 8 / scale,
+                        candidates: TimelineSnapping.candidates(in: project, playhead: playhead), excluding: [layer.id]) {
+                        delta = candidate.time - edge
+                        model.snapGuide = candidate
+                    }
+                }
+                model.update(layerID: layer.id, adjustment: operation, value: delta, project: project)
             },
             onEnd: {
                 model.finish(in: store)
@@ -224,7 +239,7 @@ struct TimelineAudioBlock: View {
 }
 
 private struct TimelineAudioDragHandle: NSViewRepresentable {
-    let onChange: (Double) -> Void
+    let onChange: (Double, NSEvent.ModifierFlags) -> Void
     let onEnd: () -> Void
     let onCancel: () -> Void
 
@@ -237,7 +252,7 @@ private struct TimelineAudioDragHandle: NSViewRepresentable {
     }
 
     final class HandleView: NSView {
-        var onChange: (Double) -> Void = { _ in }
+        var onChange: (Double, NSEvent.ModifierFlags) -> Void = { _, _ in }
         var onEnd: () -> Void = {}
         var onCancel: () -> Void = {}
         private var origin: CGFloat?
@@ -251,17 +266,17 @@ private struct TimelineAudioDragHandle: NSViewRepresentable {
         override func mouseDown(with event: NSEvent) {
             window?.makeFirstResponder(self)
             origin = event.locationInWindow.x
-            onChange(0)
+            onChange(0, event.modifierFlags)
         }
         /// Changes only the transient edit while the pointer is held.
         override func mouseDragged(with event: NSEvent) {
             guard let origin else { return }
-            onChange(event.locationInWindow.x - origin)
+            onChange(event.locationInWindow.x - origin, event.modifierFlags)
         }
         /// Publishes exactly once, including release outside the small handle.
         override func mouseUp(with event: NSEvent) {
             guard let origin else { return }
-            onChange(event.locationInWindow.x - origin)
+            onChange(event.locationInWindow.x - origin, event.modifierFlags)
             self.origin = nil
             onEnd()
         }

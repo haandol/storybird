@@ -188,6 +188,19 @@ Select a Click Cue to fill in its description and subtitle, or remove it if it i
 irrelevant. **Every retained Cue needs both texts before export.** You can also
 add independent subtitles at the top or bottom of the picture.
 
+Video blocks show source thumbnails. Drag either edge to trim or extend within
+the original footage, and drag the middle to choose a new insertion position.
+**Snap** aligns to the playhead and clip/layer boundaries; hold **Option** to
+bypass it during a drag. The temporary readout shows the proposed range,
+timeline length and linked-layer changes before one mouse-up save.
+
+Use **Command-click** to select several clips or layers. The selection toolbar
+can move, duplicate or delete them together. **Properties…** shows common
+properties and mixed values, then applies only the chosen property. Caption
+style editing also lets you choose which style properties to apply. One undo
+restores the complete edit. Agents use the same planner through
+`storybird_preview_edits` and `storybird_apply_edits`.
+
 Subtitles default to bottom-center and wrap between words across the available
 frame width. Preview and MP4 use the same font and layout without shrinking long
 captions or cutting them off at three lines. Keep one subtitle size throughout

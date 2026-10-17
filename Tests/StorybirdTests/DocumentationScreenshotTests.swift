@@ -177,10 +177,11 @@ final class DocumentationScreenshotTests: XCTestCase {
         let repository = ProjectRepository(rootURL: root)
         let id = UUID()
         let source = try repository.prepareVideoRecordingURL(projectID: id)
-        let media = try await TestVideoFactory.makeMovie(at: source.url, includeAudio: false, duration: 12)
+        let media = try await TestVideoFactory.makeMovie(at: source.url, includeAudio: false, duration: 12,
+            displaySize: CGSize(width: 1280, height: 720))
         var project = DemoProject(id: id, name: "Precise timeline navigation",
             recording: VideoRecordingAsset(filename: source.filename, duration: media.duration,
-                                           width: media.width, height: media.height),
+                                           width: 1280, height: 720),
             subtitles: [
                 TimedSubtitle(startTime: 0, endTime: 4, text: "Space to play or pause"),
                 TimedSubtitle(startTime: 4, endTime: 8, text: "Zoom in to place each moment precisely"),

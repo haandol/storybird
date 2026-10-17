@@ -28,7 +28,7 @@
       "adrs": [
         {
           "path": "docs/adr/timeline-editing/0001-non-destructive-clip-timeline.md",
-          "status": "Proposed",
+          "status": "Accepted (2026-10-17)",
           "summary": "여러 영상·이미지 클립과 연결 레이어를 공통 검토·원자 편집으로 조작한다"
         }
       ],

@@ -191,6 +191,21 @@ project-editing tools. Changing their scope requires checking the owning ADR.
 | Inspect original and reusable media cards | `storybird_list_media_assets`; project mediaAssets in `storybird_get_project` / `storybird_get_edit_context`; `storybird_render_preview` with asset_id and source-relative time | Stable visual IDs, kind, name, source dimensions/duration and available audio metadata. The app-owned source thumbnail path also works before placement and never edits project data. |
 | Place a video range or an image duration at a clip insertion boundary | `storybird_place_media_asset`: project_id, expected_revision, asset_id, destination_index; image duration or video source_start/source_end/playback_rate | MediaAssetEditor → app validation/save/undo. Same registry and source resolution for playback, frame preview, export and project copying. |
 
+### Atomic timeline editing
+
+The timeline changes below use one app-owned planner. MCPBatchEditingTests
+exercises both tool profiles and app handlers; TimelineClipInteractionTests
+executes the native clip/selection/property controls in synthetic windows.
+
+| Action/property | MCP path and arguments | Shared validation and observable result |
+| --- | --- | --- |
+| Trim video back to owned source bounds, split video/still/image, reorder and duplicate clips with owned scene-linked layers | Existing clip tools plus `storybird_apply_edits`: project_id, expected_revision, edits containing target, id, action and values | Core clip editor and final project validation; stable asset refs, newly generated layer IDs, one revision and undo. |
+| Change, move, duplicate or delete explicitly selected clip/Cue/subtitle/audio/effect targets together | `storybird_apply_edits` with one edit per explicit target | One draft and one final save; repeated targets, unknown properties and conflicting direct/derived timing reject the whole request. |
+| Inspect the result before saving | `storybird_preview_edits`, same project/revision/edits input | Same planner and validation; projected length/order/affected targets and provisional IDs. No save, asset generation, job or undo change. |
+| Discover editable fields, asset/source references and alignment candidates | `storybird_get_edit_context`, project_id and optional playhead | Read-only shared property inventory and timeline candidates; no need to reproduce selection or scroll gestures. |
+| Edit a common property or selected caption-style fields across mixed values | `storybird_apply_edits` with explicit `values` on each target; context exposes matching field definitions/current values | The native property sheet and MCP use ProjectEditFields/ProjectEditPlanner. Unselected fields are preserved; the sheet retains its opening revision and inputs after rejection. |
+| Toggle snapping or temporarily bypass it with Option; inspect alignment guide | `storybird_get_edit_context` alignment candidates and explicit edit times | Local view choice under the authoring view-control exception; TimelineSnapping shares candidate order and tie rules. Neither toggling nor querying changes project revision/undo. |
+
 `MCPInitializationTests` sends raw external-client JSON through the production
 transport adapter, including object-valued experimental capabilities. It checks
 initialization, tool discovery, repeated-initialization rejection and standard-field validation
