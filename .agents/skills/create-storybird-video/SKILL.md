@@ -243,3 +243,11 @@ without network access. Use `storybird_check_for_updates` only for a requested
 version check, then poll status; it fetches public GitHub release metadata and
 never installs software or changes projects. Do not add update checks to ordinary
 video production.
+
+For targeted clip work, use compact `storybird_edit_clip` actions `duplicate`,
+`set_duration` (image/freeze only) or `place_media`, or the legacy
+`storybird_duplicate_clip` / `storybird_set_clip_duration` and shared
+`storybird_place_media_asset` tools. Read current IDs/revision first.
+`destination_index` is a zero-based insertion position and `duration` is in
+seconds. These commit one app-owned edit with undo; use the returned generated
+IDs for subsequent edits. Multi-target changes still use preview/apply batches.

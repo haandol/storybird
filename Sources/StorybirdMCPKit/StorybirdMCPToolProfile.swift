@@ -50,9 +50,10 @@ struct StorybirdMCPToolGroup: Sendable {
     }
 
     static let all: [Self] = [
-        .init("edit_clip", "Edit a video clip", [
+        .init("edit_clip", "Edit a timeline clip", [
             ("split", "split_clip"), ("trim", "trim_clip"), ("delete", "delete_clip"),
-            ("move", "move_clip"), ("set_speed", "set_clip_speed"), ("insert_freeze", "insert_freeze"),
+            ("move", "move_clip"), ("duplicate", "duplicate_clip"), ("set_duration", "set_clip_duration"),
+            ("place_media", "place_media_asset"), ("set_speed", "set_clip_speed"), ("insert_freeze", "insert_freeze"),
         ]),
         .init("edit_click", "Edit a Click Cue", [
             ("create", "create_click"), ("update", "update_click"), ("delete", "delete_click"),
@@ -81,8 +82,11 @@ struct StorybirdMCPToolGroup: Sendable {
         ]),
     ]
 
+    // Placement keeps its established shared name as well as the clip branch;
+    // both advertised requests resolve to the same single app command.
     static let replacedNames = Set(all.flatMap { $0.branches.map(\.toolName) })
         .union(["storybird_delete_narration"])
+        .subtracting(["storybird_place_media_asset"])
 
     private static let envelopeKeys: Set<String> = ["project_id", "expected_revision"]
 

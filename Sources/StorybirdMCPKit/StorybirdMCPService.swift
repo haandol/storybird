@@ -123,7 +123,7 @@ public struct StorybirdMCPService: Sendable {
 
     private static let exposedTools = Dictionary(uniqueKeysWithValues: toolDefinitions.map { ($0.name, $0) })
 
-    /// Advertises either original tools or grouped edits, never both aliases.
+    /// Advertises one fixed profile while retaining explicitly shared tools.
     static func toolDefinitions(for profile: StorybirdMCPToolProfile) -> [Tool] {
         switch profile {
         case .legacy: toolDefinitions
@@ -895,7 +895,7 @@ public struct StorybirdMCPService: Sendable {
            schema["additionalProperties"]?.boolValue == false,
            let properties = schema["properties"]?.objectValue,
            let unknown = Set(arguments.keys).subtracting(properties.keys).sorted().first {
-            if ["storybird_preview_edits", "storybird_apply_edits", "storybird_import_subtitles", "storybird_export_subtitles"].contains(parameters.name) {
+            if ["storybird_preview_edits", "storybird_apply_edits", "storybird_duplicate_clip", "storybird_set_clip_duration", "storybird_import_subtitles", "storybird_export_subtitles"].contains(parameters.name) {
                 // The app rejects the same unknown key while attaching the
                 // current revision and exact batch target to its error.
                 return await callApp(name: parameters.name, arguments: arguments)

@@ -172,6 +172,8 @@ final class StorybirdExternalControlHost {
                 return try await handleAudioCommand(request.name, arguments: arguments)
             case "storybird_import_subtitles", "storybird_export_subtitles":
                 return await handleSubtitleFiles(request.name, arguments: arguments)
+            case "storybird_duplicate_clip", "storybird_set_clip_duration":
+                return handleTargetedClipEdit(request.name, arguments: arguments)
             case "storybird_preview_edits", "storybird_apply_edits":
                 return handleBatchEdits(request.name, arguments: arguments)
             case "storybird_get_edit_context",
@@ -521,6 +523,23 @@ final class StorybirdExternalControlHost {
             store.endStorageOperation(recordingStorageOperationID)
             self.recordingStorageOperationID = nil
         }
+    }
+
+    /// Targeted clip tools are one explicit batch edit, preserving the same
+    /// validation, linked timing, structured failure and app-owned undo boundary.
+    private func handleTargetedClipEdit(_ name: String, arguments: [String: Any]) -> StorybirdControlResponse {
+        let projectID = (arguments["project_id"] as? String).flatMap(UUID.init(uuidString:))
+        let field = name == "storybird_duplicate_clip" ? "destination_index" : "duration"
+        if let unknown = Set(arguments.keys).subtracting(["project_id", "expected_revision", "clip_id", field]).sorted().first {
+            return projectEditError(ProjectEditError(code: "unknown_property", property: unknown,
+                message: "Unknown clip argument: \(unknown)."), projectID: projectID)
+        }
+        let edit: [String: Any] = ["target": "clip", "id": arguments["clip_id"] ?? NSNull(),
+            "action": name == "storybird_duplicate_clip" ? "duplicate" : "update",
+            "values": [field: arguments[field] ?? NSNull()]]
+        return handleBatchEdits("storybird_apply_edits", arguments: [
+            "project_id": arguments["project_id"] ?? NSNull(),
+            "expected_revision": arguments["expected_revision"] ?? NSNull(), "edits": [edit]])
     }
 
     /// Returns a complete batch outcome or a structured, revision-bearing error.

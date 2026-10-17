@@ -18,15 +18,15 @@ Every name below is advertised in its stated profile. Read IDs and the current `
 
 ### Connection profiles
 
-The default `legacy` profile preserves the original 74 tools and adds eight tools (82 total).
+The default `legacy` profile preserves the original 74 tools and adds ten tools (84 total).
 Launch with `--tool-profile compact` to advertise 63 tools for the same actions.
-The selected list is fixed for that connection. Compact replaces 28 names with
+The selected list is fixed for that connection. Compact replaces 30 names with
 the following nine tools; the other 54 tools are shared by both profiles.
 There are no hidden aliases. Both profiles include the same explicit atomic batch tools.
 
 | Compact tool | Selector and matching legacy actions | Shared implementation and evidence |
 |---|---|---|
-| `storybird_edit_clip` | `action`: split, trim, delete, move, set_speed, insert_freeze | Companion validates one branch → existing clip handler → `VideoTimelineEditor` → app revision/save/undo |
+| `storybird_edit_clip` | `action`: split, trim, delete, move, duplicate, set_speed, insert_freeze, set_duration, place_media | Companion validates one branch → existing clip handler → `VideoTimelineEditor` → app revision/save/undo |
 | `storybird_edit_click` | `action`: create, update, delete | Existing Cue commands; all indicator/description/subtitle properties remain available |
 | `storybird_edit_subtitle` | `action`: upsert, delete | Existing subtitle commands and scene-timing validation |
 | `storybird_create_visual_effect` | `kind`: spotlight, pan_zoom, mask | Existing effect creation commands |
@@ -274,3 +274,11 @@ separately by `PreviewFrameContractTests`.
 This inventory does not claim real permission prompts, microphone input, every
 property combination or subjective speech quality were tested. Native-only
 setup boundaries remain as listed above.
+
+### Targeted clip operations
+
+| UI action/property | MCP path | Shared validation/result |
+|---|---|---|
+| Duplicate a clip and its scene-owned layers | Legacy `storybird_duplicate_clip`; compact `storybird_edit_clip` action `duplicate`, `clip_id`, `destination_index` | One ProjectEditPlanner duplicate through the app writer; current revision, created IDs, one undo and structured failure. |
+| Set image or freeze duration in seconds | Legacy `storybird_set_clip_duration`; compact clip action `set_duration`, `clip_id`, `duration` | Same positive duration and kind validation as batch properties; video duration rejects, linked timing is final-validated, save/undo remain atomic. |
+| Place an owned media asset at a clip boundary | Compact clip action `place_media`, same input as shared `storybird_place_media_asset` | Both advertised routes call the same app placement once. Existing shared placement remains available in both profiles; asset preparation stays separate. |

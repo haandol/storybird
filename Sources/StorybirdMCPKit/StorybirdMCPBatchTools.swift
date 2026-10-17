@@ -70,6 +70,17 @@ extension StorybirdMCPService {
         ], required: ["project_id", "expected_revision", "edits"])
         let semantics = "One explicit target/id/action/values object per target. Times are seconds. Structural clip/card edits precede one linked-time remap, then explicit layer edits; conflicting direct timing rejects the whole request. Unknown fields/types or duplicate targets reject everything. Read get_edit_context for this target's actual fields and source bounds. Video split uses source_time; image/freeze split uses clip_offset. Audio split uses project time. Subtitle split requires time and text_offset counted in Unicode grapheme clusters; merge requires the earliest id, adjacent related_ids and explicit combined text. Reorder indices are zero-based insertion positions after removal. Project deletion, asset registration, synthesis and file output are separate tools."
         return [
+            Tool(name: "storybird_duplicate_clip", title: "Duplicate a timeline clip",
+                description: "Duplicate one clip and its scene-owned layers at a zero-based insertion index. Uses the atomic edit planner and returns new revision, direct/derived changes and generated IDs. Originals remain unchanged; one undo restores the complete scene.",
+                inputSchema: objectSchema(properties: ["project_id": id, "expected_revision": index,
+                    "clip_id": id, "destination_index": index], required: ["project_id", "expected_revision", "clip_id", "destination_index"]),
+                annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false)),
+            Tool(name: "storybird_set_clip_duration", title: "Set image or freeze duration",
+                description: "Set a positive image/freeze duration in seconds and validate all linked timing as one atomic edit. Video clips use trim or speed instead. Returns the resulting project, revision and affected targets; unchanged values add no revision or undo.",
+                inputSchema: objectSchema(properties: ["project_id": id, "expected_revision": index,
+                    "clip_id": id, "duration": .object(["type": "number", "exclusiveMinimum": 0])],
+                    required: ["project_id", "expected_revision", "clip_id", "duration"]),
+                annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false)),
             Tool(name: "storybird_preview_edits", title: "Preview an atomic edit",
                 description: "Validate and describe the complete prospective edit without saving, creating assets/jobs or changing undo. Generated IDs are provisional: use apply's generated IDs for follow-up edits. " + semantics,
                 inputSchema: input, annotations: .init(readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false)),

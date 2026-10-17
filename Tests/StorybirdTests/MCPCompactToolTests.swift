@@ -22,10 +22,10 @@ final class MCPCompactToolTests: XCTestCase {
     func test_compactSchemas_preserveEveryBranchPropertyAndRequiredField() throws {
         let legacy = Dictionary(uniqueKeysWithValues: StorybirdMCPService.toolDefinitions.map { ($0.name, $0) })
         let compact = Dictionary(uniqueKeysWithValues: StorybirdMCPService.toolDefinitions(for: .compact).map { ($0.name, $0) })
-        XCTAssertEqual(legacy.count, 82)
+        XCTAssertEqual(legacy.count, 84)
         XCTAssertEqual(compact.count, 63)
         XCTAssertEqual(Set(legacy.keys).intersection(compact.keys).count, 54)
-        let removed = Set(MCPProfileTestClient.routes.map { "storybird_" + $0.legacy })
+        let removed = Set(MCPProfileTestClient.routes.map { "storybird_" + $0.legacy }).subtracting(["storybird_place_media_asset"])
         XCTAssertEqual(Set(legacy.keys).subtracting(compact.keys), removed)
         for route in MCPProfileTestClient.routes where route.legacy != "delete_narration" {
             let original = try XCTUnwrap(legacy["storybird_" + route.legacy])
@@ -118,7 +118,7 @@ final class MCPCompactToolTests: XCTestCase {
                 XCTAssertEqual(try JSONDecoder().decode([String: Value].self, from: request.argumentsJSON), expected)
             }
             let requests = await probe.requests
-            XCTAssertEqual(requests.count, 28, "Exactly one app call per public request.")
+            XCTAssertEqual(requests.count, 31, "Exactly one app call per public request.")
         }
     }
 
@@ -175,7 +175,7 @@ final class MCPCompactToolTests: XCTestCase {
                 let response = try await client.callTool(name: name, arguments: arguments)
                 XCTAssertEqual(response.isError, true, name)
             }
-            for name in MCPProfileTestClient.routes.map({ "storybird_" + $0.legacy }) + ["storybird_unadvertised"] {
+            for name in MCPProfileTestClient.routes.filter({ $0.legacy != "place_media_asset" }).map({ "storybird_" + $0.legacy }) + ["storybird_unadvertised"] {
                 let response = try await client.callTool(name: name, arguments: [:])
                 XCTAssertEqual(response.isError, true, name)
             }

@@ -10,6 +10,126 @@ import XCTest
 final class MCPBatchEditingTests: XCTestCase {
     private typealias Response = (content: [Tool.Content], isError: Bool?)
 
+    func test_targetedClipDuplicate_bothProfilesReturnOwnedLayerIDsAndRejectInvalidOrStaleEdits() async throws {
+        for profile in StorybirdMCPToolProfile.allCases {
+            try await withClient(profile) { raw, store, original, root in
+                let client = MCPProfileTestClient(client: raw, profile: profile)
+                let input: [String: Value] = ["project_id": .string(original.id.uuidString),
+                    "expected_revision": .int(original.revision), "clip_id": .string(original.clips[0].id.uuidString), "destination_index": 1]
+                let result: ProjectBatchEditResult = try decode(await client.callTool(name: "storybird_duplicate_clip", arguments: input))
+                XCTAssertEqual(result.revision, original.revision + 1)
+                XCTAssertEqual(result.project.clips.map(\.sourceStart), [0, 0, 2, 4])
+                XCTAssertEqual(result.project.subtitles.count, original.subtitles.count + 1)
+                XCTAssertEqual(Set(result.created.flatMap(\.created).map(\.target)), [.clip, .subtitle])
+                XCTAssertFalse(result.idsProvisional)
+                let storedResult = try XCTUnwrap(store.project(id: original.id))
+                XCTAssertEqual(storedResult.clips, result.project.clips)
+                let disk = try Data(contentsOf: root.appendingPathComponent("library.json"))
+                let stale = try await client.callTool(name: "storybird_duplicate_clip", arguments: input)
+                XCTAssertEqual(stale.isError, true)
+                let failure = try object(stale)
+                XCTAssertEqual(failure["current_revision"] as? Int, result.revision)
+                XCTAssertEqual((failure["error"] as? [String: Any])?["code"] as? String, "revision_conflict")
+                var valid = input; valid["expected_revision"] = .int(result.revision)
+                for patch: [String: Value] in [["destination_index": -1], ["destination_index": 99], ["destination_index": true],
+                    ["clip_id": .string(UUID().uuidString)], ["duration": 2]] {
+                    let rejected = try await client.callTool(name: "storybird_duplicate_clip", arguments: valid.merging(patch) { _, new in new })
+                    XCTAssertEqual(rejected.isError, true)
+                    XCTAssertEqual(store.project(id: original.id), storedResult)
+                    XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent("library.json")), disk)
+                }
+                let undone: DemoProject = try decode(await client.callTool(name: "storybird_undo_project", arguments: [
+                    "project_id": .string(original.id.uuidString), "expected_revision": .int(result.revision)]))
+                XCTAssertEqual(undone.clips, original.clips)
+                XCTAssertEqual(undone.subtitles, original.subtitles)
+                XCTAssertThrowsError(try store.undo(projectID: original.id))
+            }
+        }
+    }
+
+    func test_targetedHeldDurationAndMediaPlacement_bothProfilesShareValidationNoopAndUndo() async throws {
+        for profile in StorybirdMCPToolProfile.allCases {
+            try await withClient(profile) { raw, store, original, root in
+                let client = MCPProfileTestClient(client: raw, profile: profile)
+                let picture = root.appendingPathComponent("held.png")
+                let context = try XCTUnwrap(CGContext(data: nil, width: 8, height: 8, bitsPerComponent: 8,
+                    bytesPerRow: 32, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+                context.setFillColor(CGColor(red: 0, green: 1, blue: 0, alpha: 1)); context.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
+                try ProjectMediaFiles.png(XCTUnwrap(context.makeImage())).write(to: picture)
+                let asset = try await store.importProjectMedia(projectID: original.id, sourceURL: picture)
+                let placed: DemoProject = try decode(await client.callTool(name: "storybird_place_media_asset", arguments: [
+                    "project_id": .string(original.id.uuidString), "expected_revision": .int(original.revision),
+                    "asset_id": .string(asset.id.uuidString), "destination_index": 1, "duration": 1]))
+                XCTAssertEqual(placed.clips[1].kind, .image)
+                XCTAssertEqual(placed.clips[1].mediaAssetID, asset.id)
+                XCTAssertEqual(placed.revision, original.revision + 1)
+                _ = try store.saveProject(VideoTimelineEditor.insertFreeze(project: placed,
+                    after: placed.clips.last!.id, sourceTime: 5, duration: 1), expectedRevision: placed.revision)
+                for kind in [VideoClipKind.image, .freeze] {
+                    let before = try XCTUnwrap(store.project(id: original.id))
+                    let clip = try XCTUnwrap(before.clips.first { $0.kind == kind })
+                    let input: [String: Value] = ["project_id": .string(original.id.uuidString),
+                        "expected_revision": .int(before.revision), "clip_id": .string(clip.id.uuidString), "duration": 1.5]
+                    let changed: ProjectBatchEditResult = try decode(await client.callTool(name: "storybird_set_clip_duration", arguments: input))
+                    XCTAssertEqual(changed.revision, before.revision + 1)
+                    XCTAssertEqual(changed.project.clips.first { $0.id == clip.id }?.outputDuration, 1.5)
+                    XCTAssertEqual(changed.project.clips.first { $0.id == clip.id }?.mediaAssetID, clip.mediaAssetID)
+                    var fresh = input; fresh["expected_revision"] = .int(changed.revision)
+                    let noop: ProjectBatchEditResult = try decode(await client.callTool(name: "storybird_set_clip_duration", arguments: fresh))
+                    XCTAssertEqual(noop.revision, changed.revision)
+                    XCTAssertFalse(noop.wouldChange)
+                    let storedResult = try XCTUnwrap(store.project(id: original.id))
+                    XCTAssertEqual(storedResult.clips, changed.project.clips)
+                    let disk = try Data(contentsOf: root.appendingPathComponent("library.json"))
+                    for patch: [String: Value] in [["duration": 0], ["duration": true], ["duration": "2"],
+                        ["clip_id": .string(original.clips[0].id.uuidString)], ["unexpected": 1], ["expected_revision": .int(before.revision)]] {
+                        let rejected = try await client.callTool(name: "storybird_set_clip_duration", arguments: fresh.merging(patch) { _, new in new })
+                        XCTAssertEqual(rejected.isError, true)
+                        XCTAssertEqual(store.project(id: original.id), storedResult)
+                        XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent("library.json")), disk)
+                    }
+                    let undone: DemoProject = try decode(await client.callTool(name: "storybird_undo_project", arguments: [
+                        "project_id": .string(original.id.uuidString), "expected_revision": .int(changed.revision)]))
+                    XCTAssertEqual(undone.clips, before.clips)
+                    XCTAssertEqual(undone.subtitles, before.subtitles)
+                }
+                // The established shared placement name remains callable on compact.
+                let beforeShared = try XCTUnwrap(store.project(id: original.id))
+                let shared: DemoProject = try decode(await raw.callTool(name: "storybird_place_media_asset", arguments: [
+                    "project_id": .string(original.id.uuidString), "expected_revision": .int(beforeShared.revision),
+                    "asset_id": .string(asset.id.uuidString), "destination_index": 0, "duration": 0.5]))
+                XCTAssertEqual(shared.clips[0].mediaAssetID, asset.id)
+                XCTAssertEqual(shared.revision, beforeShared.revision + 1)
+                XCTAssertEqual(try store.undo(projectID: original.id).clips, beforeShared.clips)
+                XCTAssertTrue(FileManager.default.fileExists(atPath: picture.path))
+            }
+        }
+    }
+
+    func test_targetedClipSaveFailure_bothProfilesPreserveSceneAndHistory() async throws {
+        for profile in StorybirdMCPToolProfile.allCases {
+            try await withClient(profile) { raw, store, original, root in
+                let client = MCPProfileTestClient(client: raw, profile: profile)
+                let library = root.appendingPathComponent("library.json"), backup = root.appendingPathComponent("backup.json")
+                let bytes = try Data(contentsOf: library)
+                try FileManager.default.moveItem(at: library, to: backup)
+                try FileManager.default.createDirectory(at: library, withIntermediateDirectories: false)
+                defer {
+                    try? FileManager.default.removeItem(at: library)
+                    try? FileManager.default.moveItem(at: backup, to: library)
+                }
+                let rejected = try await client.callTool(name: "storybird_duplicate_clip", arguments: [
+                    "project_id": .string(original.id.uuidString), "expected_revision": .int(original.revision),
+                    "clip_id": .string(original.clips[0].id.uuidString), "destination_index": 1])
+                XCTAssertEqual(rejected.isError, true)
+                XCTAssertEqual(try object(rejected)["current_revision"] as? Int, original.revision)
+                XCTAssertEqual(store.project(id: original.id), original)
+                XCTAssertEqual(try Data(contentsOf: backup), bytes)
+                XCTAssertThrowsError(try store.undo(projectID: original.id))
+            }
+        }
+    }
+
     func test_captionFilesAndSplitMerge_bothProfilesPreserveOriginalsAndExplicitText() async throws {
         for profile in StorybirdMCPToolProfile.allCases {
             try await withClient(profile) { client, store, original, root in

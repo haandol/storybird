@@ -474,7 +474,7 @@ args = ["--tool-profile", "compact"]
 ```
 
 The compact profile groups related project edits into 63 tools. Existing
-configurations without arguments keep the 82-tool legacy profile; select
+configurations without arguments keep the 84-tool legacy profile; select
 `--tool-profile legacy` explicitly if needed. Each connection exposes one fixed
 list. See [tool profiles and call examples](docs/MCP.md#choose-a-tool-profile)
 for the grouped actions and unchanged recording, audio-generation and export tools.

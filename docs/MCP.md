@@ -26,7 +26,7 @@ not control every Settings or window action.
 
 ### Choose a tool profile
 
-No launch arguments selects `legacy`, with 82 tools.
+No launch arguments selects `legacy`, with 84 tools.
 To use 63 tools covering the same actions, configure the
 companion arguments as `["--tool-profile", "compact"]` and reconnect. Explicit
 `["--tool-profile", "legacy"]` also works. Invalid arguments fail before the
@@ -38,7 +38,7 @@ An unadvertised name is rejected, including legacy names replaced in compact.
 
 | Compact tool | Selector | Existing operations |
 |---|---|---|
-| `storybird_edit_clip` | `action` | split, trim, delete, move, set_speed, insert_freeze |
+| `storybird_edit_clip` | `action` | split, trim, delete, move, duplicate, set_speed, insert_freeze, set_duration, place_media |
 | `storybird_edit_click` | `action` | create, update, delete |
 | `storybird_edit_subtitle` | `action` | upsert, delete |
 | `storybird_create_visual_effect` | `kind` | spotlight, pan_zoom, mask |
@@ -803,3 +803,17 @@ rejects the entire edit. Content coordinates follow media placement and camera
 motion; canvas coordinates stay fixed. Every mask is composited after video,
 Cues, subtitles, cards, effects and branding. Inspect final PNG/MP4 frames;
 invalid required mask composition must fail rather than return an unmasked result.
+
+### Targeted clip duplication and held duration
+
+`storybird_duplicate_clip` requires `project_id`, `expected_revision`, `clip_id` and
+`destination_index` (zero-based insertion position). `storybird_set_clip_duration`
+requires the same project/revision/clip identifiers and positive `duration` in
+seconds for an image or freeze clip. Both use the atomic planner and return its
+revision, direct/derived changes and created IDs. Use trim/speed for video clips.
+
+Compact exposes these as `storybird_edit_clip` actions `duplicate` and
+`set_duration`, with operation fields under `input`. Its `place_media` action
+uses the existing placement fields (`asset_id`, `destination_index`, image
+`duration` or video source range/rate). The shared `storybird_place_media_asset`
+name remains advertised in both profiles. Each route executes one app command.
