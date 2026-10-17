@@ -4,6 +4,7 @@ import CoreImage
 import CoreMedia
 import CoreText
 import CoreVideo
+import Darwin
 import Foundation
 import ImageIO
 import StorybirdCore
@@ -48,6 +49,7 @@ enum LayeredVideoExportError: LocalizedError {
 }
 
 actor LayeredVideoExporter {
+    enum DestinationPolicy: Sendable { case replaceExisting, createNew }
     struct PreviewFrame: Sendable {
         let pngData: Data
         let projectTime: Double
@@ -70,12 +72,17 @@ actor LayeredVideoExporter {
         project: DemoProject,
         sourceURL: URL,
         destinationURL: URL,
+        destinationPolicy: DestinationPolicy = .replaceExisting,
         progress: @escaping @Sendable (Double) -> Void = { _ in }
     ) async throws -> URL {
         try Self.validateForExport(project)
-        guard sourceURL.resolvingSymlinksInPath().standardizedFileURL
-            != destinationURL.resolvingSymlinksInPath().standardizedFileURL
-        else {
+        try Task.checkCancellation()
+        let assetsDirectory = sourceURL.deletingLastPathComponent()
+        let sourceFiles = Set(project.availableMediaAssets.map(\.filename) + project.audioAssets.map(\.filename)
+            + project.narrations.map(\.filename) + project.narrationDrafts.map(\.filename))
+        let destination = destinationURL.resolvingSymlinksInPath().standardizedFileURL
+        let originals = [sourceURL] + sourceFiles.map { assetsDirectory.appendingPathComponent($0) }
+        guard !originals.contains(where: { $0.resolvingSymlinksInPath().standardizedFileURL == destination }) else {
             throw LayeredVideoExportError.invalidDestination
         }
         let fileManager = FileManager.default
@@ -251,6 +258,11 @@ actor LayeredVideoExporter {
             audioInput = nil
             audioConfig = nil
         }
+        defer {
+            if reader.status == .reading { reader.cancelReading() }
+            if let audioReader, audioReader.status == .reading { audioReader.cancelReading() }
+            if writer.status == .writing { writer.cancelWriting() }
+        }
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(
             assetWriterInput: input,
             sourcePixelBufferAttributes: [
@@ -309,6 +321,7 @@ actor LayeredVideoExporter {
             )
         }
 
+        try Task.checkCancellation()
         writer.endSession(atSourceTime: duration)
         await withCheckedContinuation {
             (continuation: CheckedContinuation<Void, Never>) in
@@ -324,11 +337,11 @@ actor LayeredVideoExporter {
                 )) as NSError
             )
         }
-        try installCompletedFile(
-            temporaryURL,
-            at: destinationURL,
-            fileManager: fileManager
-        )
+        try Task.checkCancellation()
+        try await validateCompletedFile(temporaryURL, size: videoComposition.renderSize,
+            duration: duration, frameDuration: videoComposition.frameDuration, hasAudio: audioInput != nil)
+        try Task.checkCancellation()
+        try installCompletedFile(temporaryURL, at: destinationURL, fileManager: fileManager, policy: destinationPolicy)
         progress(1)
         return destinationURL
     }
@@ -816,12 +829,50 @@ actor LayeredVideoExporter {
         )
     }
 
+    /// Validates the finished container before it becomes the user's output.
+    /// The decoder must read both endpoints, with the selected canvas and codecs.
+    private func validateCompletedFile(_ url: URL, size: CGSize, duration: CMTime, frameDuration: CMTime, hasAudio: Bool) async throws {
+        let asset = AVURLAsset(url: url)
+        let videos = try await asset.loadTracks(withMediaType: .video)
+        let audio = try await asset.loadTracks(withMediaType: .audio)
+        guard videos.count == 1, audio.count == (hasAudio ? 1 : 0) else {
+            throw LayeredVideoExportError.exportFailed("The completed video has an unexpected track count.")
+        }
+        let video = videos[0]
+        let dimensions = try await video.load(.naturalSize)
+        let videoFormats = try await video.load(.formatDescriptions)
+        let length = try await asset.load(.duration)
+        guard dimensions == size, videoFormats.allSatisfy({ CMFormatDescriptionGetMediaSubType($0) == kCMVideoCodecType_H264 }),
+              !videoFormats.isEmpty, length.isNumeric,
+              abs(length.seconds - duration.seconds) <= frameDuration.seconds + 0.001 else {
+            throw LayeredVideoExportError.exportFailed("The completed video does not match its canvas, duration or H.264 format.")
+        }
+        if let track = audio.first {
+            let formats = try await track.load(.formatDescriptions)
+            guard !formats.isEmpty, formats.allSatisfy({ CMFormatDescriptionGetMediaSubType($0) == kAudioFormatMPEG4AAC }) else {
+                throw LayeredVideoExportError.exportFailed("The completed audio is not AAC.")
+            }
+        }
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        _ = try await generator.image(at: .zero)
+        _ = try await generator.image(at: max(.zero, duration - frameDuration))
+        try Task.checkCancellation()
+    }
+
     /// Replaces an approved destination only after the new video is complete.
     private func installCompletedFile(
         _ temporaryURL: URL,
         at destinationURL: URL,
-        fileManager: FileManager
+        fileManager: FileManager,
+        policy: DestinationPolicy
     ) throws {
+        if policy == .createNew {
+            guard renamex_np(temporaryURL.path, destinationURL.path, UInt32(RENAME_EXCL)) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+            return
+        }
         if fileManager.fileExists(atPath: destinationURL.path) {
             _ = try fileManager.replaceItemAt(
                 destinationURL,

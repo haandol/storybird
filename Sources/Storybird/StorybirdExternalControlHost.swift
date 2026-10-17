@@ -1047,7 +1047,8 @@ final class StorybirdExternalControlHost {
                                 projectID: project.id,
                                 filename: recording.filename
                             ),
-                            destinationURL: destination
+                            destinationURL: destination,
+                            destinationPolicy: .createNew
                         ) { progress in
                             Task { @MainActor [weak self] in
                                 self?.updateExport(jobID) {
@@ -1120,7 +1121,8 @@ final class StorybirdExternalControlHost {
             let result = try await LayeredVideoExporter().export(
                 project: project,
                 sourceURL: sourceURL,
-                destinationURL: destination
+                destinationURL: destination,
+                destinationPolicy: .createNew
             )
             return StorybirdControlResponse(text: result.path)
         default:

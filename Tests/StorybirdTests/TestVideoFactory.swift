@@ -60,7 +60,8 @@ enum TestVideoFactory {
         duration: Double = 1,
         width: Int = 64,
         height: Int = 48,
-        displaySize: CGSize? = nil
+        displaySize: CGSize? = nil,
+        frameRate: Int = 30
     ) async throws -> ScreenVideoRecordingResult {
         let root = destinationURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(
@@ -74,13 +75,13 @@ enum TestVideoFactory {
             try? FileManager.default.removeItem(at: rawVideoURL)
         }
         let writer = try ScreenVideoWriter(outputURL: rawVideoURL)
-        let frameCount = max(Int((duration * 30).rounded()), 1)
+        let frameCount = max(Int((duration * Double(frameRate)).rounded()), 1)
         for frame in 0..<frameCount {
             writer.append(
                 try sampleBuffer(
                     presentationTime: CMTime(
                         value: CMTimeValue(frame),
-                        timescale: 30
+                        timescale: Int32(frameRate)
                     ), width: width, height: height
                 )
             )

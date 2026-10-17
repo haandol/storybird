@@ -123,7 +123,7 @@
       "adrs": [
         {
           "path": "docs/adr/sharing/0001-layered-video-export.md",
-          "status": "Proposed",
+          "status": "Accepted (2026-10-17)",
           "summary": "여러 소재·캔버스·가림·음성을 공통 시간축의 MP4와 명시적 SRT로 출력한다"
         }
       ],
