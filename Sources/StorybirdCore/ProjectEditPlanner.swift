@@ -144,6 +144,9 @@ public enum ProjectEditPlanner {
             case let .panZoom(value): result = try ProjectEditFields.values(value, fields: fields)
             case let .title(value): result = try ProjectEditFields.values(value, fields: fields)
             case let .cta(value): result = try ProjectEditFields.values(value, fields: fields)
+            case let .mask(value):
+                result = try ProjectEditFields.values(value, fields: fields)
+                result["order_index"] = .number(Double(project.effects.filter(\.isMask).firstIndex { $0.id == value.id } ?? 0))
             }
         }
         return result
@@ -202,6 +205,10 @@ public enum ProjectEditPlanner {
             case .effect:
                 guard let index = result.effects.firstIndex(where: { $0.id == edit.id }) else { throw missing(edit.id) }
                 let old = result.effects[index]
+                if old.isMask {
+                    result = try MaskEditor.update(edit.id, in: result, values: edit.values, validateResult: false)
+                    break
+                }
                 let next = try patchEffect(old, values: edit.values)
                 if old.isFullScreenCard {
                     result = try DemoEffectEditor.replaceCard(next, in: result, validateResult: false)
@@ -314,6 +321,10 @@ public enum ProjectEditPlanner {
             case var .panZoom(value): value.id = UUID(); copy = .panZoom(value)
             case var .title(value): value.id = UUID(); copy = .title(value)
             case .cta: throw DemoEffectEditError.ctaAlreadyExists
+            case var .mask(value):
+                value.id = UUID()
+                if value.timingMode == .scene { value.sceneAnchor = try SceneTiming.anchor(at: start, in: project) }
+                copy = .mask(value)
             }
             let anchored = VideoTimelineEditor.anchorContentEffect(copy, in: project, at: start)
             result.effects.append(anchored)
@@ -329,6 +340,7 @@ public enum ProjectEditPlanner {
         case let .panZoom(value): return .panZoom(try ProjectEditFields.patch(value, values: values, fields: fields))
         case let .title(value): return .title(try ProjectEditFields.patch(value, values: values, fields: fields))
         case let .cta(value): return .cta(try ProjectEditFields.patch(value, values: values, fields: fields))
+        case let .mask(value): return .mask(try ProjectEditFields.patch(value, values: values, fields: fields))
         }
     }
 
@@ -414,6 +426,7 @@ public enum ProjectEditPlanner {
             switch project.effects.first(where: { $0.id == reference.id }) {
             case let .spotlight(value): value.sourceAnchor?.clipID
             case let .panZoom(value): value.sourceAnchor?.clipID
+            case let .mask(value): value.sceneAnchor?.clipID
             default: nil
             }
         case .clip, .project: nil
@@ -471,6 +484,12 @@ public enum ProjectEditPlanner {
         ProjectEditError(code: code, message: message)
     }
     private static func validationFailure(_ error: Error, project: DemoProject, edits: [ProjectEdit]) -> ProjectEditError {
+        if case let .effectConflict(id, other, start, end) = error as? VideoProjectValidationError {
+            let operation = edits.firstIndex { $0.id == id || $0.id == other }
+            return ProjectEditError(code: "effect_conflict", operationIndex: operation,
+                targetID: operation.map { edits[$0].id } ?? id, property: "start_time/end_time",
+                allowedRange: "Avoid overlapping \(start)...\(end) seconds", message: error.localizedDescription)
+        }
         let id: UUID?
         switch error as? VideoProjectValidationError {
         case let .invalidClip(value), let .invalidClick(value), let .invalidSubtitle(value),

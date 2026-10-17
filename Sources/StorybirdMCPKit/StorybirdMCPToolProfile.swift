@@ -61,7 +61,7 @@ struct StorybirdMCPToolGroup: Sendable {
             ("upsert", "upsert_subtitle"), ("delete", "delete_subtitle"),
         ]),
         .init("create_visual_effect", "Create a visual effect", selector: "kind", [
-            ("spotlight", "create_spotlight"), ("pan_zoom", "create_pan_zoom"),
+            ("spotlight", "create_spotlight"), ("pan_zoom", "create_pan_zoom"), ("mask", "create_mask"),
         ]),
         .init("insert_card", "Insert a timeline card", selector: "kind", [
             ("title", "insert_title"), ("cta", "insert_cta"),

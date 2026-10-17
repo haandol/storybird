@@ -179,7 +179,7 @@ final class StorybirdExternalControlHost {
                  "storybird_create_click",
                  "storybird_delete_click",
                  "storybird_delete_subtitle",
-                 "storybird_create_spotlight",
+                 "storybird_create_spotlight", "storybird_create_mask",
                  "storybird_create_pan_zoom",
                  "storybird_insert_title",
                  "storybird_insert_cta",
@@ -664,7 +664,7 @@ final class StorybirdExternalControlHost {
             let id = store.createProject(name: try Self.string("name", in: arguments))
             return try Self.jsonResponse(Self.unwrap(store.project(id: id), message: store.errorMessage ?? "Project creation failed."))
         case "storybird_create_click", "storybird_delete_click", "storybird_delete_subtitle",
-             "storybird_create_spotlight", "storybird_create_pan_zoom", "storybird_insert_title",
+             "storybird_create_spotlight", "storybird_create_mask", "storybird_create_pan_zoom", "storybird_insert_title",
              "storybird_insert_cta", "storybird_update_effect", "storybird_delete_effect",
              "storybird_update_suggestion", "storybird_apply_suggestion", "storybird_reject_suggestion":
             let project = try project(from: arguments)

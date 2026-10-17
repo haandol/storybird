@@ -183,6 +183,24 @@ project-editing tools. Changing their scope requires checking the owning ADR.
 
 ## Verification scope
 
+### Opaque masks
+
+| Action/property | Advertised MCP path | App/shared validation and observable result |
+| --- | --- | --- |
+| Create a timed rectangle with explicit time mode and coordinate space | Legacy `storybird_create_mask`; compact `storybird_create_visual_effect` with `kind: mask`. Required project_id, expected_revision, start_time, end_time, x, y, width, height, timing_mode, coordinate_space; optional color_hex defaults to black | App host → shared mask editor → project validation/save/undo. No opacity property; invalid whole rectangle/time/anchor rejects all changes. |
+| Read/edit mask time, bounds, RGB, mode/space; move, duplicate or delete | `storybird_get_edit_context` effect targets; `storybird_update_effect` and shared `storybird_preview_edits` / `storybird_apply_edits` on the effect ID; existing delete effect tool | The same persisted mask and app-owned revision/atomic writer as native sheet, numeric inspector and direct handles. Scene starts retain duration and follow only their owner. |
+| Change overlapping mask order | Effect update `order_index`, zero-based within the mask stack | Reorders masks without changing non-mask effect order or their values; context returns current indices and preview/apply reports derived order changes. |
+| Verify final covered pixels and recover original by deleting a mask | `storybird_render_preview` / MP4 export; delete effect + undo | Masks compose last over video, captions, cards and other effects at 100% opacity. Content coordinates follow placement/camera; canvas coordinates stay fixed. Originals remain unchanged; composition failure cannot report an unmasked result as successful. |
+
+MaskEffectTests covers both independent choices, required decoding fields,
+whole-rectangle/time validation, source ownership, fixed duration, duplicate,
+card/split/trim/move/speed behavior and conservative pixel coverage.
+MCPMaskTests exercises both production tool profiles, mask order, rejection,
+revision/write failure, undo/redo, source bytes and actual PNG/MP4 coverage over
+video/Cue/subtitle/card/branding, including interval endpoints.
+MaskInteractionTests exercises native creation and exact editing, mode selection,
+rectangle movement/resizing, stale input, and the opaque error cover.
+
 ### Caption authoring, canvas and direct effects
 
 | Action/property | MCP path | Shared boundary |

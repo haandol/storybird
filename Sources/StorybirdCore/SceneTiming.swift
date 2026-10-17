@@ -67,7 +67,8 @@ public enum SceneTiming {
 
     private static func sceneIndexIfNeeded(_ project: DemoProject) -> SceneIndex? {
         guard project.narrations.contains(where: { $0.sceneAnchor != nil })
-            || project.subtitles.contains(where: { $0.sceneAnchor != nil }) else { return nil }
+            || project.subtitles.contains(where: { $0.sceneAnchor != nil })
+            || project.effects.contains(where: { if case let .mask(value) = $0 { return value.sceneAnchor != nil }; return false }) else { return nil }
         return SceneIndex(project: project)
     }
 
@@ -90,6 +91,14 @@ public enum SceneTiming {
             updated.endTime = time + subtitle.endTime - subtitle.startTime
             updated.startTime = time
             return updated
+        }
+        result.effects = project.effects.compactMap { effect in
+            guard case var .mask(value) = effect, value.timingMode == .scene,
+                  let anchor = value.sceneAnchor else { return effect }
+            guard let time = index?.time(for: anchor) else { return nil }
+            value.endTime = time + value.endTime - value.startTime
+            value.startTime = time
+            return .mask(value)
         }
         return result
     }
@@ -117,13 +126,19 @@ public enum SceneTiming {
                 result.subtitles[index].sceneAnchor = transfer(anchor)
             }
         }
+        for index in result.effects.indices {
+            if case var .mask(value) = result.effects[index], let anchor = value.sceneAnchor, anchor.clipID == originalID {
+                value.sceneAnchor = transfer(anchor)
+                result.effects[index] = .mask(value)
+            }
+        }
         return result
     }
 
     /// Explicit inspector retiming chooses a new owner. A clip/card edit already
     /// transforms times and must not be interpreted as manual retiming.
     public static func reanchorTimeEdits(from old: DemoProject, to edited: DemoProject) throws -> DemoProject {
-        guard old.clips == edited.clips, old.effects == edited.effects else { return edited }
+        guard old.clips == edited.clips, old.effects.filter(\.isFullScreenCard) == edited.effects.filter(\.isFullScreenCard) else { return edited }
         let oldNarrations = Dictionary(old.narrations.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let oldSubtitles = Dictionary(old.subtitles.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var result = edited
@@ -141,6 +156,17 @@ public enum SceneTiming {
                value.sceneAnchor != nil, value.sceneAnchor == previous.sceneAnchor,
                value.startTime != previous.startTime {
                 result.subtitles[index].sceneAnchor = try anchor(at: value.startTime, in: result)
+            }
+        }
+        let oldMasks = Dictionary(old.effects.compactMap { effect -> (UUID, MaskEffect)? in
+            if case let .mask(value) = effect { return (value.id, value) }; return nil
+        }, uniquingKeysWith: { first, _ in first })
+        for index in result.effects.indices {
+            if case var .mask(value) = result.effects[index], value.timingMode == .scene,
+               let previous = oldMasks[value.id], value.sceneAnchor == previous.sceneAnchor,
+               value.startTime != previous.startTime {
+                value.sceneAnchor = try anchor(at: value.startTime, in: result)
+                result.effects[index] = .mask(value)
             }
         }
         return result
@@ -163,6 +189,14 @@ public enum SceneTiming {
                       abs(time - subtitle.startTime) < 0.001 else {
                     throw VideoProjectValidationError.invalidSubtitle(subtitle.id)
                 }
+            }
+        }
+        for effect in project.effects {
+            if case let .mask(value) = effect {
+                if value.timingMode == .scene {
+                    guard let anchor = value.sceneAnchor, let time = index?.time(for: anchor),
+                          abs(time - value.startTime) < 0.001 else { throw VideoProjectValidationError.invalidEffect(value.id) }
+                } else if value.sceneAnchor != nil { throw VideoProjectValidationError.invalidEffect(value.id) }
             }
         }
     }

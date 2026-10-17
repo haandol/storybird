@@ -93,6 +93,10 @@ public enum TimelineLayerEditor {
             guard let index = result.effects.firstIndex(where: { $0.id == id }) else {
                 throw TimelineLayerMoveError.layerNotFound
             }
+            if case let .mask(value) = result.effects[index] {
+                return try MaskEditor.update(id, in: project, values: [
+                    "start_time": .number(value.startTime + delta), "end_time": .number(value.endTime + delta)], validateResult: validateResult)
+            }
             let moved = translated(result.effects[index], by: delta)
             if moved.isFullScreenCard {
                 return try DemoEffectEditor.replaceCard(moved, in: project, validateResult: validateResult)
@@ -132,6 +136,10 @@ public enum TimelineLayerEditor {
             value.startTime += delta
             value.endTime += delta
             return .cta(value)
+        case var .mask(value):
+            value.startTime += delta
+            value.endTime += delta
+            return .mask(value)
         }
     }
 }

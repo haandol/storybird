@@ -3,7 +3,7 @@ import Foundation
 /// One property inventory supplies the editor, MCP schema and input checking.
 /// Persistence paths stay internal; clients use the explicit public field names.
 public struct ProjectEditField: Codable, Sendable {
-    public enum ValueType: String, Codable, Sendable { case number, string, boolean }
+    public enum ValueType: String, Codable, Sendable { case number, integer, string, boolean }
     public var type: ValueType
     public var minimum: Double?
     public var maximum: Double?
@@ -44,8 +44,8 @@ public struct ProjectEditField: Codable, Sendable {
     func validate(_ value: ProjectEditValue, key: String) throws {
         let valid: Bool
         switch (type, value) {
-        case let (.number, .number(number)):
-            valid = number.isFinite && minimum.map { number >= $0 } != false
+        case let (.number, .number(number)), let (.integer, .number(number)):
+            valid = (type != .integer || number.rounded() == number) && number.isFinite && minimum.map { number >= $0 } != false
                 && maximum.map { number <= $0 } != false && exclusiveMinimum.map { number > $0 } != false
         case let (.string, .string(string)):
             valid = choices?.contains(string) != false
@@ -172,6 +172,13 @@ public enum ProjectEditFields {
                 fields["\(prefix)_y"] = number("\(prefix)Y", max: 1)
                 fields["\(prefix)_scale"] = number("\(prefix)Scale", min: 1, max: 3)
             }
+        case .mask:
+            fields.merge(["x": number("x", max: 1), "y": number("y", max: 1),
+                "width": number("width", max: 1, positive: true), "height": number("height", max: 1, positive: true),
+                "color_hex": text("colorHex"),
+                "timing_mode": text("timingMode", choices: LayerTimingMode.allCases.map(\.rawValue)),
+                "coordinate_space": text("coordinateSpace", choices: MaskEffect.CoordinateSpace.allCases.map(\.rawValue)),
+                "order_index": ProjectEditField(.integer, "", minimum: 0, description: "Zero-based index among masks; later masks cover earlier masks.")]) { _, new in new }
         case .title:
             fields.merge(style) { _, new in new }
             fields["title"] = text("title")
@@ -209,7 +216,7 @@ public enum ProjectEditFields {
             var value: Any? = object
             for component in field.path { value = (value as? [String: Any])?[component] }
             switch field.type {
-            case .number: if let number = value as? NSNumber { result[key] = .number(number.doubleValue) }
+            case .number, .integer: if let number = value as? NSNumber { result[key] = .number(number.doubleValue) }
             case .string: if let string = value as? String { result[key] = .string(string) }
             case .boolean: if let boolean = value as? Bool { result[key] = .boolean(boolean) }
             }

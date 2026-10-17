@@ -779,3 +779,27 @@ Settings opening and cached reads never check automatically. Versions use three
 numeric components (`X.Y.Z`, with optional `v` on release tags); equal or older
 public releases mean up to date. Release links must be HTTPS Storybird GitHub
 release URLs. The user can explicitly open the validated link to download a release.
+
+
+### Opaque area masks
+
+`storybird_create_mask` (legacy), or `storybird_create_visual_effect` with
+`kind: "mask"` (compact), creates a mask. Supply `project_id`, `expected_revision`,
+`start_time`, `end_time`, `x`, `y`, `width`, `height`, `timing_mode` and
+`coordinate_space`. `timing_mode` is `project` or `scene`; `coordinate_space`
+is independently `content` or `canvas`. `color_hex` defaults to `#000000`.
+The positive rectangle must fit completely in 0...1 coordinates. Opacity is
+always 100%; no opacity field, tracking or source-media modification is supported.
+
+Use effect IDs from `storybird_get_edit_context` with the existing effect update
+and delete tools, or `storybird_preview_edits` / `storybird_apply_edits` on
+`target: "effect"`. All mask fields, including the two modes, are editable.
+`order_index` is an integer index starting at zero within the mask stack; later
+masks cover earlier masks. Reordering masks preserves non-mask effect order.
+
+Scene timing follows the mask's start frame and keeps its duration. Removing
+that start/owner removes the mask; undo restores it. An out-of-project result
+rejects the entire edit. Content coordinates follow media placement and camera
+motion; canvas coordinates stay fixed. Every mask is composited after video,
+Cues, subtitles, cards, effects and branding. Inspect final PNG/MP4 frames;
+invalid required mask composition must fail rather than return an unmasked result.

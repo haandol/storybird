@@ -6,6 +6,35 @@ import XCTest
 
 @MainActor
 final class DocumentationScreenshotTests: XCTestCase {
+    func test_generateMaskScreenshots() async throws {
+        guard ProcessInfo.processInfo.environment["STORYBIRD_UPDATE_DOC_SCREENSHOTS"] == "1" else {
+            throw XCTSkip("Set STORYBIRD_UPDATE_DOC_SCREENSHOTS=1 to update mask screenshots.")
+        }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("mask-docs-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repository = ProjectRepository(rootURL: root)
+        var project = DemoProject(name: "Synthetic masks", recording: VideoRecordingAsset(filename: "synthetic.mp4", duration: 4, width: 1280, height: 720))
+        project = try MaskEditor.create(in: project, startTime: 1, endTime: 3, x: 0.2, y: 0.3, width: 0.5, height: 0.25,
+            timingMode: .scene, coordinateSpace: .content)
+        try repository.saveProjects([project])
+        let store = AppStore(repository: repository)
+        guard case let .mask(mask) = project.effects[0] else { return XCTFail("Missing mask") }
+        try await render(MaskEditingSheet(store: store, session: MaskEditorSession(projectID: project.id, revision: project.revision, mask: mask)),
+            size: CGSize(width: 500, height: 510), to: imageDirectory.appendingPathComponent("mask-settings.png"), hostedInWindow: true)
+        let frame = CGRect(x: 0, y: 0, width: 800, height: 450)
+        try await render(ZStack {
+            Color(red: 0.12, green: 0.2, blue: 0.28)
+            VStack(alignment: .leading, spacing: 30) {
+                Text("Synthetic product preview").font(.system(size: 30, weight: .bold))
+                Text("Example content below the mask").font(.system(size: 24))
+                Text("The mask uses the selected time and coordinate space.").font(.system(size: 17))
+            }.foregroundStyle(.white).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).padding(45)
+            VideoMaskCanvas(project: project, time: 1.5, imageFrame: frame)
+            PreviewEffectControls(store: store, model: PreviewEffectEditModel(), project: project, effect: project.effects[0], time: 1.5,
+                imageFrame: frame, onBegin: {})
+        }, size: frame.size, to: imageDirectory.appendingPathComponent("mask-preview.png"), hostedInWindow: true)
+    }
+
     func test_generateCaptionCanvasScreenshots() async throws {
         guard ProcessInfo.processInfo.environment["STORYBIRD_UPDATE_DOC_SCREENSHOTS"] == "1" else {
             throw XCTSkip("Set STORYBIRD_UPDATE_DOC_SCREENSHOTS=1 to update caption/canvas screenshots.")

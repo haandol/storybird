@@ -134,7 +134,7 @@ struct VideoScreenOverlayCanvas: View {
                         style: value.style,
                         metrics: metrics
                     )
-                case .panZoom:
+                case .panZoom, .mask:
                     EmptyView()
                 }
             }

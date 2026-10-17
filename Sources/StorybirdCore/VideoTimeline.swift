@@ -206,6 +206,12 @@ public enum VideoTimelineEditor {
         }
         var effectIDs: [UUID: UUID] = [:]
         for effect in project.effects {
+            if case var .mask(value) = effect, value.timingMode == .scene, value.sceneAnchor?.clipID == clipID {
+                value.id = UUID()
+                value.sceneAnchor?.clipID = copy.id
+                result.effects.append(.mask(value))
+                continue
+            }
             guard var anchor = effectAnchor(effect), anchor.clipID == clipID else { continue }
             anchor.clipID = copy.id
             let duplicate = effectWithAnchor(reidentifiedEffect(effect), anchor)
@@ -642,7 +648,7 @@ public enum VideoTimelineEditor {
         switch effect {
         case let .spotlight(value): value.sourceAnchor
         case let .panZoom(value): value.sourceAnchor
-        case .title, .cta: nil
+        case .title, .cta, .mask: nil
         }
     }
 
@@ -659,7 +665,7 @@ public enum VideoTimelineEditor {
         case var .panZoom(value):
             value.sourceAnchor = anchor
             return .panZoom(value)
-        case .title, .cta:
+        case .title, .cta, .mask:
             return effect
         }
     }
@@ -676,7 +682,7 @@ public enum VideoTimelineEditor {
         case var .panZoom(value):
             value.id = UUID()
             return .panZoom(value)
-        case .title, .cta:
+        case .title, .cta, .mask:
             return effect
         }
     }
@@ -700,7 +706,7 @@ public enum VideoTimelineEditor {
             value.endTime = end
             value.sourceAnchor = anchor
             return .panZoom(value)
-        case .title, .cta:
+        case .title, .cta, .mask:
             return effect
         }
     }
@@ -912,7 +918,7 @@ public enum DemoEffectEditor {
                 from: effect.endTime,
                 by: -(effect.endTime - effect.startTime)
             )
-        case .spotlight, .panZoom:
+        case .spotlight, .panZoom, .mask:
             return result
         }
     }
@@ -991,6 +997,10 @@ public enum DemoEffectEditor {
             value.startTime += delta
             value.endTime += delta
             return .cta(value)
+        case var .mask(value):
+            value.startTime += delta
+            value.endTime += delta
+            return .mask(value)
         }
     }
 }

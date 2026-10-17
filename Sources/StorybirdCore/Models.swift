@@ -769,6 +769,7 @@ public enum DemoEffect: Codable, Identifiable, Hashable, Sendable {
     case panZoom(PanZoomEffect)
     case title(TitleCardEffect)
     case cta(CTACardEffect)
+    case mask(MaskEffect)
 
     public var id: UUID {
         switch self {
@@ -776,6 +777,7 @@ public enum DemoEffect: Codable, Identifiable, Hashable, Sendable {
         case let .panZoom(value): value.id
         case let .title(value): value.id
         case let .cta(value): value.id
+        case let .mask(value): value.id
         }
     }
 
@@ -785,6 +787,7 @@ public enum DemoEffect: Codable, Identifiable, Hashable, Sendable {
         case let .panZoom(value): value.startTime
         case let .title(value): value.startTime
         case let .cta(value): value.startTime
+        case let .mask(value): value.startTime
         }
     }
 
@@ -794,6 +797,7 @@ public enum DemoEffect: Codable, Identifiable, Hashable, Sendable {
         case let .panZoom(value): value.endTime
         case let .title(value): value.endTime
         case let .cta(value): value.endTime
+        case let .mask(value): value.endTime
         }
     }
 }

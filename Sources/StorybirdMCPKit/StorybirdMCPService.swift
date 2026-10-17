@@ -322,10 +322,17 @@ public struct StorybirdMCPService: Sendable {
         let unit: Value = .object(["type": "number", "minimum": 0, "maximum": 1])
         let scale: Value = .object(["type": "number", "minimum": 1, "maximum": 3])
         let spotlight: [String: Value] = ["start_time": time, "end_time": time, "x": unit, "y": unit, "width": unit, "height": unit, "dim_opacity": unit]
+        let mask: [String: Value] = ["start_time": time, "end_time": .object(["type": "number", "exclusiveMinimum": 0]), "x": unit, "y": unit,
+            "width": .object(["type": "number", "exclusiveMinimum": 0, "maximum": 1]),
+            "height": .object(["type": "number", "exclusiveMinimum": 0, "maximum": 1]),
+            "timing_mode": .object(["type": "string", "enum": ["project", "scene"]]),
+            "coordinate_space": .object(["type": "string", "enum": ["content", "canvas"]]),
+            "color_hex": .object(["type": "string", "pattern": "^#[0-9A-Fa-f]{6}$", "default": "#000000"])]
         let zoom: [String: Value] = ["start_time": time, "end_time": time, "start_x": unit, "start_y": unit, "end_x": unit, "end_y": unit, "start_scale": scale, "end_scale": scale]
         let card: [String: Value] = ["title": id, "subtitle": id, "button_label": id, "duration": .object(["type": "number", "exclusiveMinimum": 0]), "after_clip_id": id]
         let style: [String: Value] = ["foreground_hex": id, "background_hex": id, "background_opacity": unit, "font_size": .object(["type": "number", "minimum": 1])]
-        var effect = spotlight.merging(zoom) { _, new in new }.merging(style) { _, new in new }
+        var effect = spotlight.merging(zoom) { _, new in new }.merging(style) { _, new in new }.merging(mask) { _, new in new }
+        effect["order_index"] = .object(["type": "integer", "minimum": 0, "description": "Zero-based mask stack index; later masks cover earlier masks."])
         for key in ["effect_id", "title", "subtitle", "button_label"] { effect[key] = id }
         return [
             Tool(name: "storybird_get_edit_context", title: "Resolve text requests to scenes and layers",
@@ -345,6 +352,8 @@ public struct StorybirdMCPService: Sendable {
             layerTool("storybird_delete_click", "Delete a Click Cue", "Remove a Cue and its suggestion metadata; previously applied effects remain.", ["click_id": id], ["click_id"]),
             layerTool("storybird_delete_subtitle", "Delete a subtitle", "Remove one independent subtitle.", ["subtitle_id": id], ["subtitle_id"]),
             layerTool("storybird_create_spotlight", "Add a spotlight", "Emphasize a normalized rectangle for a time interval.", spotlight, ["start_time", "end_time", "x", "y", "width", "height"]),
+            layerTool("storybird_create_mask", "Cover an area", "Add a fully opaque rectangle above video, captions and all other effects. Explicitly choose independent timing_mode and coordinate_space. Scene timing follows only the start frame, preserving duration. The whole positive rectangle must fit its normalized space. No tracking or original-media changes.", mask,
+                ["start_time", "end_time", "x", "y", "width", "height", "timing_mode", "coordinate_space"]),
             layerTool("storybird_create_pan_zoom", "Add pan and zoom", "Move and zoom the picture between normalized centers.", zoom, ["start_time", "end_time", "end_x", "end_y", "end_scale"]),
             layerTool("storybird_insert_title", "Insert a title card", "Insert at the beginning or after a nonfinal clip; later layers shift together.", card.filter { $0.key != "button_label" && $0.key != "subtitle" }, ["title", "duration"]),
             layerTool("storybird_insert_cta", "Insert a closing CTA", "Append one noninteractive closing card.", card.filter { $0.key != "after_clip_id" && $0.key != "subtitle" }, ["title", "button_label", "duration"]),

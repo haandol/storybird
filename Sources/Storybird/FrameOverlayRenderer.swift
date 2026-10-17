@@ -16,7 +16,9 @@ enum FrameOverlayRenderer {
     ) throws -> CIImage {
         let metrics = VideoOverlayMetrics(frameSize: frame.size)
         let time = CMTimeGetSeconds(presentationTime)
+        let masks = try MaskGeometry.layers(in: project, at: time)
         guard time.isFinite else { return source }
+        if !masks.isEmpty, frame.size != project.canvasSize { throw VideoProjectValidationError.invalidCanvas }
         let camera = VideoOverlayPresentation.camera(
             in: project,
             at: time
@@ -187,7 +189,7 @@ enum FrameOverlayRenderer {
                     over: result,
                     frame: frame
                 )
-            case .spotlight, .panZoom:
+            case .spotlight, .panZoom, .mask:
                 break
             }
         }
@@ -208,6 +210,16 @@ enum FrameOverlayRenderer {
                 ),
                 over: result
             )
+        }
+        for mask in masks where !mask.pixelRect.isEmpty {
+            guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+                  let color = CGColor(colorSpace: space, components: [mask.red, mask.green, mask.blue, 1]) else {
+                throw LayeredVideoExportError.exportFailed("A required opaque mask could not be composed.")
+            }
+            let rect = mask.pixelRect
+            let bottomUp = CGRect(x: frame.minX + rect.minX, y: frame.maxY - rect.maxY,
+                width: rect.width, height: rect.height)
+            result = CIImage(color: CIColor(cgColor: color)).cropped(to: bottomUp).composited(over: result)
         }
         return result
     }

@@ -248,7 +248,7 @@ public extension DemoEffect {
         switch self {
         case .title, .cta:
             true
-        case .spotlight, .panZoom:
+        case .spotlight, .panZoom, .mask:
             false
         }
     }

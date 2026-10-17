@@ -1,4 +1,5 @@
 import Foundation
+import MCP
 import StorybirdCore
 @testable import Storybird
 @testable import StorybirdMCPKit
@@ -6,6 +7,35 @@ import XCTest
 
 @MainActor
 final class MCPFeatureParityTests: XCTestCase {
+    func test_maskSchemas_requireIndependentModeAndSpaceAndNeverExposeOpacity() throws {
+        for profile in StorybirdMCPToolProfile.allCases {
+            let tools = StorybirdMCPService.toolDefinitions(for: profile)
+            let creation: [String: MCP.Value]
+            if profile == .legacy {
+                creation = try XCTUnwrap(tools.first { $0.name == "storybird_create_mask" }?.inputSchema.objectValue)
+            } else {
+                let tool = try XCTUnwrap(tools.first { $0.name == "storybird_create_visual_effect" })
+                let branch = try XCTUnwrap(tool.inputSchema.objectValue?["oneOf"]?.arrayValue?.first {
+                    $0.objectValue?["properties"]?.objectValue?["kind"]?.objectValue?["const"]?.stringValue == "mask"
+                })
+                creation = try XCTUnwrap(branch.objectValue?["properties"]?.objectValue?["input"]?.objectValue)
+            }
+            let required = Set(creation["required"]?.arrayValue?.compactMap(\.stringValue) ?? [])
+            XCTAssertTrue(Set(["start_time", "end_time", "x", "y", "width", "height", "timing_mode", "coordinate_space"]).isSubset(of: required))
+            let properties = try XCTUnwrap(creation["properties"]?.objectValue)
+            XCTAssertEqual(properties["timing_mode"]?.objectValue?["enum"]?.arrayValue?.compactMap(\.stringValue), ["project", "scene"])
+            XCTAssertEqual(properties["coordinate_space"]?.objectValue?["enum"]?.arrayValue?.compactMap(\.stringValue), ["content", "canvas"])
+            XCTAssertEqual(properties["color_hex"]?.objectValue?["default"]?.stringValue, "#000000")
+            XCTAssertEqual(properties["width"]?.objectValue?["exclusiveMinimum"], 0)
+            XCTAssertEqual(properties["height"]?.objectValue?["exclusiveMinimum"], 0)
+            XCTAssertNil(properties["opacity"])
+            let fields = ProjectEditFields.effect(.mask(MaskEffect(startTime: 0, endTime: 1, x: 0, y: 0, width: 1, height: 1,
+                timingMode: .project, coordinateSpace: .canvas)))
+            XCTAssertEqual(Set(fields.keys), ["start_time", "end_time", "x", "y", "width", "height", "color_hex", "timing_mode", "coordinate_space", "order_index"])
+            XCTAssertEqual(fields["order_index"]?.type, .integer)
+        }
+    }
+
     func test_atomicEditSchemas_shareInputsAndExposeAllTargetProperties() throws {
         for profile in StorybirdMCPToolProfile.allCases {
             let tools = StorybirdMCPService.toolDefinitions(for: profile)

@@ -3,11 +3,11 @@ import SwiftUI
 
 @MainActor
 final class PreviewEffectEditModel: ObservableObject {
-    enum Operation { case moveSpotlight, topLeft, topRight, bottomLeft, bottomRight, zoomStart, zoomEnd, startScale, endScale }
+    enum Operation { case moveRectangle, topLeft, topRight, bottomLeft, bottomRight, zoomStart, zoomEnd, startScale, endScale }
     @Published private(set) var draft: DemoEffect?
     private var baseline: DemoProject?
     private var original: DemoEffect?
-    private var operation: Operation = .moveSpotlight
+    private var operation: Operation = .moveRectangle
     private var contentFrame = CGRect(x: 0, y: 0, width: 1, height: 1)
     private var camera = VideoCameraPresentation.identity
     private var imageSize = CGSize(width: 1, height: 1)
@@ -18,6 +18,10 @@ final class PreviewEffectEditModel: ObservableObject {
         self.operation = operation; self.imageSize = imageSize
         contentFrame = ProjectContentGeometry.frame(in: project, at: time)
         camera = VideoOverlayPresentation.camera(in: project, at: time)
+        if case let .mask(value) = effect, value.coordinateSpace == .canvas {
+            contentFrame = CGRect(x: 0, y: 0, width: 1, height: 1)
+            camera = .identity
+        }
     }
 
     /// Only view-local effect geometry changes during a drag. Its original
@@ -28,24 +32,13 @@ final class PreviewEffectEditModel: ObservableObject {
         let dy = translation.height / imageSize.height / max(contentFrame.height * camera.scale, 0.000001)
         switch original {
         case var .spotlight(value):
-            let right = value.x + value.width, bottom = value.y + value.height
-            let minimum = min(0.001, value.width / 2, value.height / 2)
-            switch operation {
-            case .moveSpotlight:
-                value.x = min(max(value.x + dx, 0), 1 - value.width)
-                value.y = min(max(value.y + dy, 0), 1 - value.height)
-            case .topLeft, .topRight, .bottomLeft, .bottomRight:
-                if operation == .topLeft || operation == .bottomLeft {
-                    value.x = min(max(value.x + dx, 0), right - minimum)
-                    value.width = right - value.x
-                } else { value.width = min(max(value.width + dx, minimum), 1 - value.x) }
-                if operation == .topLeft || operation == .topRight {
-                    value.y = min(max(value.y + dy, 0), bottom - minimum)
-                    value.height = bottom - value.y
-                } else { value.height = min(max(value.height + dy, minimum), 1 - value.y) }
-            default: break
-            }
+            let rect = rectangle(x: value.x, y: value.y, width: value.width, height: value.height, dx: dx, dy: dy)
+            value.x = rect.minX; value.y = rect.minY; value.width = rect.width; value.height = rect.height
             draft = .spotlight(value)
+        case var .mask(value):
+            let rect = rectangle(x: value.x, y: value.y, width: value.width, height: value.height, dx: dx, dy: dy)
+            value.x = rect.minX; value.y = rect.minY; value.width = rect.width; value.height = rect.height
+            draft = .mask(value)
         case var .panZoom(value):
             if operation == .zoomStart {
                 value.startX = min(max(value.startX + dx, 0), 1)
@@ -57,6 +50,28 @@ final class PreviewEffectEditModel: ObservableObject {
             draft = .panZoom(value)
         default: break
         }
+    }
+
+    private func rectangle(x: Double, y: Double, width: Double, height: Double, dx: Double, dy: Double) -> CGRect {
+        var value = CGRect(x: x, y: y, width: width, height: height)
+        let right = x + width, bottom = y + height
+        let minimum = min(0.001, width / 2, height / 2)
+        switch operation {
+        case .moveRectangle:
+            value.origin.x = min(max(x + dx, 0), 1 - width)
+            value.origin.y = min(max(y + dy, 0), 1 - height)
+        case .topLeft, .topRight, .bottomLeft, .bottomRight:
+            if operation == .topLeft || operation == .bottomLeft {
+                value.origin.x = min(max(x + dx, 0), right - minimum)
+                value.size.width = right - value.minX
+            } else { value.size.width = min(max(width + dx, minimum), 1 - x) }
+            if operation == .topLeft || operation == .topRight {
+                value.origin.y = min(max(y + dy, 0), bottom - minimum)
+                value.size.height = bottom - value.minY
+            } else { value.size.height = min(max(height + dy, minimum), 1 - y) }
+        default: break
+        }
+        return value
     }
 
     func setScale(_ value: Double) {
@@ -79,6 +94,7 @@ final class PreviewEffectEditModel: ObservableObject {
         let values: [String: ProjectEditValue]
         switch draft {
         case let .spotlight(effect): values = ["x": .number(effect.x), "y": .number(effect.y), "width": .number(effect.width), "height": .number(effect.height)]
+        case let .mask(effect): values = ["x": .number(effect.x), "y": .number(effect.y), "width": .number(effect.width), "height": .number(effect.height)]
         case let .panZoom(effect): values = ["start_x": .number(effect.startX), "start_y": .number(effect.startY), "start_scale": .number(effect.startScale),
             "end_x": .number(effect.endX), "end_y": .number(effect.endY), "end_scale": .number(effect.endScale)]
         default: return
@@ -117,11 +133,23 @@ struct PreviewEffectControls: View {
                     width: value.width * imageFrame.width, height: value.height * imageFrame.height)
                 Rectangle().stroke(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [5])).frame(width: rect.width, height: rect.height)
                     .position(x: rect.midX, y: rect.midY).allowsHitTesting(false)
-                handle(.moveSpotlight, at: CGPoint(x: rect.midX, y: rect.midY), label: "Move spotlight")
+                handle(.moveRectangle, at: CGPoint(x: rect.midX, y: rect.midY), label: "Move spotlight")
                 handle(.topLeft, at: CGPoint(x: rect.minX, y: rect.minY), label: "Resize top left")
                 handle(.topRight, at: CGPoint(x: rect.maxX, y: rect.minY), label: "Resize top right")
                 handle(.bottomLeft, at: CGPoint(x: rect.minX, y: rect.maxY), label: "Resize bottom left")
                 handle(.bottomRight, at: CGPoint(x: rect.maxX, y: rect.maxY), label: "Resize bottom right")
+            case let .mask(value):
+                let normalized = MaskGeometry.normalizedRect(for: value, in: project, at: time)
+                let rect = CGRect(x: imageFrame.minX + normalized.minX * imageFrame.width,
+                    y: imageFrame.minY + normalized.minY * imageFrame.height,
+                    width: normalized.width * imageFrame.width, height: normalized.height * imageFrame.height)
+                Rectangle().stroke(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [5]))
+                    .frame(width: rect.width, height: rect.height).position(x: rect.midX, y: rect.midY).allowsHitTesting(false)
+                handle(.moveRectangle, at: CGPoint(x: rect.midX, y: rect.midY), label: "Move mask")
+                handle(.topLeft, at: CGPoint(x: rect.minX, y: rect.minY), label: "Resize mask top left")
+                handle(.topRight, at: CGPoint(x: rect.maxX, y: rect.minY), label: "Resize mask top right")
+                handle(.bottomLeft, at: CGPoint(x: rect.minX, y: rect.maxY), label: "Resize mask bottom left")
+                handle(.bottomRight, at: CGPoint(x: rect.maxX, y: rect.maxY), label: "Resize mask bottom right")
             case let .panZoom(value):
                 let start = point(value.startX, value.startY), end = point(value.endX, value.endY)
                 Path { $0.move(to: start); $0.addLine(to: end) }.stroke(Color.accentColor.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [4]))

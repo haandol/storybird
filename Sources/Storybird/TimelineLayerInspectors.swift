@@ -187,6 +187,8 @@ struct EffectLayerInspector: View {
     var body: some View {
         Form {
             switch effect {
+            case .mask:
+                Text("Use mask properties to edit its time, coordinates and order.")
             case let .spotlight(value):
                 SpotlightEditor(
                     value: Binding(

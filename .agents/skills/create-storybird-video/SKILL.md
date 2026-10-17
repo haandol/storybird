@@ -116,6 +116,21 @@ while subtitles/cards stay on the canvas. Keep the requested font size and text.
 Spotlight rectangle and pan/zoom start/end centers/scales use the same effect
 fields exposed in the context and the batch update command.
 
+When the user asks to hide part of the picture, create a mask through the
+advertised mask creation tool (compact: `storybird_create_visual_effect`,
+`kind: "mask"`; legacy: `storybird_create_mask`). Supply both `timing_mode`
+(`project` or `scene`) and `coordinate_space` (`content` or `canvas`) explicitly,
+with start/end times and the whole positive 0...1 rectangle. `color_hex` defaults
+to black; opacity is always 100%. Use effect updates/batches for all mask values
+and `order_index` for its zero-based position among masks. Later masks cover
+earlier masks; all masks cover video, captions, cards and other effects.
+
+Scene-linked masks keep their duration, follow the start owner, and disappear
+when that start/owner is removed; undo restores them. Coordinate space is a
+separate choice. Masks do not automatically track objects, and originals and raw
+asset previews remain unmasked. Verify representative final PNGs and the exported
+MP4 over the whole requested interval before reporting content as covered.
+
 Use full-project replacement only when targeted commands cannot express the edit.
 Submit it through Storybird with the current revision; preserve unrelated fields,
 immutable source media and app-owned draft states. Each successful edit supplies

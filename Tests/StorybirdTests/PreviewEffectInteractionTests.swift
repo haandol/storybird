@@ -11,7 +11,7 @@ final class PreviewEffectInteractionTests: XCTestCase {
         let (store, project, root) = try fixture()
         defer { try? FileManager.default.removeItem(at: root) }
         let model = PreviewEffectEditModel()
-        model.begin(project: project, effectID: project.effects[0].id, operation: .moveSpotlight,
+        model.begin(project: project, effectID: project.effects[0].id, operation: .moveRectangle,
             time: 1, imageSize: CGSize(width: 400, height: 300))
         model.update(translation: CGSize(width: 40, height: 30))
         XCTAssertEqual(store.project(id: project.id), project)

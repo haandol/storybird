@@ -21,6 +21,7 @@ struct MCPProfileTestClient {
         ("delete_subtitle", "edit_subtitle", "action", "delete"),
         ("create_spotlight", "create_visual_effect", "kind", "spotlight"),
         ("create_pan_zoom", "create_visual_effect", "kind", "pan_zoom"),
+        ("create_mask", "create_visual_effect", "kind", "mask"),
         ("insert_title", "insert_card", "kind", "title"),
         ("insert_cta", "insert_card", "kind", "cta"),
         ("update_effect", "edit_effect", "action", "update"),

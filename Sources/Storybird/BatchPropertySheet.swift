@@ -73,7 +73,7 @@ struct BatchPropertySheet: View {
 
     @ViewBuilder private func input(_ field: ProjectEditField) -> some View {
         switch field.type {
-        case .number:
+        case .number, .integer:
             TextField("Value", value: Binding(get: {
                 if case let .number(number) = value { number } else { 0 }
             }, set: { value = .number($0) }), format: .number)

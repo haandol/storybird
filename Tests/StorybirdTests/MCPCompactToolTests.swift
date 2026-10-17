@@ -22,7 +22,7 @@ final class MCPCompactToolTests: XCTestCase {
     func test_compactSchemas_preserveEveryBranchPropertyAndRequiredField() throws {
         let legacy = Dictionary(uniqueKeysWithValues: StorybirdMCPService.toolDefinitions.map { ($0.name, $0) })
         let compact = Dictionary(uniqueKeysWithValues: StorybirdMCPService.toolDefinitions(for: .compact).map { ($0.name, $0) })
-        XCTAssertEqual(legacy.count, 81)
+        XCTAssertEqual(legacy.count, 82)
         XCTAssertEqual(compact.count, 63)
         XCTAssertEqual(Set(legacy.keys).intersection(compact.keys).count, 54)
         let removed = Set(MCPProfileTestClient.routes.map { "storybird_" + $0.legacy })
@@ -118,7 +118,7 @@ final class MCPCompactToolTests: XCTestCase {
                 XCTAssertEqual(try JSONDecoder().decode([String: Value].self, from: request.argumentsJSON), expected)
             }
             let requests = await probe.requests
-            XCTAssertEqual(requests.count, 27, "Exactly one app call per public request.")
+            XCTAssertEqual(requests.count, 28, "Exactly one app call per public request.")
         }
     }
 

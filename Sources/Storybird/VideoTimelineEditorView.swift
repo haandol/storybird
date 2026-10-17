@@ -74,6 +74,7 @@ struct VideoTimelineEditorView: View {
     @State private var selectedTargets: Set<ProjectEditReference> = []
     @State private var bulkStyleSession: CaptionStyleSession?
     @State private var propertySession: BatchPropertySession?
+    @State private var maskSession: MaskEditorSession?
     @State private var canvasSession: CanvasEditorSession?
     @State private var placementSession: ClipPlacementSession?
     @State private var isInspectorPresented = false
@@ -181,6 +182,9 @@ struct VideoTimelineEditorView: View {
         }
         .sheet(item: $propertySession) { session in
             BatchPropertySheet(store: store, session: session)
+        }
+        .sheet(item: $maskSession) { session in
+            MaskEditingSheet(store: store, session: session, onSaved: { selection = .effect($0) })
         }
         .sheet(item: $canvasSession) { CanvasEditorSheet(store: store, session: $0) }
         .sheet(item: $placementSession) { ClipPlacementSheet(store: store, session: $0) }
@@ -442,6 +446,7 @@ struct VideoTimelineEditorView: View {
                     time: playback.currentTime,
                     imageFrame: frame
                 )
+                VideoMaskCanvas(project: previewProject, time: playback.currentTime, imageFrame: frame)
                 if !isPlacingClick, let id = selectedEffectID,
                    let effect = project.effects.first(where: { $0.id == id }), !effect.isFullScreenCard,
                    effect.startTime <= playback.currentTime, playback.currentTime <= effect.endTime {
@@ -624,6 +629,9 @@ struct VideoTimelineEditorView: View {
                     if showCaptions { showAudioComposer = false; showMediaLibrary = false }
                 } label: { Label(showCaptions ? "Close Captions" : "Captions", systemImage: "captions.bubble") }
                 .accessibilityIdentifier("timeline-captions-toggle")
+                Button("Mask…") {
+                    maskSession = MaskEditorSession(projectID: project.id, revision: project.revision, playhead: playback.currentTime)
+                }.disabled(project.timelineDuration <= 0).accessibilityIdentifier("timeline-add-mask")
                 Button("Canvas…") { canvasSession = CanvasEditorSession(projectID: project.id, revision: project.revision, canvas: project.canvas) }
                     .accessibilityIdentifier("timeline-canvas")
                 Toggle(isOn: $snapEnabled) { Label("Snap", systemImage: "scope") }
@@ -1358,6 +1366,17 @@ struct VideoTimelineEditorView: View {
             } else if let index = project.effects.firstIndex(where: {
                 $0.id == selectedEffectID
             }) {
+                if case let .mask(value) = project.effects[index] {
+                    MaskLayerInspector(store: store, project: project, mask: value, onEdit: {
+                        maskSession = MaskEditorSession(projectID: project.id, revision: project.revision, mask: value)
+                    }, onDelete: {
+                        do {
+                            _ = try store.editProject(projectID: project.id, expectedRevision: project.revision,
+                                edits: [ProjectEdit(target: .effect, id: value.id, action: .delete)])
+                            selection = nil
+                        } catch { store.errorMessage = error.localizedDescription }
+                    })
+                } else {
                 EffectLayerInspector(
                     effect: $project.effects[index],
                     onDelete: {
@@ -1372,6 +1391,7 @@ struct VideoTimelineEditorView: View {
                         }
                     }
                 )
+                }
             } else if let index = project.suggestions.firstIndex(where: {
                 $0.id == selectedSuggestionID
             }) {
@@ -1691,6 +1711,7 @@ private extension DemoEffect {
         case .panZoom: "Pan & Zoom"
         case .title: "Title"
         case .cta: "CTA"
+        case .mask: "Mask"
         }
     }
 }

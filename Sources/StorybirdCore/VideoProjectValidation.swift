@@ -8,6 +8,7 @@ public enum VideoProjectValidationError: LocalizedError, Equatable {
     case invalidSubtitle(UUID)
     case invalidClip(UUID)
     case invalidEffect(UUID)
+    case effectConflict(UUID, UUID, Double, Double)
     case invalidSuggestion(UUID)
     case invalidNarration(UUID, String)
     case duplicateLayerID(UUID)
@@ -30,6 +31,8 @@ public enum VideoProjectValidationError: LocalizedError, Equatable {
             return "Timeline clip \(id.uuidString) is invalid."
         case let .invalidEffect(id):
             return "Effect \(id.uuidString) is invalid."
+        case let .effectConflict(id, other, start, end):
+            return "Effect \(id.uuidString) conflicts with effect \(other.uuidString) during \(start)...\(end) seconds."
         case let .invalidSuggestion(id):
             return "Suggestion \(id.uuidString) is invalid."
         case let .invalidNarration(id, reason):
@@ -272,8 +275,8 @@ public enum VideoProjectValidator {
         }
 
         let duration = timelineDuration
-        var spotlightRanges: [ClosedRange<Double>] = []
-        var panZoomRanges: [ClosedRange<Double>] = []
+        var spotlightRanges: [(UUID, ClosedRange<Double>)] = []
+        var panZoomRanges: [(UUID, ClosedRange<Double>)] = []
         guard cardsFollowClipBoundaries(project) else {
             throw VideoProjectValidationError.invalidRecording
         }
@@ -299,24 +302,33 @@ public enum VideoProjectValidator {
                     height: value.height
                 ),
                     value.dimOpacity.isFinite,
-                    (0...1).contains(value.dimOpacity),
-                    !spotlightRanges.contains(where: { overlaps($0, range) })
+                    (0...1).contains(value.dimOpacity)
                 else {
                     throw VideoProjectValidationError.invalidEffect(effect.id)
                 }
-                spotlightRanges.append(range)
+                if let (other, interval) = spotlightRanges.first(where: { overlaps($0.1, range) }) {
+                    throw VideoProjectValidationError.effectConflict(effect.id, other, max(range.lowerBound, interval.lowerBound), min(range.upperBound, interval.upperBound))
+                }
+                spotlightRanges.append((effect.id, range))
                 try validateEffectAnchor(value.sourceAnchor, in: project)
             case let .panZoom(value):
                 guard normalizedPoint(x: value.startX, y: value.startY),
                       normalizedPoint(x: value.endX, y: value.endY),
                       (1...3).contains(value.startScale),
-                      (1...3).contains(value.endScale),
-                      !panZoomRanges.contains(where: { overlaps($0, range) })
+                      (1...3).contains(value.endScale)
                 else {
                     throw VideoProjectValidationError.invalidEffect(effect.id)
                 }
-                panZoomRanges.append(range)
+                if let (other, interval) = panZoomRanges.first(where: { overlaps($0.1, range) }) {
+                    throw VideoProjectValidationError.effectConflict(effect.id, other, max(range.lowerBound, interval.lowerBound), min(range.upperBound, interval.upperBound))
+                }
+                panZoomRanges.append((effect.id, range))
                 try validateEffectAnchor(value.sourceAnchor, in: project)
+            case let .mask(value):
+                guard value.hasValidRectangle, isHexColor(value.colorHex),
+                      (value.timingMode == .project) == (value.sceneAnchor == nil) else {
+                    throw VideoProjectValidationError.invalidEffect(effect.id)
+                }
             case let .title(value):
                 guard !value.title.trimmingCharacters(
                     in: .whitespacesAndNewlines

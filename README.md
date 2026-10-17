@@ -218,6 +218,17 @@ Select a spotlight to drag its center or corners directly in the preview. A
 selected pan/zoom exposes start/end centers and zoom sliders. Numeric editing
 remains available, and the handles do not appear in the exported video.
 
+Use **Mask…** to cover an area with an opaque rectangle. Choose whether its time
+stays fixed in the project or follows a scene's start, and independently choose
+content coordinates (follow the picture and zoom) or canvas coordinates (stay on
+the screen). Drag the mask's center/corners, or use **Edit mask…** for exact values.
+Masks always cover captions, cards and other effects at 100% opacity. **Bring
+forward** and **Send backward** change which overlapping mask is on top.
+They do not track moving objects or alter the original media; inspect the final
+frames before sharing.
+
+<img src="docs/images/mask-settings.png" width="500" alt="Synthetic opaque mask settings with independent time and coordinate choices" />
+
 Subtitles default to bottom-center and wrap between words across the available
 frame width. Preview and MP4 use the same font and layout without shrinking long
 captions or cutting them off at three lines. Keep one subtitle size throughout

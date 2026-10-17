@@ -42,7 +42,7 @@
       "adrs": [
         {
           "path": "docs/adr/demo-effects/0001-timed-demo-effects.md",
-          "status": "Proposed",
+          "status": "Accepted (2026-10-17)",
           "summary": "시간 연결과 콘텐츠·캔버스 좌표를 구분한 불투명 영역 가리기를 공통 효과로 편집한다"
         }
       ],

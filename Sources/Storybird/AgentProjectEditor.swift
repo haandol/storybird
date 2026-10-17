@@ -93,6 +93,16 @@ enum AgentProjectEditor {
             try a.requireKnown(zoomFields)
             let effect = try zoom(a)
             result.effects.append(VideoTimelineEditor.anchorContentEffect(.panZoom(effect), in: result, at: effect.startTime))
+        case "storybird_create_mask":
+            let known: Set<String> = ["project_id", "expected_revision", "start_time", "end_time", "x", "y", "width", "height", "timing_mode", "coordinate_space", "color_hex"]
+            if let unknown = Set(arguments.keys).subtracting(known).sorted().first { throw AgentEditError.invalidField(unknown) }
+            guard let timing = LayerTimingMode(rawValue: try a.text("timing_mode")),
+                  let space = MaskEffect.CoordinateSpace(rawValue: try a.text("coordinate_space")) else {
+                throw AgentEditError.invalidField("timing_mode/coordinate_space")
+            }
+            result = try MaskEditor.create(in: result, startTime: a.number("start_time"), endTime: a.number("end_time"),
+                x: a.number("x"), y: a.number("y"), width: a.number("width"), height: a.number("height"),
+                timingMode: timing, coordinateSpace: space, colorHex: a.text("color_hex", default: "#000000"))
         case "storybird_insert_title":
             result = try DemoEffectEditor.insertTitle(
                 in: result, after: a.has("after_clip_id") ? a.id("after_clip_id") : nil,
@@ -109,6 +119,22 @@ enum AgentProjectEditor {
         case "storybird_update_effect":
             let id = try a.id("effect_id")
             guard let index = result.effects.firstIndex(where: { $0.id == id }) else { throw AgentEditError.missingTarget("effect") }
+            if result.effects[index].isMask {
+                let fields = ProjectEditFields.effect(result.effects[index])
+                let allowed = Set(fields.keys).union(["project_id", "expected_revision", "effect_id"])
+                if let unknown = Set(arguments.keys).subtracting(allowed).sorted().first { throw AgentEditError.invalidField(unknown) }
+                var values: [String: ProjectEditValue] = [:]
+                for (key, field) in fields where a.has(key) {
+                    switch field.type {
+                    case .number, .integer: values[key] = .number(try a.number(key))
+                    case .string: values[key] = .string(try a.text(key))
+                    case .boolean:
+                        guard let value = arguments[key] as? NSNumber, CFGetTypeID(value) == CFBooleanGetTypeID() else { throw AgentEditError.invalidField(key) }
+                        values[key] = .boolean(value.boolValue)
+                    }
+                }
+                return try MaskEditor.update(id, in: result, values: values)
+            }
             switch result.effects[index] {
             case let .spotlight(value):
                 try a.requireKnown(spotlightFields)
@@ -132,6 +158,8 @@ enum AgentProjectEditor {
                 value.buttonLabel = try a.text("button_label", default: value.buttonLabel)
                 value.style = try style(a, existing: value.style)
                 result.effects[index] = .cta(value)
+            case .mask:
+                throw AgentEditError.invalidField("effect")
             }
             if result.effects[index].isFullScreenCard {
                 result = try DemoEffectEditor.replaceCard(result.effects[index], in: project)

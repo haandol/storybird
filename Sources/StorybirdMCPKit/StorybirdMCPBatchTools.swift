@@ -13,6 +13,7 @@ extension StorybirdMCPService {
             clipFields.merge(ProjectEditFields.clip(kind)) { old, _ in old }
         }
         let examples: [DemoEffect] = [
+            .mask(MaskEffect(startTime: 0, endTime: 1, x: 0, y: 0, width: 1, height: 1, timingMode: .project, coordinateSpace: .canvas)),
             .spotlight(SpotlightEffect(startTime: 0, endTime: 1, x: 0, y: 0, width: 1, height: 1)),
             .panZoom(PanZoomEffect(startTime: 0, endTime: 1, endX: 0.5, endY: 0.5, endScale: 1)),
             .title(TitleCardEffect(startTime: 0, endTime: 1, title: "Title")),
