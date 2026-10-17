@@ -7,6 +7,23 @@ import XCTest
 
 @MainActor
 final class MCPFeatureParityTests: XCTestCase {
+    func test_editorShortcutActions_haveExplicitCommandsWithoutKeyboardTools() throws {
+        for profile in StorybirdMCPToolProfile.allCases {
+            let tools = StorybirdMCPService.toolDefinitions(for: profile)
+            let names = Set(tools.map(\.name))
+            XCTAssertTrue(names.contains("storybird_apply_edits"))
+            XCTAssertTrue(names.contains("storybird_render_preview"))
+            XCTAssertTrue(names.contains(profile == .compact ? "storybird_edit_clip" : "storybird_split_clip"))
+            XCTAssertTrue(names.contains(profile == .compact ? "storybird_edit_history" : "storybird_undo_project"))
+            XCTAssertFalse(names.contains { $0.contains("keyboard") || $0.contains("shortcut") })
+            let batch = try XCTUnwrap(tools.first { $0.name == "storybird_apply_edits" })
+            let branches = try XCTUnwrap(batch.inputSchema.objectValue?["properties"]?.objectValue?["edits"]?.objectValue?["items"]?.objectValue?["oneOf"]?.arrayValue)
+            for action in ["split", "duplicate", "delete"] {
+                XCTAssertTrue(branches.contains { $0.objectValue?["properties"]?.objectValue?["action"]?.objectValue?["const"]?.stringValue == action })
+            }
+        }
+    }
+
     func test_maskSchemas_requireIndependentModeAndSpaceAndNeverExposeOpacity() throws {
         for profile in StorybirdMCPToolProfile.allCases {
             let tools = StorybirdMCPService.toolDefinitions(for: profile)

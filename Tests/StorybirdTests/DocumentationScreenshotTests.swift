@@ -6,6 +6,22 @@ import XCTest
 
 @MainActor
 final class DocumentationScreenshotTests: XCTestCase {
+    func test_generateEditorShortcutScreenshot() async throws {
+        guard ProcessInfo.processInfo.environment["STORYBIRD_UPDATE_DOC_SCREENSHOTS"] == "1" else {
+            throw XCTSkip("Set STORYBIRD_UPDATE_DOC_SCREENSHOTS=1 to update editor shortcut screenshots.")
+        }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("shortcut-docs-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let domain = UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        defaults.set(11, forKey: "newProject.shortcut.keyCode")
+        defaults.set(Int(NSEvent.ModifierFlags.command.rawValue), forKey: "newProject.shortcut.modifiers")
+        try await render(StorybirdSettingsView(store: AppStore(repository: ProjectRepository(rootURL: root)),
+            shortcutSettings: StorybirdShortcutSettings(defaults: defaults), initialPane: .shortcuts),
+            size: CGSize(width: 680, height: 720), to: imageDirectory.appendingPathComponent("editor-shortcuts.png"), hostedInWindow: true)
+    }
+
     func test_generateMaskScreenshots() async throws {
         guard ProcessInfo.processInfo.environment["STORYBIRD_UPDATE_DOC_SCREENSHOTS"] == "1" else {
             throw XCTSkip("Set STORYBIRD_UPDATE_DOC_SCREENSHOTS=1 to update mask screenshots.")

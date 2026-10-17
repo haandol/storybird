@@ -40,6 +40,65 @@ final class StorybirdShortcutTests: XCTestCase {
         )
     }
 
+    func test_editorDefaults_matchPhysicalKeys() throws {
+        let settings = StorybirdShortcutSettings(defaults: try XCTUnwrap(UserDefaults(suiteName: domain)))
+        for (action, code, flags): (StorybirdCommandAction, Int, NSEvent.ModifierFlags) in [
+            (.splitSelection, kVK_ANSI_B, .command), (.duplicateSelection, kVK_ANSI_D, .command),
+            (.undoEdit, kVK_ANSI_Z, .command), (.redoEdit, kVK_ANSI_Z, [.command, .shift]),
+        ] {
+            XCTAssertTrue(settings.isEnabled(action))
+            XCTAssertEqual(settings.shortcut(for: action), StorybirdShortcut(keyCode: UInt16(code), modifiers: flags))
+        }
+    }
+
+    func test_legacyUserCommandB_preservedWhileNewSplitDefaultStaysDisabledUntilReassigned() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: domain))
+        defaults.set(kVK_ANSI_B, forKey: "newProject.shortcut.keyCode")
+        defaults.set(Int(NSEvent.ModifierFlags.command.rawValue), forKey: "newProject.shortcut.modifiers")
+        let settings = StorybirdShortcutSettings(defaults: defaults)
+        XCTAssertEqual(settings.shortcut(for: .newProject), StorybirdCommandAction.splitSelection.defaultShortcut)
+        XCTAssertFalse(settings.isEnabled(.splitSelection))
+        XCTAssertNotNil(settings.validationError(for: .splitSelection))
+        XCTAssertTrue(settings.displayName(for: .splitSelection).contains("Disabled"))
+        settings.update(.newProject, to: StorybirdCommandAction.newProject.defaultShortcut)
+        let restored = StorybirdShortcutSettings(defaults: defaults)
+        XCTAssertFalse(restored.isEnabled(.splitSelection), "Reopening must not silently activate a disabled new key")
+        restored.update(.splitSelection, to: StorybirdCommandAction.splitSelection.defaultShortcut)
+        XCTAssertNil(restored.validationError(for: .splitSelection))
+        XCTAssertTrue(StorybirdShortcutSettings(defaults: defaults).isEnabled(.splitSelection))
+    }
+
+    func test_existingEditorCustomization_loadedBeforeNewEditorDefaults() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: domain))
+        defaults.set(kVK_ANSI_B, forKey: "duplicateSelection.shortcut.keyCode")
+        defaults.set(Int(NSEvent.ModifierFlags.command.rawValue), forKey: "duplicateSelection.shortcut.modifiers")
+        let settings = StorybirdShortcutSettings(defaults: defaults)
+        XCTAssertEqual(settings.shortcut(for: .duplicateSelection), StorybirdCommandAction.splitSelection.defaultShortcut)
+        XCTAssertFalse(settings.isEnabled(.splitSelection))
+        let replacement = StorybirdShortcut(keyCode: UInt16(kVK_ANSI_B), modifiers: [.command, .option])
+        settings.update(.splitSelection, to: replacement)
+        XCTAssertTrue(settings.isEnabled(.splitSelection))
+        let reloaded = StorybirdShortcutSettings(defaults: defaults)
+        XCTAssertEqual(reloaded.shortcut(for: .splitSelection), replacement)
+        XCTAssertEqual(Set(reloaded.shortcuts.values).count, reloaded.shortcuts.count)
+        reloaded.update(.undoEdit, to: replacement)
+        XCTAssertEqual(reloaded.shortcut(for: .undoEdit), StorybirdCommandAction.undoEdit.defaultShortcut)
+        XCTAssertNotNil(reloaded.validationError(for: .undoEdit))
+    }
+
+    func test_corruptedEditorKeys_recoverUniqueDefaults() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: domain))
+        for action in StorybirdCommandAction.editorActions {
+            defaults.set(-1, forKey: "\(action.rawValue).shortcut.keyCode")
+        }
+        let settings = StorybirdShortcutSettings(defaults: defaults)
+        XCTAssertEqual(Set(settings.shortcuts.values).count, StorybirdCommandAction.allCases.count)
+        for action in StorybirdCommandAction.editorActions {
+            XCTAssertTrue(settings.isEnabled(action))
+            XCTAssertEqual(settings.shortcut(for: action), action.defaultShortcut)
+        }
+    }
+
     func test_update_persistsAcrossSettingsInstances() throws {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: domain))
         let first = StorybirdShortcutSettings(defaults: defaults)

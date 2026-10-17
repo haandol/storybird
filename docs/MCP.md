@@ -26,8 +26,8 @@ not control every Settings or window action.
 
 ### Choose a tool profile
 
-No launch arguments selects `legacy`, with 74 operation-specific tools.
-To use 56 tools covering the same actions, configure the
+No launch arguments selects `legacy`, with 82 tools.
+To use 63 tools covering the same actions, configure the
 companion arguments as `["--tool-profile", "compact"]` and reconnect. Explicit
 `["--tool-profile", "legacy"]` also works. Invalid arguments fail before the
 server starts; a connection never changes profiles during use.
@@ -41,7 +41,7 @@ An unadvertised name is rejected, including legacy names replaced in compact.
 | `storybird_edit_clip` | `action` | split, trim, delete, move, set_speed, insert_freeze |
 | `storybird_edit_click` | `action` | create, update, delete |
 | `storybird_edit_subtitle` | `action` | upsert, delete |
-| `storybird_create_visual_effect` | `kind` | spotlight, pan_zoom |
+| `storybird_create_visual_effect` | `kind` | spotlight, pan_zoom, mask |
 | `storybird_insert_card` | `kind` | title, cta |
 | `storybird_edit_effect` | `action` | update, delete |
 | `storybird_edit_suggestion` | `action` | update, apply, reject |

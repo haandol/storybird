@@ -64,3 +64,5 @@ STORYBIRD_UPDATE_DOC_SCREENSHOTS=1 \
 This renders actual SwiftUI views in an isolated test fixture, including the
 Voice settings and creation-dialog images. It does not update the live editor
 screenshot. Review all changed images before committing.
+
+`editor-shortcuts.png` is the native Settings view with synthetic preferences: an existing Command+B project shortcut and the resulting disabled new split default. Regenerate with `STORYBIRD_UPDATE_DOC_SCREENSHOTS=1 swift test --filter DocumentationScreenshotTests/test_generateEditorShortcutScreenshot`.

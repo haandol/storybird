@@ -158,7 +158,7 @@ struct StorybirdSettingsView: View {
 
     private var shortcutsTab: some View {
         Form {
-            Section("Project Actions") {
+            Section("Project and Editor Actions") {
                 ForEach(StorybirdCommandAction.allCases) { action in
                     VStack(alignment: .leading, spacing: 6) {
                         LabeledContent(action.title) {
@@ -191,6 +191,8 @@ struct StorybirdSettingsView: View {
                 )
                 .font(.callout)
                 .foregroundStyle(.secondary)
+                Text("In the active editor: Space plays/pauses, Delete removes the selection, Left/Right move one frame, and Up/Down move to clip boundaries. Text fields and dialogs keep their normal keys.")
+                    .font(.caption).foregroundStyle(.secondary)
                 LabeledContent("Open Settings") {
                     Text("⌘,")
                         .monospaced()

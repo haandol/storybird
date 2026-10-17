@@ -1249,6 +1249,9 @@ final class AppStore: ObservableObject {
         }
     }
 
+    func canUndo(projectID: UUID) -> Bool { undoHistory[projectID]?.isEmpty == false }
+    func canRedo(projectID: UUID) -> Bool { redoHistory[projectID]?.isEmpty == false }
+
     /// Restores one complete project edit while keeping revision monotonic.
     func undo(
         projectID: UUID,

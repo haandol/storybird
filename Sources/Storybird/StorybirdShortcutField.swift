@@ -10,7 +10,7 @@ struct StorybirdShortcutField: View {
             Button(
                 settings.recordingAction == action
                     ? "Press a key"
-                    : settings.shortcut(for: action).displayName
+                    : settings.displayName(for: action)
             ) {
                 settings.recordingAction =
                     settings.recordingAction == action ? nil : action

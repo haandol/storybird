@@ -23,6 +23,11 @@ struct TimelinePlaybackKeyScope: NSViewRepresentable {
     let interaction: TimelinePlaybackInteraction
     let isEnabled: Bool
     let togglePlayback: @MainActor () -> Void
+    var shortcutSettings: StorybirdShortcutSettings? = nil
+    var performEdit: (@MainActor (StorybirdCommandAction) -> Bool)? = nil
+    var deleteSelection: (@MainActor () -> Bool)? = nil
+    var stepFrame: (@MainActor (Int) -> Void)? = nil
+    var stepBoundary: (@MainActor (Int) -> Void)? = nil
 
     /// Installs no global keyboard observation or input permission.
     func makeNSView(context: Context) -> TimelinePlaybackKeyView {
@@ -34,6 +39,11 @@ struct TimelinePlaybackKeyScope: NSViewRepresentable {
         interaction.keyView = view
         view.isPlaybackEnabled = isEnabled
         view.togglePlayback = togglePlayback
+        view.shortcutSettings = shortcutSettings
+        view.performEdit = performEdit
+        view.deleteSelection = deleteSelection
+        view.stepFrame = stepFrame
+        view.stepBoundary = stepBoundary
     }
 
     /// Removes the local monitor when this editor leaves the SwiftUI hierarchy.
@@ -45,6 +55,11 @@ struct TimelinePlaybackKeyScope: NSViewRepresentable {
 @MainActor
 final class TimelinePlaybackKeyView: NSView {
     var togglePlayback: (@MainActor () -> Void)?
+    weak var shortcutSettings: StorybirdShortcutSettings?
+    var performEdit: (@MainActor (StorybirdCommandAction) -> Bool)?
+    var deleteSelection: (@MainActor () -> Bool)?
+    var stepFrame: (@MainActor (Int) -> Void)?
+    var stepBoundary: (@MainActor (Int) -> Void)?
     var isPlaybackEnabled = true
     var isInteractionActive = false
     private var monitor: Any?
@@ -102,16 +117,33 @@ final class TimelinePlaybackKeyView: NSView {
             isInteractionActive = false
             return event
         }
-        let modifiers: NSEvent.ModifierFlags = [.command, .option, .control, .shift, .function]
-        guard event.type == .keyDown, event.keyCode == 49,
-              event.modifierFlags.intersection(modifiers).isEmpty,
-              event.window === window, applicationIsActive, windowIsKey,
+        guard event.type == .keyDown, event.window === window, applicationIsActive, windowIsKey,
               isInteractionActive, isPlaybackEnabled, !isHiddenOrHasHiddenAncestor,
               window.attachedSheet == nil, !hasModalWindow,
-              !Self.isTextInput(window.firstResponder) else {
-            return event
+              shortcutSettings?.isRecordingShortcut != true,
+              !Self.isTextInput(window.firstResponder) else { return event }
+        let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        if !modifiers.isEmpty {
+            let action = StorybirdCommandAction.editorActions.first { action in
+                if let shortcutSettings { return shortcutSettings.isEnabled(action) && shortcutSettings.shortcut(for: action).matches(event) }
+                return action.defaultShortcut.matches(event)
+            }
+            guard let action else { return event }
+            if !event.isARepeat { _ = performEdit?(action) }
+            return nil
         }
-        if !event.isARepeat { togglePlayback?() }
+        switch event.keyCode {
+        case 49:
+            guard !event.modifierFlags.contains(.function) else { return event }
+            if !event.isARepeat { togglePlayback?() }
+        case 51, 117:
+            if !event.isARepeat { _ = deleteSelection?() }
+        case 123: stepFrame?(-1)
+        case 124: stepFrame?(1)
+        case 126: stepBoundary?(-1)
+        case 125: stepBoundary?(1)
+        default: return event
+        }
         return nil
     }
 

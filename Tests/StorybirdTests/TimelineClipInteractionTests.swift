@@ -28,7 +28,7 @@ final class TimelineClipInteractionTests: XCTestCase {
             window.makeFirstResponder(field)
             window.makeFirstResponder(nil)
         }
-        queuedClick(NSPoint(x: 183, y: 70), window)
+        click(NSPoint(x: 183, y: 70), window)
         try await Task.sleep(for: .milliseconds(100))
         XCTAssertEqual(store.project(id: project.id)?.clips.count, 0)
         XCTAssertEqual(store.project(id: project.id)?.revision, project.revision + 1)
@@ -196,7 +196,7 @@ final class TimelineClipInteractionTests: XCTestCase {
                     < $1.convert(NSPoint(x: 0, y: $1.bounds.midY), to: nil).y
             })
             let centerDelete = selectionBar.convert(NSPoint(x: 183, y: selectionBar.bounds.midY), to: nil)
-            queuedClick(centerDelete, window)
+            click(centerDelete, window)
             try await Task.sleep(for: .milliseconds(150))
             XCTAssertEqual(store.project(id: initial.id)?.clips.count, 0)
             XCTAssertEqual(store.project(id: initial.id)?.revision, beforeDelete.revision + 1)
@@ -217,20 +217,14 @@ final class TimelineClipInteractionTests: XCTestCase {
         return (store, try XCTUnwrap(store.project(id: project.id)), root)
     }
     private func descendants(_ view: NSView) -> [NSView] { view.subviews.flatMap { [$0] + descendants($0) } }
-    private func queuedClick(_ point: NSPoint, _ window: NSWindow) {
-        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-            mouseEventNumber += 1
-            NSApp.postEvent(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
-                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
-                eventNumber: mouseEventNumber, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1)!, atStart: false)
-        }
-        while let event = NSApp.nextEvent(matching: [.leftMouseDown, .leftMouseUp], until: Date(timeIntervalSinceNow: 0.1), inMode: .default, dequeue: true) {
-            NSApp.sendEvent(event)
-        }
+    /// Dispatch only to the owned window; never drain the application's input queue.
+    private func click(_ point: NSPoint, _ window: NSWindow) {
+        send(.leftMouseDown, point, window)
+        send(.leftMouseUp, point, window)
     }
     private func send(_ type: NSEvent.EventType, _ point: NSPoint, _ window: NSWindow, flags: NSEvent.ModifierFlags = []) {
         mouseEventNumber += 1
-        NSApp.sendEvent(NSEvent.mouseEvent(with: type, location: point, modifierFlags: flags,
+        window.sendEvent(NSEvent.mouseEvent(with: type, location: point, modifierFlags: flags,
             timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
             eventNumber: mouseEventNumber, clickCount: 1, pressure: 1)!)
     }

@@ -54,7 +54,7 @@ final class StorybirdShortcutMonitor {
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
             [weak settings, weak commandCenter] event in
             guard NSApp.isActive,
-                  let action = settings?.action(matching: event),
+                  let action = settings?.action(matching: event), !action.isEditorAction,
                   commandCenter?.perform(action) == true
             else {
                 return event

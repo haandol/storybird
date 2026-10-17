@@ -159,6 +159,35 @@ final class VideoPlaybackModel: ObservableObject {
         }
     }
 
+    /// Frame navigation uses the composition's rational grid directly; routing
+    /// through the ordinary 600-tick scrub clock would lose 59.94fps boundaries.
+    func stepFrame(_ direction: Int) {
+        guard !isPreparing, duration > 0, direction != 0 else { return }
+        pause()
+        guard let target = Self.frameStepTime(from: currentTime, direction: direction, duration: duration, frameDuration: frameDuration) else { return }
+        player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero)
+        currentTime = target.seconds
+    }
+
+    static func frameStepTime(from time: Double, direction: Int, duration: Double, frameDuration: CMTime) -> CMTime? {
+        guard time.isFinite, duration.isFinite, duration > 0, frameDuration.isNumeric, frameDuration > .zero, direction != 0 else { return nil }
+        if time >= duration, direction > 0 { return nil }
+        let position = max(time, 0) / frameDuration.seconds
+        let next = direction > 0 ? floor(position + 1e-9) + 1 : ceil(position - 1e-9) - 1
+        let last = max(0, ceil(duration / frameDuration.seconds - 1e-9) - 1)
+        let index = min(max(next, 0), last)
+        return CMTimeMultiplyByFloat64(frameDuration, multiplier: index)
+    }
+
+    func stepClipBoundary(_ direction: Int, in project: DemoProject) {
+        guard !isPreparing, direction != 0 else { return }
+        let boundaries = Set(VideoTimelineSchedule(project: project).items.flatMap { item -> [Double] in
+            if case let .clip(clip) = item { return [clip.projectStart, clip.projectEnd] }; return []
+        } + [0, project.timelineDuration]).sorted()
+        let next = direction > 0 ? boundaries.first { $0 > currentTime + 1e-9 } : boundaries.last { $0 < currentTime - 1e-9 }
+        if let next { pause(); seek(to: next) }
+    }
+
     /// Seeks the video and overlay preview to one bounded project-time value.
     func seek(to seconds: Double) {
         guard seconds.isFinite else { return }

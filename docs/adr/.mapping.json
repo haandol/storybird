@@ -173,7 +173,7 @@
       "adrs": [
         {
           "path": "docs/adr/application-settings/0001-native-settings-and-shortcuts.md",
-          "status": "Proposed",
+          "status": "Accepted (2026-10-17)",
           "summary": "기존 사용자 조합과 입력 포커스를 보존하며 공통 편집 명령의 로컬 단축키를 제공한다"
         }
       ],

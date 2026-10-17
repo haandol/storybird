@@ -240,6 +240,13 @@ final class VoiceProfileCreationViewTests: XCTestCase {
         let bitmap = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
         view.cacheDisplay(in: view.bounds, to: bitmap)
         let request = VNRecognizeTextRequest()
+        // Keep synthetic label checks independent of GPU/ANE contention after media tests.
+        let devices = try request.supportedComputeStageDevices
+        let cpu = try XCTUnwrap(devices[.main]?.first { device in
+            if case .cpu = device { return true }
+            return false
+        })
+        request.setComputeDevice(cpu, for: .main)
         request.recognitionLevel = .accurate
         request.recognitionLanguages = ["en-US"]
         request.usesLanguageCorrection = false

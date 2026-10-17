@@ -18,18 +18,18 @@ Every name below is advertised in its stated profile. Read IDs and the current `
 
 ### Connection profiles
 
-The default `legacy` profile preserves the 74 operation-specific tools below.
-Launch with `--tool-profile compact` to advertise 56 tools for the same actions.
-The selected list is fixed for that connection. Compact replaces 27 names with
-the following nine tools; the other 47 tools are shared by both profiles.
-There are no hidden aliases or batch edits.
+The default `legacy` profile preserves the original 74 tools and adds eight tools (82 total).
+Launch with `--tool-profile compact` to advertise 63 tools for the same actions.
+The selected list is fixed for that connection. Compact replaces 28 names with
+the following nine tools; the other 54 tools are shared by both profiles.
+There are no hidden aliases. Both profiles include the same explicit atomic batch tools.
 
 | Compact tool | Selector and matching legacy actions | Shared implementation and evidence |
 |---|---|---|
 | `storybird_edit_clip` | `action`: split, trim, delete, move, set_speed, insert_freeze | Companion validates one branch → existing clip handler → `VideoTimelineEditor` → app revision/save/undo |
 | `storybird_edit_click` | `action`: create, update, delete | Existing Cue commands; all indicator/description/subtitle properties remain available |
 | `storybird_edit_subtitle` | `action`: upsert, delete | Existing subtitle commands and scene-timing validation |
-| `storybird_create_visual_effect` | `kind`: spotlight, pan_zoom | Existing effect creation commands |
+| `storybird_create_visual_effect` | `kind`: spotlight, pan_zoom, mask | Existing effect creation commands |
 | `storybird_insert_card` | `kind`: title, cta | Existing card insertion rules and linked timing |
 | `storybird_edit_effect` | `action`: update, delete | Existing effect validation and card reconciliation |
 | `storybird_edit_suggestion` | `action`: update, apply, reject | Existing suggestion commands; update/reject preserve output revision |
@@ -183,6 +183,14 @@ project-editing tools. Changing their scope requires checking the owning ADR.
 
 ## Verification scope
 
+### Editor shortcuts
+
+| UI command/property | MCP path | Shared behavior / exact exception |
+| --- | --- | --- |
+| Split (Command+B), duplicate (Command+D), undo/redo (Command+Z / Shift+Command+Z), Delete selection | Existing split tools and `storybird_apply_edits`; `storybird_undo_project` / `storybird_redo_project` | Editor keyboard and visible edit menu use the same selection/domain actions, revisioned save and undo. Subtitle split still requires text-boundary input in its sheet/tool. |
+| Space, Left/Right frame, Up/Down clip-boundary navigation | Explicit-time `storybird_render_preview` / audio preview and context queries | View-only authoring exception; native keys stay in the active editor and never mutate project/revision/history. Agents do not synthesize keys. |
+| Customize modified keys; display disabled new defaults on conflict | Native shortcut Settings | Existing application-settings exception. Preserve prior combinations; never steal text/dialog/shortcut-recorder input or another app/window. |
+
 ### Opaque masks
 
 | Action/property | Advertised MCP path | App/shared validation and observable result |
@@ -208,7 +216,6 @@ rectangle movement/resizing, stale input, and the opaque error cover.
 | Read all independent/Cue caption text, timing and completion state; seek to a row | `storybird_get_edit_context`, `storybird_render_preview` at explicit time | Same project records; seeking/selection is view state. |
 | Split independent text by internal time and Unicode grapheme offset; merge adjacent independent captions with supplied text | `storybird_preview_edits` / `storybird_apply_edits`, subtitle split/merge actions and explicit related IDs | Shared subtitle editor and one final revisioned save; Cue captions remain Cue components. |
 | Append UTF-8 SRT and export independent/Cue/both captions | `storybird_import_subtitles`, `storybird_export_subtitles` | App-owned local file I/O; atomic append, explicit export scope, stable ordering and millisecond rounding. |
-
 | Canvas original/1920×1080/1080×1920/1080×1080 and RGB background | `storybird_preview_edits` / `storybird_apply_edits`: project update `canvas_preset`, `canvas_background_hex` | ProjectEditFields → ProjectEditPlanner → app validation/save/undo. Native Canvas sheet captures the same revision. |
 | Per-clip Fit/Fill and horizontal/vertical 0...1 anchor | Same batch: clip update `fit_mode`, `anchor_x`, `anchor_y` | MediaPlacement, project validation and shared composition. MCPVisualMediaTests samples actual PNG/MP4 pixels across presets and both tool profiles. |
 | Move/resize spotlight; move pan/zoom start/end centers and scales | Same batch: effect update `x`, `y`, `width`, `height`, `start_x`, `start_y`, `start_scale`, `end_x`, `end_y`, `end_scale`; numeric effect tools remain supported | PreviewEffectEditModel keeps local drafts and commits one app-owned edit on release. PreviewEffectInteractionTests exercises actual corner/center drags and keyboard sliders, cancellation, stale input, write failure and undo. |

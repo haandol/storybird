@@ -208,7 +208,9 @@ duration and any unverified listening/motion checks. Keep language exports disti
 
 ## Boundaries
 
-Use app-owned tools, never direct project-library writes. Model status, selection
+Use app-owned tools, never direct project-library writes. Native editor shortcuts
+are conveniences for people; agents must use the matching split, batch edit and
+undo/redo tools. Inspect frames at explicit times instead of synthesizing navigation keys. Model status, selection
 and installation/removal use MCP without additional approval. Use
 `storybird_prepare_voice_model` to install and `storybird_remove_voice_model`
 to remove a model only when requested; poll `storybird_get_voice_model` until

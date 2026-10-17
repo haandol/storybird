@@ -7,8 +7,15 @@ enum StorybirdCommandAction: String, CaseIterable, Identifiable, Sendable {
     case toggleRecording
     case importVideo
     case exportVideo
+    case splitSelection
+    case duplicateSelection
+    case undoEdit
+    case redoEdit
 
     var id: String { rawValue }
+    var isEditorAction: Bool { [.splitSelection, .duplicateSelection, .undoEdit, .redoEdit].contains(self) }
+    static var projectActions: [Self] { allCases.filter { !$0.isEditorAction } }
+    static var editorActions: [Self] { allCases.filter(\.isEditorAction) }
 
     var title: String {
         switch self {
@@ -16,6 +23,10 @@ enum StorybirdCommandAction: String, CaseIterable, Identifiable, Sendable {
         case .toggleRecording: "Start or stop recording"
         case .importVideo: "Import video"
         case .exportVideo: "Export video"
+        case .splitSelection: "Split selection"
+        case .duplicateSelection: "Duplicate selection"
+        case .undoEdit: "Undo project edit"
+        case .redoEdit: "Redo project edit"
         }
     }
 
@@ -29,11 +40,19 @@ enum StorybirdCommandAction: String, CaseIterable, Identifiable, Sendable {
             "Works only when the Import toolbar action is available."
         case .exportVideo:
             "Works only when the selected project can be exported."
+        case .splitSelection: "Splits the selected clip or audio at the playhead; captions open their split editor."
+        case .duplicateSelection: "Duplicates selected clips and layers through one project edit."
+        case .undoEdit: "Undoes one project edit while the timeline workspace owns keyboard focus."
+        case .redoEdit: "Redoes one project edit while the timeline workspace owns keyboard focus."
         }
     }
 
     var defaultShortcut: StorybirdShortcut {
         switch self {
+        case .splitSelection: StorybirdShortcut(keyCode: UInt16(kVK_ANSI_B), modifiers: [.command])
+        case .duplicateSelection: StorybirdShortcut(keyCode: UInt16(kVK_ANSI_D), modifiers: [.command])
+        case .undoEdit: StorybirdShortcut(keyCode: UInt16(kVK_ANSI_Z), modifiers: [.command])
+        case .redoEdit: StorybirdShortcut(keyCode: UInt16(kVK_ANSI_Z), modifiers: [.command, .shift])
         case .newProject:
             StorybirdShortcut(
                 keyCode: UInt16(kVK_ANSI_N),

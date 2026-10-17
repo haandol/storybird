@@ -28,6 +28,7 @@ struct StorybirdApp: App {
                 store: store,
                 commandCenter: commandCenter
             )
+                .environment(\.storybirdShortcuts, shortcutSettings)
                 .frame(minWidth: 720, minHeight: 520)
                 .task {
                     externalControlHost.start()

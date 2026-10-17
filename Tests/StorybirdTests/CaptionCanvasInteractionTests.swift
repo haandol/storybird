@@ -256,16 +256,25 @@ final class CaptionCanvasInteractionTests: XCTestCase {
         }
         let window = try XCTUnwrap(view.window)
         let tracksMouse = label == "Fill canvas" || label == "Text color" || label.hasPrefix("9:16")
-        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-            let event = try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
+        let events = try [NSEvent.EventType.leftMouseDown, .leftMouseUp].map { type in
+            try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
                 timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
-                context: nil, eventNumber: type == .leftMouseDown ? 1 : 2, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0))
-            if tracksMouse { NSApp.postEvent(event, atStart: false) } else { window.sendEvent(event) }
+                context: nil, eventNumber: type == .leftMouseDown ? 1 : 2, clickCount: 1,
+                pressure: type == .leftMouseDown ? 1 : 0))
         }
         if tracksMouse {
-            while let event = NSApp.nextEvent(matching: [.leftMouseDown, .leftMouseUp], until: Date(timeIntervalSinceNow: 0.1), inMode: .default, dequeue: true) {
-                if event.windowNumber == window.windowNumber { window.sendEvent(event) } else { NSApp.sendEvent(event) }
+            // Native radio/checkbox controls track synchronously. Queue only this
+            // window's release, then address its press directly; never drain user input.
+            NSApp.postEvent(events[1], atStart: true)
+            window.sendEvent(events[0])
+            if let pending = NSApp.nextEvent(matching: .leftMouseUp, until: .distantPast, inMode: .default, dequeue: false),
+               pending.windowNumber == window.windowNumber, pending.eventNumber == events[1].eventNumber,
+               pending.timestamp == events[1].timestamp {
+                _ = NSApp.nextEvent(matching: .leftMouseUp, until: .distantPast, inMode: .default, dequeue: true)
             }
+            window.sendEvent(events[1])
+        } else {
+            for event in events { window.sendEvent(event) }
         }
     }
 }

@@ -84,6 +84,21 @@ project data and undo history unchanged.
 | **Make another language version** | Duplicate a project with its own media, then ask your agent to translate and regenerate the needed sentences |
 | **Work through an agent** | Local MCP tools cover recording, file imports, targeted edits, narration, composited previews, and export jobs |
 
+## Faster timeline editing
+
+Select clips or layers, then use **Edit** or **⌘B** to split, **⌘D** to duplicate,
+**Delete** to remove the selection, and **⌘Z / ⇧⌘Z** to undo or redo.
+Independent subtitle splitting opens the text split editor. In the active editor,
+**Space** plays or pauses, **← / →** step one frame, and **↑ / ↓** move between clip
+boundaries. Text fields and dialogs retain normal keyboard input.
+
+Change modified combinations in **Settings › Shortcuts**. Existing combinations
+are preserved; a conflicting new editor default is shown as disabled until you
+reassign it. Agents use the equivalent MCP edit commands, without keyboard input
+or screen-control permission.
+
+![Editor shortcut settings with a preserved existing combination](docs/images/editor-shortcuts.png)
+
 ## System requirements
 
 Recording and editing require **macOS 14 or later**. Building requires Xcode 26
@@ -458,8 +473,8 @@ command = "/Applications/Storybird.app/Contents/MacOS/StorybirdMCP"
 args = ["--tool-profile", "compact"]
 ```
 
-The compact profile groups related project edits into 56 tools. Existing
-configurations without arguments keep the 74-tool legacy profile; select
+The compact profile groups related project edits into 63 tools. Existing
+configurations without arguments keep the 82-tool legacy profile; select
 `--tool-profile legacy` explicitly if needed. Each connection exposes one fixed
 list. See [tool profiles and call examples](docs/MCP.md#choose-a-tool-profile)
 for the grouped actions and unchanged recording, audio-generation and export tools.

@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import SwiftUI
 
 @MainActor
 final class StorybirdShortcutSettings: ObservableObject {
@@ -16,7 +17,9 @@ final class StorybirdShortcutSettings: ObservableObject {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        shortcuts = Self.loadShortcuts(from: defaults)
+        let loaded = Self.loadShortcuts(from: defaults)
+        shortcuts = loaded.shortcuts
+        validationErrors = loaded.errors
     }
 
     var isRecordingShortcut: Bool {
@@ -27,6 +30,12 @@ final class StorybirdShortcutSettings: ObservableObject {
         for action: StorybirdCommandAction
     ) -> StorybirdShortcut {
         shortcuts[action] ?? action.defaultShortcut
+    }
+
+    func isEnabled(_ action: StorybirdCommandAction) -> Bool { shortcuts[action] != nil }
+
+    func displayName(for action: StorybirdCommandAction) -> String {
+        isEnabled(action) ? shortcut(for: action).displayName : "Disabled · " + action.defaultShortcut.displayName
     }
 
     /// Exposes a rejected-edit explanation next to the affected field while
@@ -62,6 +71,7 @@ final class StorybirdShortcutSettings: ObservableObject {
         }
         shortcuts[action] = shortcut
         validationErrors[action] = nil
+        defaults.removeObject(forKey: "\(action.rawValue).shortcut.disabled")
         Self.save(shortcut, for: action, to: defaults)
     }
 
@@ -70,17 +80,38 @@ final class StorybirdShortcutSettings: ObservableObject {
     func action(matching event: NSEvent) -> StorybirdCommandAction? {
         guard !isRecordingShortcut, !event.isARepeat else { return nil }
         return StorybirdCommandAction.allCases.first {
-            shortcut(for: $0).matches(event)
+            shortcuts[$0]?.matches(event) == true
         }
     }
 
-    /// Loads all actions as one set and repairs invalid or duplicate persisted
-    /// values until every action has one unique working shortcut.
-    private static func loadShortcuts(
-        from defaults: UserDefaults
-    ) -> [StorybirdCommandAction: StorybirdShortcut] {
+    /// Keeps the established project-key repair rules, then adds editor keys
+    /// without replacing valid existing choices. A conflicting new default stays
+    /// disabled until the user assigns that editor action a valid combination.
+    private static func loadShortcuts(from defaults: UserDefaults) -> (shortcuts: [StorybirdCommandAction: StorybirdShortcut], errors: [StorybirdCommandAction: String]) {
+        var loaded = loadProjectShortcuts(from: defaults)
+        var errors: [StorybirdCommandAction: String] = [:]
+        let editors = StorybirdCommandAction.editorActions
+        let stored = Dictionary(uniqueKeysWithValues: editors.compactMap { action in load(action, from: defaults).map { (action, $0) } })
+        let duplicated = Set(Dictionary(grouping: stored.keys) { stored[$0]! }.values.filter { $0.count > 1 }.flatMap { $0 })
+        for action in editors where !defaults.bool(forKey: "\(action.rawValue).shortcut.disabled") {
+            if let value = stored[action], !duplicated.contains(action), !loaded.values.contains(value) { loaded[action] = value }
+        }
+        for action in editors where loaded[action] == nil {
+            let disabledKey = "\(action.rawValue).shortcut.disabled"
+            if !defaults.bool(forKey: disabledKey), !loaded.values.contains(action.defaultShortcut) {
+                loaded[action] = action.defaultShortcut
+            } else {
+                defaults.set(true, forKey: disabledKey)
+                errors[action] = "Disabled: choose an unused shortcut for this editor action. Existing shortcuts were preserved."
+            }
+        }
+        return (loaded, errors)
+    }
+
+    private static func loadProjectShortcuts(from defaults: UserDefaults) -> [StorybirdCommandAction: StorybirdShortcut] {
+        let actions = StorybirdCommandAction.projectActions
         var loaded = Dictionary(
-            uniqueKeysWithValues: StorybirdCommandAction.allCases.map {
+            uniqueKeysWithValues: actions.map {
                 ($0, load($0, from: defaults) ?? $0.defaultShortcut)
             }
         )
@@ -103,7 +134,7 @@ final class StorybirdShortcutSettings: ObservableObject {
             guard changed else {
                 return Dictionary(
                     uniqueKeysWithValues:
-                        StorybirdCommandAction.allCases.map {
+                        actions.map {
                             ($0, $0.defaultShortcut)
                         }
                 )
@@ -160,5 +191,16 @@ final class StorybirdShortcutSettings: ObservableObject {
             Int(shortcut.modifierRawValue),
             forKey: "\(action.rawValue).shortcut.modifiers"
         )
+    }
+}
+
+private struct StorybirdShortcutEnvironmentKey: EnvironmentKey {
+    static let defaultValue: StorybirdShortcutSettings? = nil
+}
+
+extension EnvironmentValues {
+    var storybirdShortcuts: StorybirdShortcutSettings? {
+        get { self[StorybirdShortcutEnvironmentKey.self] }
+        set { self[StorybirdShortcutEnvironmentKey.self] = newValue }
     }
 }

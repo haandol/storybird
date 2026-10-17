@@ -71,6 +71,8 @@ struct VideoTimelineEditorView: View {
     @State private var trackCache = TimelineTrackCache()
     private let videoURL: URL
     @State private var selection: TimelineLayerSelection?
+    @Environment(\.storybirdShortcuts) private var shortcutSettings
+    @State private var shortcutCaptionSession: CaptionEditorSession?
     @State private var selectedTargets: Set<ProjectEditReference> = []
     @State private var bulkStyleSession: CaptionStyleSession?
     @State private var propertySession: BatchPropertySession?
@@ -183,6 +185,7 @@ struct VideoTimelineEditorView: View {
         .sheet(item: $propertySession) { session in
             BatchPropertySheet(store: store, session: session)
         }
+        .sheet(item: $shortcutCaptionSession) { CaptionEditorSheet(store: store, session: $0) }
         .sheet(item: $maskSession) { session in
             MaskEditingSheet(store: store, session: session, onSaved: { selection = .effect($0) })
         }
@@ -360,7 +363,12 @@ struct VideoTimelineEditorView: View {
         .background(TimelinePlaybackKeyScope(
             interaction: playbackInteraction,
             isEnabled: !isPlacingClick,
-            togglePlayback: { playback.togglePlayback() }
+            togglePlayback: { playback.togglePlayback() },
+            shortcutSettings: shortcutSettings,
+            performEdit: { performEditorCommand($0) },
+            deleteSelection: { deleteEditorSelection() },
+            stepFrame: { playback.stepFrame($0) },
+            stepBoundary: { playback.stepClipBoundary($0, in: project) }
         ))
     }
 
@@ -608,6 +616,18 @@ struct VideoTimelineEditorView: View {
             HStack(spacing: 8) {
                 Text("Timeline layers")
                     .font(.headline)
+                Button { _ = performEditorCommand(.undoEdit) } label: {
+                    Image(systemName: "arrow.uturn.backward")
+                }
+                .disabled(!canRunEditorCommand(.undoEdit))
+                .help("Undo project edit")
+                .accessibilityIdentifier("timeline-undo")
+                Button { _ = performEditorCommand(.redoEdit) } label: {
+                    Image(systemName: "arrow.uturn.forward")
+                }
+                .disabled(!canRunEditorCommand(.redoEdit))
+                .help("Redo project edit")
+                .accessibilityIdentifier("timeline-redo")
                 ClickCueReviewMenu(clicks: project.clicks) { id in
                     selection = .click(id)
                     isInspectorPresented = true
@@ -629,6 +649,14 @@ struct VideoTimelineEditorView: View {
                     if showCaptions { showAudioComposer = false; showMediaLibrary = false }
                 } label: { Label(showCaptions ? "Close Captions" : "Captions", systemImage: "captions.bubble") }
                 .accessibilityIdentifier("timeline-captions-toggle")
+                Menu("Edit") {
+                    Button("Split selection") { _ = performEditorCommand(.splitSelection) }.disabled(!canRunEditorCommand(.splitSelection))
+                    Button("Duplicate selection") { _ = performEditorCommand(.duplicateSelection) }.disabled(!canRunEditorCommand(.duplicateSelection))
+                    Button("Delete selection") { _ = deleteEditorSelection() }.disabled(editorTargets.isEmpty)
+                    Divider()
+                    Button("Undo project edit") { _ = performEditorCommand(.undoEdit) }.disabled(!canRunEditorCommand(.undoEdit))
+                    Button("Redo project edit") { _ = performEditorCommand(.redoEdit) }.disabled(!canRunEditorCommand(.redoEdit))
+                }.accessibilityIdentifier("timeline-edit-menu")
                 Button("Mask…") {
                     maskSession = MaskEditorSession(projectID: project.id, revision: project.revision, playhead: playback.currentTime)
                 }.disabled(project.timelineDuration <= 0).accessibilityIdentifier("timeline-add-mask")
@@ -703,24 +731,6 @@ struct VideoTimelineEditorView: View {
 
                 Spacer(minLength: 12)
 
-                Button {
-                    do {
-                        project = try store.undo(projectID: project.id)
-                    } catch {
-                        store.errorMessage = error.localizedDescription
-                    }
-                } label: {
-                    Image(systemName: "arrow.uturn.backward")
-                }
-                Button {
-                    do {
-                        project = try store.redo(projectID: project.id)
-                    } catch {
-                        store.errorMessage = error.localizedDescription
-                    }
-                } label: {
-                    Image(systemName: "arrow.uturn.forward")
-                }
                 Menu("Add") {
                     Button("Split selected clip") {
                         splitSelectedClip()
@@ -1686,6 +1696,68 @@ struct VideoTimelineEditorView: View {
         )
         project.effects.append(anchored)
         selection = .effect(anchored.id)
+    }
+
+    private var editorTargets: [ProjectEditReference] {
+        ProjectEditPlanner.references(in: project).filter { selectedTargets.contains($0) }
+    }
+
+    private func canRunEditorCommand(_ action: StorybirdCommandAction) -> Bool {
+        switch action {
+        case .undoEdit: return store.canUndo(projectID: project.id)
+        case .redoEdit: return store.canRedo(projectID: project.id)
+        case .duplicateSelection:
+            return !editorTargets.isEmpty && !editorTargets.contains { ref in project.effects.contains { $0.id == ref.id && $0.isCTA } }
+        case .splitSelection:
+            guard editorTargets.count == 1, let target = editorTargets.first else { return false }
+            if target.target == .clip { return canSplitSelectedClip }
+            if let audio = project.narrations.first(where: { $0.id == target.id }) {
+                return playback.currentTime > audio.startTime && playback.currentTime < audio.endTime
+            }
+            return project.subtitles.first { $0.id == target.id }.map { $0.text.count > 1 } ?? false
+        default: return false
+        }
+    }
+
+    @discardableResult
+    private func performEditorCommand(_ action: StorybirdCommandAction) -> Bool {
+        guard canRunEditorCommand(action) else { return false }
+        playback.pause()
+        do {
+            switch action {
+            case .undoEdit: _ = try store.undo(projectID: project.id)
+            case .redoEdit: _ = try store.redo(projectID: project.id)
+            case .duplicateSelection:
+                let edits = TimelineSelectionCommands.duplicates(targets: editorTargets, in: project, at: playback.currentTime)
+                let result = try store.editProject(projectID: project.id, expectedRevision: project.revision, edits: edits)
+                let created = result.created.flatMap { creation in creation.created.filter { $0.target == edits[creation.operationIndex].target } }
+                selectedTargets = Set(created)
+                selection = created.first.flatMap(TimelineLayerSelection.init)
+            case .splitSelection:
+                guard let target = editorTargets.first else { return false }
+                if target.target == .clip { splitSelectedClip() }
+                else if target.target == .audio {
+                    _ = try store.editProject(projectID: project.id, expectedRevision: project.revision,
+                        edits: [ProjectEdit(target: .audio, id: target.id, action: .split, values: ["time": .number(playback.currentTime)])])
+                } else if let entry = CaptionListEntry.entries(in: project).first(where: { $0.id == target.id }) {
+                    shortcutCaptionSession = CaptionEditorSession(projectID: project.id, revision: project.revision, entry: entry, mode: .split)
+                }
+            default: return false
+            }
+        } catch { store.errorMessage = error.localizedDescription }
+        return true
+    }
+
+    @discardableResult
+    private func deleteEditorSelection() -> Bool {
+        guard !editorTargets.isEmpty else { return false }
+        playback.pause()
+        do {
+            _ = try store.editProject(projectID: project.id, expectedRevision: project.revision,
+                edits: editorTargets.map { ProjectEdit(target: $0.target, id: $0.id, action: .delete) })
+            selectedTargets = []; selection = nil
+        } catch { store.errorMessage = error.localizedDescription }
+        return true
     }
 
     /// Formats a project-time value without depending on locale-specific media controls.
