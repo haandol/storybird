@@ -2,6 +2,14 @@
 
 이 문서는 agent-project-editing 카테고리의 주요 결정 변경 이력이다.
 
+## 2026-10-17 — 기존 MCP 호출을 보존하며 모든 편집의 문맥 조회·검토·원자 적용과 소재·자막·출력을 지원한다
+
+- **Current ADR**: [versioned-mcp-project-editing](./0001-versioned-mcp-project-editing.md)
+- **Change type**: requirement rule change
+- **What**: 기존 MCP 호출을 보존하며 모든 편집의 문맥 조회·검토·원자 적용과 소재·자막·출력을 지원한다
+- **Why**: 직접 편집의 반복 작업을 줄이고 에이전트도 같은 결과를 검토·적용할 수 있어야 한다.
+
+
 ## 2026-09-29 — 두 목록에서 버전 확인 상태를 공유한다
 
 - **현재 ADR**: [versioned-mcp-project-editing](./0001-versioned-mcp-project-editing.md)

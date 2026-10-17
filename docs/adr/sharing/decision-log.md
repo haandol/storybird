@@ -3,6 +3,14 @@
 이 문서는 sharing 카테고리의 주요 결정 변경 이력이다. 각 ADR 본문은 현재
 상태만 서술하고, 주요 전환의 시간축은 여기에 역순으로 쌓는다.
 
+## 2026-10-17 — 여러 소재·캔버스·가림·음성을 공통 시간축의 MP4와 명시적 SRT로 출력한다
+
+- **Current ADR**: [layered-video-export](./0001-layered-video-export.md)
+- **Change type**: requirement rule change
+- **What**: 여러 소재·캔버스·가림·음성을 공통 시간축의 MP4와 명시적 SRT로 출력한다
+- **Why**: 직접 편집의 반복 작업을 줄이고 에이전트도 같은 결과를 검토·적용할 수 있어야 한다.
+
+
 ## 2026-09-10 — 분리 제작과 오디오 레이어 편집
 
 - **Current ADR**: [0001-layered-video-export](./0001-layered-video-export.md)

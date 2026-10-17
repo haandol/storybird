@@ -169,11 +169,24 @@ matching grouped tool above and move operation fields into `input`; the other
 | `storybird_import_audio` | Imports local WAV/MP3/M4A by absolute path into a reusable project audio asset without a picker |
 | `storybird_get_import` | Reads durable media import status and committed result metadata |
 | `storybird_cancel_import` | Cancels an active media import; poll until a terminal state |
-| `storybird_delete_project` | Requests native confirmation before deletion |
+| `storybird_delete_project` | Permanently deletes a project after native or agent-side user confirmation; reports actual deletion and cleanup results |
 
 Pointer-changing tools can trigger effects in the selected application; follow
 the user's authorized task and the MCP client's own approval policy. Project
-deletion also requires a Storybird-native confirmation.
+deletion requires the user's explicit intent for that project and its owned assets.
+An existing request or approval for that same target and scope is sufficient.
+Read the project first, then send `confirmed: true` with `expected_revision` to
+confirm through the agent without an app popup. Do not infer user consent from
+authentication or the agent's own judgment. `confirmed: false` cancels without
+showing a prompt; omitting `confirmed` retains native confirmation for existing
+clients. Invalid or stale agent confirmation fails without falling back to a popup.
+
+Deletion cannot be undone. It preserves external import originals, exports outside
+the project, other projects and shared voice profiles/models. Agent-path results
+include `status`, `project_removed` and `assets_removed`. Errors also identify
+`code`, `message` and, when the project remains, `current_revision`. An index-write
+failure removes nothing; a subsequent asset-cleanup failure reports the partial
+outcome instead of claiming success or rollback.
 
 Every clip mutation includes `project_id`, `expected_revision`, and the target
 clip ID. Read the project again after a revision conflict, then recalculate the

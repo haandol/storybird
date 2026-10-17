@@ -551,7 +551,11 @@ from native-only setup and local window controls.
   tool. Storybird itself only moves, clicks, and scrolls the pointer.
 - Check pronunciation and voice resemblance. A composited still preview verifies
   picture/layout; it does not verify speech or motion.
-- Confirm permanent project deletion in Storybird when requested.
+- Permanent project deletion can be confirmed in the agent conversation or its tool
+  approval UI. The agent forwards that user confirmation with the current revision;
+  an existing explicit request for the same project and scope needs no extra click.
+  Existing MCP calls that omit agent confirmation still use Storybird's native prompt.
+  Deletion removes project-owned media and cannot be undone.
 
 > [!NOTE]
 > An approved MCP recording can send the selected source's PNG to the connected

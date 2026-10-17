@@ -59,6 +59,13 @@ Read these before changing capture, persistence, or export behavior.
   Invalid coordinates, missing frames, or missing permissions post no input.
 - **Storybird remains the project writer.** The companion must never edit
   `library.json`, raw recordings, or timeline layers directly.
+- **Project deletion confirms the user's target.** Existing MCP requests retain
+  native confirmation. Explicit agent confirmation requires the current revision
+  and declares the user's request/approval for that project and its owned assets.
+  False cancels without a popup. Recheck after a native wait; never silently
+  fall back from invalid agent inputs. The app owns deletion, reports index and
+  asset-cleanup outcomes separately, and never claims a partial failure succeeded.
+  This does not grant microphone, profile-management or macOS permissions.
 - **Persist projects atomically.** Library JSON writes use atomic replacement.
   A complete project-owned MP4 exists before the project references it; failed
   sessions remove unreferenced partial assets.

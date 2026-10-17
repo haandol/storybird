@@ -1477,19 +1477,38 @@ final class AppStore: ObservableObject {
 
     /// Commits deletion before removing assets, so a failed index write cannot
     /// leave the previous durable project pointing at deleted media.
-    func deleteProject(id: UUID) {
-        guard let project = project(id: id) else { return }
+    @discardableResult
+    func deleteProject(id: UUID, expectedRevision: Int? = nil) -> ProjectDeletionResult {
+        guard let project = project(id: id) else {
+            return ProjectDeletionResult(projectID: id, status: "failed",
+                projectRemoved: false, assetsRemoved: false,
+                code: "project_not_found", message: "The project no longer exists.")
+        }
+        if let expectedRevision, project.revision != expectedRevision {
+            return ProjectDeletionResult(projectID: id, status: "failed",
+                projectRemoved: false, assetsRemoved: false, currentRevision: project.revision,
+                code: "revision_conflict", message: "Read the current project before confirming deletion.")
+        }
+        var projectRemoved = false
         do {
             let remaining = projects.filter { $0.id != id }
             try repository.saveProjects(remaining)
             projects = remaining
+            projectRemoved = true
             for draft in project.narrationDrafts { narrationTasks[draft.id]?.cancel() }
             undoHistory.removeValue(forKey: id)
             redoHistory.removeValue(forKey: id)
             if selectedProjectID == id { selectedProjectID = projects.first?.id }
             try repository.removeProjectAssets(projectID: id)
+            return ProjectDeletionResult(projectID: id, status: "deleted",
+                projectRemoved: true, assetsRemoved: true)
         } catch {
             errorMessage = "Project deletion failed: \(error.localizedDescription)"
+            return ProjectDeletionResult(projectID: id, status: "failed",
+                projectRemoved: projectRemoved, assetsRemoved: false,
+                currentRevision: projectRemoved ? nil : project.revision,
+                code: projectRemoved ? "asset_cleanup_failed" : "index_write_failed",
+                message: error.localizedDescription)
         }
     }
 

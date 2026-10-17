@@ -27,6 +27,14 @@ accumulates here, newest first. Git preserves the individual diffs.
     not start with NNNN-).
   - Replace the example entry below with real content when recording the first major transition. -->
 
+## 2026-10-17 — 새 영상 프로젝트와 기존 프로젝트의 영상·이미지 자산 추가를 분리해 로컬 경로로 가져온다
+
+- **Current ADR**: [local-video-import](./0001-local-video-import.md)
+- **Change type**: requirement rule change
+- **What**: 새 영상 프로젝트와 기존 프로젝트의 영상·이미지 자산 추가를 분리해 로컬 경로로 가져온다
+- **Why**: 직접 편집의 반복 작업을 줄이고 에이전트도 같은 결과를 검토·적용할 수 있어야 한다.
+
+
 ## 2026-09-11 — 로컬 미디어 경로 직접 가져오기
 
 - **Current ADR**: [0001-local-video-import](./0001-local-video-import.md)

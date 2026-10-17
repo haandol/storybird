@@ -165,6 +165,15 @@ by default. Inspect it with `storybird_get_recording_auto_approval`; change it w
 `storybird_set_recording_auto_approval` and an explicit `enabled` boolean only when
 the user asks to change that preference. It skips Storybird's session dialog only;
 macOS permissions, pending prompts and permanent deletion confirmation remain.
+
+For an explicitly requested permanent project deletion, inspect the project ID,
+name and revision and ensure the user's request or approval covers that project
+and its owned assets. Reuse that approval instead of asking again. Call
+`storybird_delete_project` with `confirmed: true` and `expected_revision` to
+confirm through the agent without an app popup. Never treat agent judgment or
+authentication alone as user consent. `confirmed: false` cancels; omit the field
+only to use the native prompt. Deletion cannot be undone. Check the result's
+`project_removed` and `assets_removed` flags and report a cleanup failure honestly.
 Storybird controls only the pointer; a separately
 authorized browser may supply text input to the same captured window.
 

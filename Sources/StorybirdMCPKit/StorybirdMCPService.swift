@@ -72,6 +72,11 @@ public struct StorybirdMCPService: Sendable {
             the user requests that settings change. It persists across app restarts and skips \
             only Storybird's session dialog, never macOS permissions or deletion approval. \
             Project editing does not require an active screen-control session. \
+            Permanent project deletion is separate and cannot be undone. Only after the user \
+            requests or approves that project and its owned assets, pass confirmed:true and \
+            the current expected_revision to storybird_delete_project to avoid an app popup. \
+            Reuse an existing matching user approval; never self-approve. Omit confirmed \
+            for native confirmation or pass false to cancel. Inspect actual deletion results. \
             Resolve scene and layer IDs with storybird_get_edit_context, make targeted edits, \
             then inspect storybird_render_preview using its returned actual frame time and layer IDs. \
             Updating only a Cue time preserves its component windows; to move a whole Cue, \
@@ -828,8 +833,12 @@ public struct StorybirdMCPService: Sendable {
             Tool(
                 name: "storybird_delete_project",
                 title: "Delete a Storybird project",
-                description: "Request deletion. Storybird shows a native confirmation before deleting.",
-                inputSchema: Self.projectIDSchema(),
+                description: "Permanently delete a project and its owned assets; cannot be undone. Omit confirmed for the native prompt. Only after the user explicitly requests or approves this target and scope, send confirmed:true and the current expected_revision to confirm through the agent without an app popup. Reuse that user's existing approval; never self-approve. confirmed:false cancels. Failure reports whether index removal or asset cleanup completed.",
+                inputSchema: Self.objectSchema(properties: [
+                    "project_id": .object(["type": "string"]),
+                    "confirmed": .object(["type": "boolean"]),
+                    "expected_revision": .object(["type": "integer", "minimum": 0]),
+                ], required: ["project_id"]),
                 annotations: .init(readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false)
             ),
             Tool(

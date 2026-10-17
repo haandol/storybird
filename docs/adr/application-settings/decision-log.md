@@ -1,5 +1,13 @@
 # Decision Log: application-settings
 
+## 2026-10-17 — 기존 사용자 조합과 입력 포커스를 보존하며 공통 편집 명령의 로컬 단축키를 제공한다
+
+- **Current ADR**: [native-settings-and-shortcuts](./0001-native-settings-and-shortcuts.md)
+- **Change type**: requirement rule change
+- **What**: 기존 사용자 조합과 입력 포커스를 보존하며 공통 편집 명령의 로컬 단축키를 제공한다
+- **Why**: 직접 편집의 반복 작업을 줄이고 에이전트도 같은 결과를 검토·적용할 수 있어야 한다.
+
+
 ## 2026-09-29 — 설정과 MCP에서 명시적으로 버전을 확인한다
 
 - **현재 ADR**: [native-settings-and-shortcuts](./0001-native-settings-and-shortcuts.md)

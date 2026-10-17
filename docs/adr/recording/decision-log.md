@@ -3,6 +3,14 @@
 이 문서는 recording 카테고리의 주요 결정 변경 이력이다. ADR 본문은 현재 상태만
 서술하고, 주요 전환의 시간축은 여기에 최신 순으로 남긴다.
 
+## 2026-10-17 — 인증·macOS 권한 경계를 유지하며 MCP 프로젝트 삭제의 사용자 확인을 앱 또는 에이전트에서 받는다
+
+- **Current ADR**: [permission-and-signing](./0003-permission-and-signing.md)
+- **Change type**: requirement rule change
+- **What**: 인증·macOS 권한 경계를 유지하며 MCP 프로젝트 삭제의 사용자 확인을 앱 또는 에이전트에서 받는다
+- **Why**: 직접 편집의 반복 작업을 줄이고 에이전트도 같은 결과를 검토·적용할 수 있어야 한다.
+
+
 ## 2026-09-11 — MCP 화면 제어의 앱 내 자동 승인 설정
 
 - **Current ADR**: [permission-and-signing](./0003-permission-and-signing.md)

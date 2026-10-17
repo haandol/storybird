@@ -3,6 +3,14 @@
 이 문서는 library 카테고리의 주요 결정 변경 이력이다. ADR 본문은 현재 상태만 서술하고,
 주요 전환은 최신 순으로 남긴다.
 
+## 2026-10-17 — 여러 원본 자산과 현재 연속영상 프로젝트를 보존하고 준비·배치·원자 저장을 분리한다
+
+- **Current ADR**: [local-project-library](./0001-local-project-library.md)
+- **Change type**: requirement rule change
+- **What**: 여러 원본 자산과 현재 연속영상 프로젝트를 보존하고 준비·배치·원자 저장을 분리한다
+- **Why**: 직접 편집의 반복 작업을 줄이고 에이전트도 같은 결과를 검토·적용할 수 있어야 한다.
+
+
 ## 2026-09-11 — 로컬 미디어 경로 직접 가져오기
 
 - **Current ADR**: [0001-local-project-library](./0001-local-project-library.md)

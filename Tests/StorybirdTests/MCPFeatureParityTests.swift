@@ -248,6 +248,18 @@ final class MCPFeatureParityTests: XCTestCase {
         XCTAssertEqual(tools.first { $0.name == "storybird_get_recording_auto_approval" }?.annotations.readOnlyHint, true)
     }
 
+    func test_projectDeletion_exposesAgentConfirmationAndRevisionWithoutChangingLegacyRequiredInput() throws {
+        let name = "storybird_delete_project"
+        let schema = try schemaObject(for: name)
+        XCTAssertEqual(schema["required"] as? [String], ["project_id"])
+        XCTAssertEqual(try propertyNames(for: name), ["project_id", "confirmed", "expected_revision"])
+        let properties = try XCTUnwrap(schema["properties"] as? [String: [String: Any]])
+        XCTAssertEqual(properties["confirmed"]?["type"] as? String, "boolean")
+        XCTAssertEqual(properties["expected_revision"]?["type"] as? String, "integer")
+        XCTAssertEqual(schema["additionalProperties"] as? Bool, false)
+        XCTAssertEqual(StorybirdMCPService.toolDefinitions.first { $0.name == name }?.annotations.destructiveHint, true)
+    }
+
     func test_toolDefinitions_audioAndEffectTools_coverInspectorProperties() throws {
         let expected: [String: Set<String>] = [
             "storybird_update_audio_layer": [

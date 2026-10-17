@@ -770,19 +770,44 @@ final class StorybirdExternalControlHost {
                 imageData: frame.pngData
             )
         case "storybird_delete_project":
-            let project = try project(from: arguments)
-            guard await store.requestExternalControlApproval(
-                title: "Delete “\(project.name)”?",
-                message: "The MCP client requested permanent deletion of this local demo and its captured assets.",
-                destructive: true
-            ) else {
-                return StorybirdControlResponse(
-                    text: "Deletion cancelled.",
-                    isError: true
-                )
+            guard Set(arguments.keys).isSubset(of: ["project_id", "confirmed", "expected_revision"]) else {
+                throw StorybirdControlWireError.invalidMessage
             }
-            store.deleteProject(id: project.id)
-            return StorybirdControlResponse(text: "Project deleted.")
+            let project = try project(from: arguments)
+            let suppliedRevision = arguments["expected_revision"] == nil
+                ? nil : try Self.requiredInt("expected_revision", in: arguments)
+            let revision: Int
+            let usesAgentConfirmation = arguments["confirmed"] != nil
+            if usesAgentConfirmation {
+                guard let confirmation = arguments["confirmed"] as? NSNumber,
+                      CFGetTypeID(confirmation) == CFBooleanGetTypeID() else {
+                    throw StorybirdControlWireError.invalidMessage
+                }
+                if !confirmation.boolValue {
+                    return try Self.jsonResponse(ProjectDeletionResult(projectID: project.id,
+                        status: "cancelled", projectRemoved: false, assetsRemoved: false,
+                        currentRevision: project.revision))
+                }
+                // This is the authenticated client's declaration of the user's
+                // intent, not evidence that the app observed their conversation.
+                guard let suppliedRevision else { throw StorybirdControlWireError.invalidMessage }
+                revision = suppliedRevision
+            } else {
+                revision = suppliedRevision ?? project.revision
+                guard await store.requestExternalControlApproval(
+                    title: "Delete “\(project.name)”?",
+                    message: "The MCP client requested permanent deletion of this local demo and its captured assets. This cannot be undone.",
+                    destructive: true
+                ) else {
+                    return StorybirdControlResponse(text: "Deletion cancelled.", isError: true)
+                }
+            }
+            let result = store.deleteProject(id: project.id, expectedRevision: revision)
+            if !usesAgentConfirmation, !result.isError {
+                return StorybirdControlResponse(text: "Project deleted.")
+            }
+            let response = try Self.jsonResponse(result)
+            return StorybirdControlResponse(text: response.text, isError: result.isError)
         default:
             throw StorybirdControlWireError.invalidMessage
         }

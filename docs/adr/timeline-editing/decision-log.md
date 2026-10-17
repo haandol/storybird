@@ -3,6 +3,14 @@
 이 문서는 timeline-editing 카테고리의 주요 결정 변경 이력이다. 각 ADR 본문은 현재
 상태만 서술하고, 주요 전환의 시간축은 여기에 역순으로 쌓는다.
 
+## 2026-10-17 — 여러 영상·이미지 클립과 연결 레이어를 공통 검토·원자 편집으로 조작한다
+
+- **Current ADR**: [non-destructive-clip-timeline](./0001-non-destructive-clip-timeline.md)
+- **Change type**: requirement rule change
+- **What**: 여러 영상·이미지 클립과 연결 레이어를 공통 검토·원자 편집으로 조작한다
+- **Why**: 직접 편집의 반복 작업을 줄이고 에이전트도 같은 결과를 검토·적용할 수 있어야 한다.
+
+
 ## 2026-09-10 — 분리 제작과 오디오 레이어 편집
 
 - **Current ADR**: [0001-non-destructive-clip-timeline](./0001-non-destructive-clip-timeline.md)
