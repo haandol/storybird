@@ -714,6 +714,8 @@ swift test
 
 `swift test` also builds the debug targets. GitHub Actions runs the Swift and
 Python suites independently; see [CI and test setup](CONTRIBUTING.md#github-actions).
+Requested `main` pushes run through the project's `.devcontainer`; see
+[the push workflow](CONTRIBUTING.md#push-main-from-the-container).
 
 Tests use temporary projects and synthetic media. Real MLX synthesis, export
 performance checks, and documentation screenshot generation are opt-in. The

@@ -70,6 +70,17 @@ GitHub Actions runs Swift and Python jobs independently and always tests after
 restoring caches. See [CONTRIBUTING.md](CONTRIBUTING.md#github-actions) for the
 toolchain, test runner, cache boundaries and native verification limits.
 
+### Main branch pushes
+
+When the user requests a push to `main`, execute it through this repository's
+`.devcontainer` from the outset. Do not first attempt a push from the macOS host
+or fall back to the host if the container is unavailable. Builds and Swift tests
+still run on macOS; use the container for the authorized Git push.
+
+This execution preference does not grant standing push permission or override
+repository approval and security controls. Resolve an explicit security denial
+before retrying; never disable hooks or change environments to bypass it.
+
 ### Release execution
 
 Follow the requested outcome: preparation stays local, an explicitly requested
@@ -79,8 +90,9 @@ artifacts for the same target. Report unperformed native or optional checks
 honestly; their absence alone must not downgrade a publication request to a draft.
 Resolve actual build/test/signature failures, tag/version/checksum conflicts,
 upload or remote-state errors, and known data-loss/security defects. Honor any
-checks the user explicitly makes a prerequisite for that release. Git pushes
-remain the user's action in `.devcontainer`.
+checks the user explicitly makes a prerequisite for that release. Except for
+user-requested agent pushes to `main`, Git pushes remain the user's action in
+`.devcontainer`.
 
 `scripts/push-version.sh VERSION` pushes only the prepared version tag from
 `.devcontainer`. After the user reports that prepared tag was pushed, verify it

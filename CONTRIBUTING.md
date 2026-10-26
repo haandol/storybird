@@ -40,6 +40,21 @@ launch, but its designated requirement becomes code-hash-specific, so Screen
 Recording, Input Monitoring, and Storybird's Accessibility permission may need
 approval after every build. The MCP companion itself receives no TCC grant.
 
+### Push main from the container
+
+Run requested `main` pushes through this repository's `.devcontainer` from the
+outset. Build and test on macOS, then run the authorized push inside the container:
+
+```bash
+git push origin main
+```
+
+Do not try the macOS host first or use it as a fallback when the container is
+unavailable. The container does not waive repository approval or security
+controls. Resolve any explicit security denial before retrying; do not disable
+hooks or switch environments to bypass it. This workflow does not authorize
+unrequested pushes or release publication.
+
 ### Prepare, Push, and Publish a Release
 
 For a version tag already prepared on macOS, run this in `.devcontainer`:
