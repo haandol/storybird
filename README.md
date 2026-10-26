@@ -708,10 +708,12 @@ Replaying a completed import does not recreate a project that was later deleted.
 ## Development and contributing
 
 ```bash
-swift build -c debug
 swift test
 ./build.sh release
 ```
+
+`swift test` also builds the debug targets. GitHub Actions runs the Swift and
+Python suites independently; see [CI and test setup](CONTRIBUTING.md#github-actions).
 
 Tests use temporary projects and synthetic media. Real MLX synthesis, export
 performance checks, and documentation screenshot generation are opt-in. The

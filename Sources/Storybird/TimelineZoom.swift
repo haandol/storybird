@@ -68,6 +68,7 @@ final class TimelineScrollController: ObservableObject {
     @Published private(set) var viewportWidth: CGFloat = 720
     @Published private(set) var offset: CGFloat = 0
     private(set) var pendingOffset: CGFloat?
+    private(set) var pendingCanvasWidth: CGFloat?
 
     /// Records visible bounds only when they changed, avoiding layout feedback loops.
     func update(width: CGFloat, offset: CGFloat) {
@@ -76,13 +77,17 @@ final class TimelineScrollController: ObservableObject {
     }
 
     /// Defers scrolling until the newly scaled content has completed layout.
-    func requestOffset(_ offset: CGFloat) {
+    func requestOffset(_ offset: CGFloat, canvasWidth: CGFloat? = nil) {
         pendingOffset = max(offset, 0)
+        pendingCanvasWidth = canvasWidth
     }
 
     /// A completed native scroll consumes only the request it actually applied.
     func didApply(_ offset: CGFloat) {
-        if pendingOffset == offset { pendingOffset = nil }
+        if pendingOffset == offset {
+            pendingOffset = nil
+            pendingCanvasWidth = nil
+        }
     }
 }
 
@@ -125,6 +130,13 @@ final class TimelineScrollBridgeView: NSView {
         if window == nil { stop() } else { scheduleUpdate() }
     }
 
+    /// SwiftUI can update the callback before sizing its AppKit canvas. Retry a
+    /// pending scroll after layout instead of consuming it against the old width.
+    override func layout() {
+        super.layout()
+        scheduleUpdate()
+    }
+
     /// Native layout and scroll changes are published on the following main turn.
     func scheduleUpdate() {
         DispatchQueue.main.async { [weak self] in self?.updateScrollView() }
@@ -156,11 +168,19 @@ final class TimelineScrollBridgeView: NSView {
         if let requested = controller?.pendingOffset {
             scroll.layoutSubtreeIfNeeded()
             let clip = scroll.contentView
-            let maximum = max(0, (scroll.documentView?.frame.width ?? 0) - clip.bounds.width)
-            clip.scroll(to: NSPoint(x: min(requested, maximum), y: clip.bounds.origin.y))
-            scroll.reflectScrolledClipView(clip)
-            controller?.didApply(requested)
+            let canvasIsReady = controller?.pendingCanvasWidth.map { width in
+                abs(bounds.width - width) <= 1
+                    && abs((scroll.documentView?.frame.width ?? 0) - width) <= 1
+            } ?? true
+            if canvasIsReady {
+                let maximum = max(0, (scroll.documentView?.frame.width ?? 0) - clip.bounds.width)
+                clip.scroll(to: NSPoint(x: min(requested, maximum), y: clip.bounds.origin.y))
+                scroll.reflectScrolledClipView(clip)
+                controller?.didApply(requested)
+            }
         }
+        // A viewport resize still needs to reach SwiftUI while a scroll is
+        // pending so it can recompute the target width and anchor.
         controller?.update(width: scroll.contentView.bounds.width, offset: scroll.contentView.bounds.minX)
     }
 

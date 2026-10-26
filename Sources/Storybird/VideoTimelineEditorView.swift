@@ -1205,7 +1205,7 @@ struct VideoTimelineEditorView: View {
         timelineScroll.requestOffset(TimelineZoom.anchoredOffset(
             time: time, viewportX: anchorX, duration: timelineSnapshot.duration,
             canvasWidth: timelineCanvasWidth, viewportWidth: timelineScroll.viewportWidth
-        ))
+        ), canvasWidth: timelineCanvasWidth)
     }
 
     private var timelineZoomControls: some View {

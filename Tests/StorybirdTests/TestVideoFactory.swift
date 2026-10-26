@@ -88,6 +88,13 @@ enum TestVideoFactory {
         }
         let result = try await writer.finish()
 
+        // The production writer already finalized a playable H.264 MP4. Only
+        // audio, another container or a display transform needs composition.
+        if fileType == .mp4, !includeAudio, displaySize == nil {
+            try FileManager.default.moveItem(at: rawVideoURL, to: destinationURL)
+            return result
+        }
+
         let composition = AVMutableComposition()
         let videoAsset = AVURLAsset(url: rawVideoURL)
         let videoTrack = try await videoAsset.loadTracks(
@@ -248,6 +255,12 @@ enum TestVideoFactory {
             return 0
         }
         let reader = try AVAssetReader(asset: asset)
+        // Inspect only the requested audio window. Long export fixtures probe
+        // several small intervals; decoding the whole movie for each is redundant.
+        reader.timeRange = CMTimeRange(
+            start: CMTime(seconds: start, preferredTimescale: 44_100),
+            end: CMTime(seconds: end, preferredTimescale: 44_100)
+        )
         let output = AVAssetReaderTrackOutput(
             track: track,
             outputSettings: [

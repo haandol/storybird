@@ -7,6 +7,53 @@ import XCTest
 
 @MainActor
 final class TimelineNavigationTests: XCTestCase {
+    func test_zoomOffset_waitsForNewCanvasLayoutAndKeepsLatestRequest() async throws {
+        let window = makeWindow()
+        defer { window.close() }
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
+        let bridge = TimelineScrollBridgeView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
+        let controller = TimelineScrollController()
+        bridge.controller = controller
+        scroll.documentView = bridge
+        window.contentView = scroll
+        bridge.scheduleUpdate()
+        await nextMainTurn()
+
+        controller.requestOffset(150, canvasWidth: 600)
+        bridge.scheduleUpdate()
+        await nextMainTurn()
+        XCTAssertEqual(controller.pendingOffset, 150)
+        XCTAssertEqual(scroll.contentView.bounds.minX, 0)
+
+        scroll.setFrameSize(NSSize(width: 400, height: 200))
+        bridge.scheduleUpdate()
+        await nextMainTurn()
+        XCTAssertEqual(controller.viewportWidth, scroll.contentView.bounds.width, accuracy: 0.5)
+        XCTAssertEqual(controller.pendingOffset, 150)
+
+        // A second wheel event supersedes the first before either layout arrives.
+        controller.requestOffset(300, canvasWidth: 900)
+        bridge.setFrameSize(NSSize(width: 600, height: 200))
+        bridge.needsLayout = true
+        bridge.layoutSubtreeIfNeeded()
+        await nextMainTurn()
+        XCTAssertEqual(controller.pendingOffset, 300)
+        XCTAssertEqual(scroll.contentView.bounds.minX, 0)
+
+        bridge.setFrameSize(NSSize(width: 900, height: 200))
+        bridge.needsLayout = true
+        bridge.layoutSubtreeIfNeeded()
+        try await waitUntil { controller.pendingOffset == nil }
+        XCTAssertEqual(scroll.contentView.bounds.minX, 300, accuracy: 0.5)
+        XCTAssertNil(controller.pendingCanvasWidth)
+    }
+
+    private func nextMainTurn() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+    }
+
     /// Space is consumed before a focused button, and autorepeat never toggles again.
     func test_spaceInTimeline_togglesOncePerPressWithoutActivatingFocusedButton() throws {
         let window = makeWindow()

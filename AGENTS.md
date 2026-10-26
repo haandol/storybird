@@ -53,6 +53,8 @@ implementation. Do not infer approval requirements from exempt maintenance.
 
 - `swift build -c debug`: compile with Swift 6 actor race checks.
 - `swift test`: run deterministic unit tests without network access.
+- `python3 scripts/run-python-tests.py`: run all Python helper suites in isolated
+  workers after installing `scripts/requirements-test.txt` in a test environment.
 - `swift run StorybirdMCP`: run the development companion; privileged capture
   and pointer testing still belongs to the signed Storybird app.
 - `./build.sh release`: create and sign `build/Storybird.app`.
@@ -61,6 +63,12 @@ implementation. Do not infer approval requirements from exempt maintenance.
 
 Run Storybird as an app bundle, not with `swift run`, when testing Screen
 Recording, Input Monitoring, or Accessibility pointer-control permissions.
+
+`swift test` already builds debug targets. Keep its AppKit/audio suite serial;
+use focused filters while editing and the full suite for final verification.
+GitHub Actions runs Swift and Python jobs independently and always tests after
+restoring caches. See [CONTRIBUTING.md](CONTRIBUTING.md#github-actions) for the
+toolchain, test runner, cache boundaries and native verification limits.
 
 ### Release execution
 

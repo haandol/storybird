@@ -11,7 +11,6 @@ Storybird is a Swift Package targeting macOS 14 or later and uses Swift tools
 uses the official Swift MCP SDK pinned by `Package.resolved`.
 
 ```bash
-swift build -c debug
 swift test
 ./build.sh release
 open build/Storybird.app
@@ -182,6 +181,11 @@ focused check during development:
 swift test --filter 'MCPFeatureParityTests|MCPAudioProtocolTests|AgentProductionTests|ProjectAudioTests'
 ```
 
+`swift test` already builds the debug targets; a separate `swift build` before
+it repeats build planning. Keep the full Swift suite serial: its AppKit windows,
+audio players and process-wide state have not been isolated for `--parallel`.
+Use `--skip-build` only when rerunning an unchanged, already-built test binary.
+
 Native permission/file/voice/Settings boundaries retain their owning ADR rules.
 Document those exceptions and view-only equivalents in the inventory. Any new
 exception or broader permission needs the ADR gate. Unexplained MCP omissions
@@ -199,6 +203,48 @@ and run with `swift test`. Name them
   pointer ordering, and bundle metadata.
 - Match actor isolation in tests; never weaken production annotations.
 - Deliberately break a guarded behavior once to prove its regression test fails.
+
+### Python script tests
+
+Run the release, subtitle and voice helper suites with Python 3.10 or later:
+
+```bash
+python3 -m venv .build/test-python
+.build/test-python/bin/python -m pip install -r scripts/requirements-test.txt
+.build/test-python/bin/python scripts/run-python-tests.py
+```
+
+The runner collects every `scripts/test-*.py` file and runs two suites at a time
+in separate processes. Their temporary Git repositories and fake runtime modules
+stay isolated. Complete suite logs and elapsed times are printed in filename
+order; any failure, import error, empty suite or timeout fails the command.
+Use `--jobs 1` for a serial comparison or `--timeout SECONDS` to override the
+600-second limit per suite. The tests do not contact GitHub or download voice
+models. Installing the pinned NumPy test dependency is a separate network step.
+
+Do not use `python -m unittest discover` for these files: its module-name filter
+ignores hyphenated filenames and can report zero tests. Individual commands such
+as `python3 scripts/test-publish-release.py` remain supported.
+
+### GitHub Actions
+
+[CI](.github/workflows/ci.yml) runs on pull requests, pushes to `main`, and manual
+dispatch. Swift tests run on macOS 26 with Xcode 26.6; the Python suites run
+independently on Ubuntu 24.04 with Python 3.12. A newer commit cancels the older
+run for the same PR or branch. Both jobs retain test logs for seven days.
+
+SwiftPM dependencies and build outputs are cached by operating system,
+architecture, compiler/SDK fingerprint, package manifest and resolved versions.
+An earlier matching cache can seed a changed commit, but `swift test` always
+checks the current sources and runs the full suite. A cache hit never skips
+validation. Python caches package downloads, not test results.
+
+CI uses synthetic media and fake services. Existing opt-in screenshot, live
+voice, native audio and performance checks remain opt-in; unavailable macOS
+system voices may also be reported as skipped. CI installs FFmpeg for the MP3
+fixture test. CI does not sign releases or establish Screen Recording,
+Accessibility or microphone permission behavior; use the signed smoke checks
+for those changes. A local test or workflow-lint pass is not a GitHub CI run.
 
 ## Verification by Change
 
@@ -223,8 +269,8 @@ Report skipped, unavailable, and failed checks separately.
 | Build/signing or release packaging | Signed release build, signature and artifact checks from the release skill; follow the requested release state |
 
 Build and test on macOS. `.devcontainer` supplies Git/release tooling and has no
-macOS frameworks or Swift build environment. No GitHub Actions workflow is
-currently checked in; these commands are local checks, not evidence of CI runs.
+macOS frameworks or Swift build environment. Python script tests can also run
+on Linux with the dependencies above, Git, Bash, `jq` and `unzip` available.
 
 ## Manual Smoke Test
 

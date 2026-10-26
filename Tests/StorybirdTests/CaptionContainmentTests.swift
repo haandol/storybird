@@ -55,11 +55,14 @@ final class CaptionContainmentTests: XCTestCase {
 
     /// Measures the actual raster's red caption background, excluding white text and shadows.
     private func redBounds(_ image: NSBitmapImageRep, viewSize: CGSize) throws -> CGRect {
+        // Convert the raster once instead of constructing a color-space conversion
+        // for every sampled pixel. The scan and color thresholds stay identical.
+        let image = try XCTUnwrap(image.converting(to: .deviceRGB, renderingIntent: .default))
         var minimum = CGPoint(x: CGFloat.infinity, y: CGFloat.infinity)
         var maximum = CGPoint(x: -CGFloat.infinity, y: -CGFloat.infinity)
         for y in stride(from: 0, to: image.pixelsHigh, by: 2) {
             for x in stride(from: 0, to: image.pixelsWide, by: 2) {
-                guard let color = image.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB),
+                guard let color = image.colorAt(x: x, y: y),
                       color.redComponent > 0.6, color.greenComponent < 0.4, color.blueComponent < 0.4 else { continue }
                 minimum.x = min(minimum.x, CGFloat(x))
                 minimum.y = min(minimum.y, CGFloat(y))

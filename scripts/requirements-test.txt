@@ -1,0 +1,2 @@
+# Only the waveform regression suite needs a third-party Python package.
+numpy==2.2.6
