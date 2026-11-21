@@ -28,6 +28,7 @@ struct TimelinePlaybackKeyScope: NSViewRepresentable {
     var deleteSelection: (@MainActor () -> Bool)? = nil
     var stepFrame: (@MainActor (Int) -> Void)? = nil
     var stepBoundary: (@MainActor (Int) -> Void)? = nil
+    var cancelPreviewEdit: (@MainActor () -> Bool)? = nil
 
     /// Installs no global keyboard observation or input permission.
     func makeNSView(context: Context) -> TimelinePlaybackKeyView {
@@ -44,6 +45,7 @@ struct TimelinePlaybackKeyScope: NSViewRepresentable {
         view.deleteSelection = deleteSelection
         view.stepFrame = stepFrame
         view.stepBoundary = stepBoundary
+        view.cancelPreviewEdit = cancelPreviewEdit
     }
 
     /// Removes the local monitor when this editor leaves the SwiftUI hierarchy.
@@ -60,6 +62,7 @@ final class TimelinePlaybackKeyView: NSView {
     var deleteSelection: (@MainActor () -> Bool)?
     var stepFrame: (@MainActor (Int) -> Void)?
     var stepBoundary: (@MainActor (Int) -> Void)?
+    var cancelPreviewEdit: (@MainActor () -> Bool)?
     var isPlaybackEnabled = true
     var isInteractionActive = false
     private var monitor: Any?
@@ -133,6 +136,8 @@ final class TimelinePlaybackKeyView: NSView {
             return nil
         }
         switch event.keyCode {
+        case 53:
+            guard cancelPreviewEdit?() == true else { return event }
         case 49:
             guard !event.modifierFlags.contains(.function) else { return event }
             if !event.isARepeat { togglePlayback?() }

@@ -138,19 +138,25 @@ final class PreviewEffectInteractionTests: XCTestCase {
         let (store, project, root) = try fixture()
         defer { try? FileManager.default.removeItem(at: root) }
         let model = PreviewEffectEditModel()
-        let (window, view) = host(store: store, model: model, project: project)
+        let keys = TimelinePlaybackInteraction()
+        let (window, view) = host(store: store, model: model, project: project, keys: keys)
         defer { window.close() }
         try await Task.sleep(for: .milliseconds(160))
         let point = view.convert(NSPoint(x: 120, y: view.isFlipped ? 90 : 210), to: nil)
         send(.leftMouseDown, at: point, in: window)
         send(.leftMouseDragged, at: NSPoint(x: point.x + 20, y: point.y - 15), in: window)
         try await waitForUIState { model.draft != nil }
-        // Route Escape to the mounted editor even when the runner has no active app window.
-        XCTAssertTrue(window.makeFirstResponder(view))
-        window.sendEvent(try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+        // Exercise the app's local event monitor without activating a window on the runner.
+        let scope = try XCTUnwrap(keys.keyView)
+        scope.activate(takeFocus: true)
+        let escape = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
             timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
-            characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53)))
-        try await waitForUIState { model.draft == nil }
+            characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53))
+        XCTAssertTrue(scope.process(escape, applicationIsActive: true, windowIsKey: false, hasModalWindow: false) === escape)
+        XCTAssertNotNil(model.draft)
+        XCTAssertNil(scope.process(escape, applicationIsActive: true, windowIsKey: true, hasModalWindow: false))
+        XCTAssertNil(model.draft)
+        XCTAssertTrue(scope.process(escape, applicationIsActive: true, windowIsKey: true, hasModalWindow: false) === escape)
         send(.leftMouseDragged, at: NSPoint(x: point.x + 30, y: point.y - 20), in: window)
         send(.leftMouseUp, at: NSPoint(x: point.x + 40, y: point.y - 30), in: window)
         try await Task.sleep(for: .milliseconds(60))
@@ -206,10 +212,17 @@ final class PreviewEffectInteractionTests: XCTestCase {
         XCTAssertEqual(try store.repository.loadProjects(), [project])
     }
 
-    private func host(store: AppStore, model: PreviewEffectEditModel, project: DemoProject) -> (NSWindow, NSView) {
+    private func host(store: AppStore, model: PreviewEffectEditModel, project: DemoProject,
+                      keys: TimelinePlaybackInteraction? = nil) -> (NSWindow, NSView) {
         let view = NSHostingView(rootView: PreviewEffectControls(store: store, model: model, project: project,
             effect: project.effects[0], time: 1, imageFrame: CGRect(x: 0, y: 0, width: 400, height: 300), onBegin: {})
             .onExitCommand { model.cancel() }
+            .background {
+                if let keys {
+                    TimelinePlaybackKeyScope(interaction: keys, isEnabled: true, togglePlayback: {},
+                        cancelPreviewEdit: model.cancel)
+                }
+            }
             .frame(width: 400, height: 300).background(Color(nsColor: .windowBackgroundColor)))
         let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 400, height: 300),
             styleMask: [.titled, .closable], backing: .buffered, defer: false)

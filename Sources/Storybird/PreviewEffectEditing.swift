@@ -104,7 +104,14 @@ final class PreviewEffectEditModel: ObservableObject {
         catch { store.errorMessage = error.localizedDescription }
     }
 
-    func cancel() { baseline = nil; original = nil; draft = nil }
+    @discardableResult
+    func cancel() -> Bool {
+        guard draft != nil else { return false }
+        baseline = nil
+        original = nil
+        draft = nil
+        return true
+    }
 }
 
 struct PreviewEffectControls: View {

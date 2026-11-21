@@ -368,7 +368,8 @@ struct VideoTimelineEditorView: View {
             performEdit: { performEditorCommand($0) },
             deleteSelection: { deleteEditorSelection() },
             stepFrame: { playback.stepFrame($0) },
-            stepBoundary: { playback.stepClipBoundary($0, in: project) }
+            stepBoundary: { playback.stepClipBoundary($0, in: project) },
+            cancelPreviewEdit: effectEdit.cancel
         ))
     }
 
