@@ -87,7 +87,7 @@ final class EditorShortcutInteractionTests: XCTestCase {
                 modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
                 context: nil, eventNumber: 1, clickCount: 1, pressure: 1)))
         }
-        try await wait { settings.recordingAction == .splitSelection }
+        try await waitForUIState { settings.recordingAction == .splitSelection }
         try await Task.sleep(for: .milliseconds(100))
         let responder = try XCTUnwrap(window.firstResponder)
         XCTAssertTrue(String(describing: type(of: responder)).contains("KeyCaptureView"))
@@ -135,13 +135,21 @@ final class EditorShortcutInteractionTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: domain))
         defer { defaults.removePersistentDomain(forName: domain) }
         let settings = StorybirdShortcutSettings(defaults: defaults)
+        // AppKit only exposes SwiftUI children of native scroll views when its in-process
+        // accessibility tree is active. Restore the previous value for the next test.
+        let app = NSApplication.shared
+        let enhancedUI = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        let previous = try XCTUnwrap(app.accessibilityAttributeValue(enhancedUI) as? Bool)
+        app.accessibilitySetValue(true, forAttribute: enhancedUI)
+        defer { app.accessibilitySetValue(previous, forAttribute: enhancedUI) }
         let hosted = NSHostingView(rootView: ProjectWorkspaceView(store: store, projectID: id)
-            .environment(\.storybirdShortcuts, settings).frame(width: 1100, height: 760))
+            .environment(\.storybirdShortcuts, settings)
+            .frame(width: 1100, height: 760))
         let window = makeWindow(width: 1100, height: 760)
         window.contentView = hosted
         window.orderFront(nil)
         defer { window.close() }
-        try await wait { self.descendants(hosted).contains { $0 is TimelinePlaybackKeyView } }
+        try await waitForUIState { self.descendants(hosted).contains { $0 is TimelinePlaybackKeyView } }
         try await Task.sleep(for: .milliseconds(500))
         let scope = try XCTUnwrap(descendants(hosted).compactMap { $0 as? TimelinePlaybackKeyView }.first)
         let bridge = try XCTUnwrap(descendants(hosted).compactMap { $0 as? TimelineScrollBridgeView }.first)
@@ -160,28 +168,26 @@ final class EditorShortcutInteractionTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(150))
         scope.activate(takeFocus: true)
         XCTAssertNil(process(try key(11, .command, window), scope))
-        try await wait { store.project(id: id)?.clips.count == 3 }
+        try await waitForUIState { store.project(id: id)?.clips.count == 3 }
         let split = try XCTUnwrap(store.project(id: id))
         XCTAssertEqual(split.revision, initial.revision + 1)
         XCTAssertEqual(split.clips.map(\.outputDuration), [1, 1, 2])
         XCTAssertNil(process(try key(6, .command, window), scope))
-        try await wait { store.project(id: id)?.clips.count == 2 }
+        try await waitForUIState { store.project(id: id)?.clips.count == 2 }
         XCTAssertEqual(store.project(id: id)?.clips, initial.clips)
         XCTAssertNil(process(try key(6, [.command, .shift], window), scope))
-        try await wait { store.project(id: id)?.clips.count == 3 }
+        try await waitForUIState { store.project(id: id)?.clips.count == 3 }
         XCTAssertEqual(store.project(id: id)?.clips, split.clips)
         try await Task.sleep(for: .milliseconds(250))
-        hosted.layoutSubtreeIfNeeded()
         // The visible toolbar button uses the same undo command as Command+Z.
-        let ruler = try XCTUnwrap(descendants(hosted).compactMap { $0 as? TimelineRulerInputView }.first)
-        let rulerFrame = ruler.convert(ruler.bounds, to: nil)
-        let undoPoint = NSPoint(x: 139, y: rulerFrame.maxY + 54)
+        let undoFrame = try accessibilityFrame(named: "timeline-undo", in: hosted)
+        let undoPoint = hosted.convert(NSPoint(x: undoFrame.midX, y: undoFrame.midY), to: nil)
         for type: NSEvent.EventType in [.leftMouseDown, .leftMouseUp] {
             window.sendEvent(try XCTUnwrap(NSEvent.mouseEvent(with: type, location: undoPoint, modifierFlags: [],
                 timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
                 context: nil, eventNumber: 3, clickCount: 1, pressure: 1)))
         }
-        try await wait { store.project(id: id)?.clips.count == 2 }
+        try await waitForUIState { store.project(id: id)?.clips.count == 2 }
         XCTAssertEqual(store.project(id: id)?.clips, initial.clips)
         XCTAssertEqual(store.project(id: id)?.revision, initial.revision + 4)
         // Reselect through the clip surface after undo removes split selection IDs.
@@ -198,12 +204,12 @@ final class EditorShortcutInteractionTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(150))
         scope.activate(takeFocus: true)
         XCTAssertNil(process(try key(2, .command, window), scope))
-        try await wait { store.project(id: id)?.clips.count == 3 }
+        try await waitForUIState { store.project(id: id)?.clips.count == 3 }
         let duplicated = try XCTUnwrap(store.project(id: id))
         XCTAssertEqual(duplicated.clips.map(\.sourceStart), [0, 0, 2])
         try await Task.sleep(for: .milliseconds(200))
         XCTAssertNil(process(try key(51, [], window), scope))
-        try await wait { store.project(id: id)?.clips.count == 2 }
+        try await waitForUIState { store.project(id: id)?.clips.count == 2 }
         XCTAssertEqual(store.project(id: id)?.clips, initial.clips)
         try await Task.sleep(for: .milliseconds(500))
         let beforeNavigation = try XCTUnwrap(store.project(id: id))
@@ -212,16 +218,16 @@ final class EditorShortcutInteractionTests: XCTestCase {
         XCTAssertTrue(slider.sendAction(slider.action, to: slider.target))
         try await Task.sleep(for: .milliseconds(250))
         let player = try XCTUnwrap(descendants(hosted).compactMap { $0 as? AVPlayerView }.first?.player)
-        try await wait { player.currentItem?.status == .readyToPlay && abs(player.currentTime().seconds - 1) < 0.001 }
+        try await waitForUIState { player.currentItem?.status == .readyToPlay && abs(player.currentTime().seconds - 1) < 0.001 }
         scope.activate(takeFocus: true)
         XCTAssertNil(process(try key(124, [], window), scope))
-        try await wait { abs(player.currentTime().seconds - (1 + 1.0 / 30)) < 0.001 }
+        try await waitForUIState { abs(player.currentTime().seconds - (1 + 1.0 / 30)) < 0.001 }
         XCTAssertNil(process(try key(123, [], window), scope))
-        try await wait { abs(player.currentTime().seconds - 1) < 0.001 }
+        try await waitForUIState { abs(player.currentTime().seconds - 1) < 0.001 }
         XCTAssertNil(process(try key(125, [], window), scope))
-        try await wait { abs(player.currentTime().seconds - 2) < 0.001 }
+        try await waitForUIState { abs(player.currentTime().seconds - 2) < 0.001 }
         XCTAssertNil(process(try key(126, [], window), scope))
-        try await wait { abs(player.currentTime().seconds) < 0.001 }
+        try await waitForUIState { abs(player.currentTime().seconds) < 0.001 }
         XCTAssertEqual(store.project(id: id), beforeNavigation)
         XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent("library.json")), disk)
         XCTAssertEqual(try store.undo(projectID: id).clips, duplicated.clips)
@@ -246,11 +252,4 @@ final class EditorShortcutInteractionTests: XCTestCase {
     }
 
     private func descendants(_ view: NSView) -> [NSView] { view.subviews.flatMap { [$0] + descendants($0) } }
-
-    private func wait(file: StaticString = #filePath, line: UInt = #line, _ condition: () -> Bool) async throws {
-        let start = ContinuousClock.now
-        while !condition(), start.duration(to: .now) < .seconds(5) { try await Task.sleep(for: .milliseconds(20)) }
-        XCTAssertTrue(condition(), "Synthetic editor did not reach the expected state", file: file, line: line)
-        if !condition() { throw NSError(domain: "EditorShortcutInteractionTests", code: 1) }
-    }
 }

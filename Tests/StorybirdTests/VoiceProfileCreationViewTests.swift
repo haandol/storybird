@@ -52,19 +52,20 @@ final class VoiceProfileCreationViewTests: XCTestCase {
         let model = VoiceProfileCreationModel(persist: { _ in }, discardSample: { recorder.discard() })
         model.profileName = "Synthetic narrator"
         model.consentConfirmed = true
-        let window = host(VoiceProfileCreationView(model: model, recorder: recorder))
+        let window = host(VoiceProfileCreationView(model: model, recorder: recorder)
+            .environment(\.accessibilityEnabled, true))
         defer { window.close() }
         let content = try XCTUnwrap(window.contentView)
         await settle()
-        let start = try textBounds(named: "Start Recording", in: content)
+        let start = try accessibilityFrame(named: "Start Recording", in: content)
         let visible = content.bounds
         XCTAssertTrue(visible.contains(start))
-        let meter = try textBounds(named: "Microphone input level", in: content)
+        let meter = try accessibilityFrame(named: "Live microphone input level", in: content)
         XCTAssertTrue(visible.contains(meter))
 
         try await recorder.start(preferredDeviceUID: nil)
         await settle()
-        let finishFrame = try textBounds(named: "Finish Recording", in: content)
+        let finishFrame = try accessibilityFrame(named: "Finish Recording", in: content)
         XCTAssertTrue(visible.contains(finishFrame), "Finish must be visible without scrolling the script.")
         XCTAssertEqual(finishFrame.minX, start.minX, accuracy: 2)
         XCTAssertEqual(finishFrame.midY, start.midY, accuracy: 2)
@@ -73,22 +74,22 @@ final class VoiceProfileCreationViewTests: XCTestCase {
             document.scroll(NSPoint(x: 0, y: max(0, document.bounds.height - scroll.contentSize.height)))
         }
         await settle()
-        let scrolled = try textBounds(named: "Finish Recording", in: content)
+        let scrolled = try accessibilityFrame(named: "Finish Recording", in: content)
         XCTAssertEqual(scrolled.minX, finishFrame.minX, accuracy: 2)
         XCTAssertEqual(scrolled.midY, finishFrame.midY, accuracy: 2)
-        let scrolledMeter = try textBounds(named: "Microphone input level", in: content)
+        let scrolledMeter = try accessibilityFrame(named: "Live microphone input level", in: content)
         XCTAssertEqual(scrolledMeter.midY, meter.midY, accuracy: 2)
 
         recorder.pause()
         await settle()
-        let paused = try textBounds(named: "Finish Recording", in: content)
+        let paused = try accessibilityFrame(named: "Finish Recording", in: content)
         XCTAssertEqual(paused.minX, finishFrame.minX, accuracy: 2)
         XCTAssertEqual(paused.midY, finishFrame.midY, accuracy: 2)
-        XCTAssertTrue(visible.contains(try textBounds(named: "Resume", in: content)))
+        XCTAssertTrue(visible.contains(try accessibilityFrame(named: "Resume", in: content)))
         try recorder.resume()
         XCTAssertTrue(recorder.finish())
         await settle()
-        XCTAssertTrue(visible.contains(try textBounds(named: "Preview Recording", in: content)))
+        XCTAssertTrue(visible.contains(try accessibilityFrame(named: "Preview Recording", in: content)))
         XCTAssertTrue(model.canSave(recordedURL: recorder.recordedURL))
     }
 

@@ -178,13 +178,16 @@ final class TimelineScrubFeedback: ObservableObject {
     }
 
     /// Keeps the final time briefly visible after the pointer is released.
-    func finish() {
+    @discardableResult
+    func finish() -> Task<Void, Never> {
         dismissal?.cancel()
         let delay = dismissalDelay
-        dismissal = Task { [weak self] in
+        let task = Task { [weak self] in
             do { try await Task.sleep(for: delay) } catch { return }
             self?.time = nil
         }
+        dismissal = task
+        return task
     }
 
     /// Hiding or replacing the editor discards pending feedback without an edit.

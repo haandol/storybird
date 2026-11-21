@@ -144,13 +144,13 @@ final class PreviewEffectInteractionTests: XCTestCase {
         let point = view.convert(NSPoint(x: 120, y: view.isFlipped ? 90 : 210), to: nil)
         send(.leftMouseDown, at: point, in: window)
         send(.leftMouseDragged, at: NSPoint(x: point.x + 20, y: point.y - 15), in: window)
-        try await Task.sleep(for: .milliseconds(60))
-        XCTAssertNotNil(model.draft)
+        try await waitForUIState { model.draft != nil }
+        // Route Escape to the mounted editor even when the runner has no active app window.
+        XCTAssertTrue(window.makeFirstResponder(view))
         window.sendEvent(try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
             timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
             characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53)))
-        try await Task.sleep(for: .milliseconds(40))
-        XCTAssertNil(model.draft)
+        try await waitForUIState { model.draft == nil }
         send(.leftMouseDragged, at: NSPoint(x: point.x + 30, y: point.y - 20), in: window)
         send(.leftMouseUp, at: NSPoint(x: point.x + 40, y: point.y - 30), in: window)
         try await Task.sleep(for: .milliseconds(60))
@@ -159,8 +159,7 @@ final class PreviewEffectInteractionTests: XCTestCase {
         send(.leftMouseDown, at: point, in: window)
         send(.leftMouseDragged, at: NSPoint(x: point.x + 20, y: point.y - 15), in: window)
         send(.leftMouseUp, at: NSPoint(x: point.x + 40, y: point.y - 30), in: window)
-        try await Task.sleep(for: .milliseconds(60))
-        XCTAssertEqual(store.project(id: project.id)?.revision, project.revision + 1)
+        try await waitForUIState { store.project(id: project.id)?.revision == project.revision + 1 }
     }
 
     func test_scaleAdjustment_multipleDraftValuesCommitOnceAndCancelPreservesHistory() throws {

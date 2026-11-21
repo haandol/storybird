@@ -125,16 +125,15 @@ final class TimelineNavigationTests: XCTestCase {
     }
 
     /// An old hide task cannot erase the next drag's current-time label.
-    func test_scrubFeedback_newDragCancelsOldDismissal() async throws {
+    func test_scrubFeedback_newDragCancelsOldDismissal() async {
         let feedback = TimelineScrubFeedback(dismissalDelay: .milliseconds(20))
         feedback.show(1.25, origin: .ruler)
-        feedback.finish()
+        let oldDismissal = feedback.finish()
         feedback.show(2.5, origin: .slider)
-        try await Task.sleep(for: .milliseconds(60))
+        await oldDismissal.value
         XCTAssertEqual(feedback.time, 2.5)
         XCTAssertEqual(feedback.origin, .slider)
-        feedback.finish()
-        try await Task.sleep(for: .milliseconds(60))
+        await feedback.finish().value
         XCTAssertNil(feedback.time)
         feedback.show(4, origin: .ruler)
         feedback.cancel()
