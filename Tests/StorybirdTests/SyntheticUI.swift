@@ -10,6 +10,14 @@ func accessibilityFrame(
     file: StaticString = #filePath,
     line: UInt = #line
 ) throws -> NSRect {
+    let frame = try XCTUnwrap(findAccessibilityFrame(named: name, in: view),
+        "Control missing from mounted view: \(name)", file: file, line: line)
+    XCTAssertFalse(frame.isEmpty, file: file, line: line)
+    return frame
+}
+
+@MainActor
+func findAccessibilityFrame(named name: String, in view: NSView) -> NSRect? {
     func findFrame(in element: AnyObject) -> NSRect? {
         if element.accessibilityIdentifier?() == name || element.accessibilityLabel?() == name {
             return element.accessibilityFrame?()
@@ -21,9 +29,7 @@ func accessibilityFrame(
     }
 
     view.layoutSubtreeIfNeeded()
-    let window = try XCTUnwrap(view.window, file: file, line: line)
-    let screenFrame = try XCTUnwrap(findFrame(in: view), "Control missing from mounted view: \(name)", file: file, line: line)
-    XCTAssertFalse(screenFrame.isEmpty, file: file, line: line)
+    guard let window = view.window, let screenFrame = findFrame(in: view) else { return nil }
     return view.convert(window.convertFromScreen(screenFrame), from: nil)
 }
 

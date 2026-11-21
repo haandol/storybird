@@ -166,6 +166,7 @@ struct VideoTimelineEditorView: View {
                     "Preview unavailable", systemImage: "video.slash",
                     description: Text(message)
                 )
+                .accessibilityIdentifier("timeline-preview-unavailable")
             } else {
                 GeometryReader { proxy in
                     if proxy.size.width < 820 {

@@ -272,14 +272,18 @@ final class TimelinePreviewLayoutTests: XCTestCase {
         let (store, project) = try await fixture()
         let url = store.repository.assetURL(projectID: project.id, filename: project.recording!.filename)
         try Data("unreadable synthetic video".utf8).write(to: url)
-        let view = NSHostingView(rootView: editorContent(store, project: project, width: 760, height: 520))
+        let view = NSHostingView(rootView: editorContent(store, project: project, width: 760, height: 520)
+            .environment(\.accessibilityEnabled, true))
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 760, height: 520),
             styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = view
         window.orderFront(nil)
         defer { window.close() }
-        try await Task.sleep(for: .milliseconds(500))
+        try await waitForUIState {
+            guard let frame = findAccessibilityFrame(named: "timeline-preview-unavailable", in: view) else { return false }
+            return view.bounds.intersects(frame)
+        }
         XCTAssertFalse(descendants(view).contains { $0 is AVPlayerView || $0 is NSSlider || $0 is NSScrollView })
         XCTAssertEqual(store.project(id: project.id), project)
         XCTAssertThrowsError(try store.undo(projectID: project.id))
