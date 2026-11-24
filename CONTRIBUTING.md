@@ -57,6 +57,14 @@ unrequested pushes or release publication.
 
 ### Prepare, Push, and Publish a Release
 
+An explicit release request lets the agent run the whole flow with
+[the release skill](.agents/skills/prepare-storybird-release/SKILL.md): prepare
+and verify on macOS, run `git push origin main` in `.devcontainer`, wait for CI
+on that exact commit to succeed, push the prepared tag with `push-version.sh` in
+`.devcontainer`, then publish with local macOS `gh`. The agent reaches the
+container with `docker exec` into the running devcontainer for this checkout.
+A preparation-only request stops before any remote write.
+
 For a version tag already prepared on macOS, run this in `.devcontainer`:
 
 ```bash
@@ -74,11 +82,10 @@ container rebuild is needed for this command.
 An identical remote tag is a successful no-op. Missing tags, version mismatches,
 or different remote tags stop without creating, moving, or overwriting tags.
 Add `--check` to inspect without pushing; this check also runs on macOS.
-Once the user reports the prepared tag was pushed, the agent verifies the remote
+When the user pushes the prepared tag and reports it, the agent verifies the remote
 tag and publishes locally with the existing macOS `gh` authentication and prepared
 ZIP/notes, without another publication confirmation. No GitHub API credential
-needs to be copied into the container. This is the agent handoff workflow;
-ordinary `git push` has no publication hook.
+needs to be copied into the container. Ordinary `git push` has no publication hook.
 
 Prepare the release on macOS using
 [the release skill](.agents/skills/prepare-storybird-release/SKILL.md): select the
@@ -104,6 +111,12 @@ release_sha256="VERIFIED_ZIP_SHA256_FROM_MACOS_PREPARATION"
 
 # Read-only local and GitHub checks.
 bash scripts/publish-release.sh "$release_version" "$release_commit" "$release_sha256"
+
+# In .devcontainer: push main.
+git push origin main
+
+# On macOS: wait for CI on that exact commit to succeed.
+gh run watch "$(gh run list --commit "$release_commit" --workflow ci.yml --json databaseId --jq '.[0].databaseId')" --exit-status
 
 # In .devcontainer: push only the prepared annotated tag.
 ./scripts/push-version.sh "$release_version"

@@ -20,7 +20,8 @@ Storybird is a local-first SwiftUI macOS application.
 - `Tests/StorybirdTests/`: app-host, MCP protocol, media and synthetic UI tests.
 - `Resources/`: bundle metadata, entitlements, editable SVG app icon.
 - `docs/adr/`: ADR registry and decision records.
-- `.agents/skills/prepare-storybird-release/`: release audit harness.
+- `.agents/skills/prepare-storybird-release/`: release preparation, push and
+  publication skill.
 - `Tests/StorybirdTests/DocumentationScreenshotTests.swift`: opt-in synthetic
   README screenshot harness.
 
@@ -72,10 +73,11 @@ toolchain, test runner, cache boundaries and native verification limits.
 
 ### Main branch pushes
 
-When the user requests a push to `main`, execute it through this repository's
-`.devcontainer` from the outset. Do not first attempt a push from the macOS host
-or fall back to the host if the container is unavailable. Builds and Swift tests
-still run on macOS; use the container for the authorized Git push.
+When the user requests a push to `main` or a release, execute every Git push
+through this repository's running `.devcontainer` (`docker exec` into the
+container for this checkout) from the outset. Do not first attempt a push from
+the macOS host or fall back to the host if the container is unavailable. Builds
+and Swift tests still run on macOS; use the container for the authorized Git push.
 
 This execution preference does not grant standing push permission or override
 repository approval and security controls. Resolve an explicit security denial
@@ -88,17 +90,20 @@ draft stays a draft, and registering/publishing a prepared release proceeds
 through `--publish` to public Latest status. Reuse authorization and verified
 artifacts for the same target. Report unperformed native or optional checks
 honestly; their absence alone must not downgrade a publication request to a draft.
-Resolve actual build/test/signature failures, tag/version/checksum conflicts,
-upload or remote-state errors, and known data-loss/security defects. Honor any
-checks the user explicitly makes a prerequisite for that release. Except for
-user-requested agent pushes to `main`, Git pushes remain the user's action in
-`.devcontainer`.
+Resolve actual build/test/signature failures, CI failures, tag/version/checksum
+conflicts, upload or remote-state errors, and known data-loss/security defects.
+Honor any checks the user explicitly makes a prerequisite for that release.
 
-`scripts/push-version.sh VERSION` pushes only the prepared version tag from
-`.devcontainer`. After the user reports that prepared tag was pushed, verify it
-and use authenticated local macOS `gh` to finish publication and Latest without
-another confirmation. Do not copy GitHub API credentials into the container for
-this handoff. Ordinary branch pushes are not release requests.
+An explicit release or publication request authorizes the agent to push `main`
+and the prepared version tag through `.devcontainer` after the local checks.
+Push `main`, wait for CI on that exact commit to succeed, then push the tag with
+`scripts/push-version.sh VERSION`. Publish with authenticated local macOS `gh`
+and confirm Latest without another confirmation. A preparation-only request
+makes no remote writes. If the user pushes the prepared tag and reports it,
+verify the remote tag and continue publication. Do not copy GitHub API
+credentials into the container. Ordinary branch pushes are not release requests.
+The [release skill](.agents/skills/prepare-storybird-release/SKILL.md) holds the
+stage procedures.
 
 ## Coding Style & Naming Conventions
 

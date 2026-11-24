@@ -1,4 +1,4 @@
 interface:
   display_name: "Storybird Release"
-  short_description: "Prepare releases and publish pushed tags with local gh"
-  default_prompt: "Use $prepare-storybird-release for the requested release stage. Prepare verified notes and artifacts locally; after the user reports the prepared version tag was pushed, verify that tag and continue publication with local macOS gh."
+  short_description: "Prepare, push and publish a verified Storybird release"
+  default_prompt: "Use $prepare-storybird-release for the requested release stage. Prepare verified notes and artifacts on macOS; for a release request, push main and the version tag through the devcontainer after CI passes, then publish with local macOS gh."
