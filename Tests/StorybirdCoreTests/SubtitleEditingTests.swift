@@ -103,6 +103,33 @@ final class SubtitleEditingTests: XCTestCase {
         XCTAssertEqual(project.subtitles[0].text, "Paragraph\n\nTwo")
     }
 
+    func test_companionSRTSelection_autoIncludesRepresentableCaptionsAndOtherwiseOmits() throws {
+        var project = fixture()
+        XCTAssertNil(SRTCaptions.automaticCompanionScope(for: project), "No captions means no companion SRT")
+        XCTAssertEqual(SRTCaptions.companionOptions(for: project).map(\.isSelectable), [false, false, false])
+        project.subtitles = [TimedSubtitle(startTime: 0, endTime: 1, text: "Independent")]
+        var cue = TimedPointerClick(time: 2, x: 0.5, y: 0.5)
+        cue.cueSubtitle = CueSubtitle(text: "Cue", startTime: 2, endTime: 3)
+        project.clicks = [cue]
+        XCTAssertEqual(SRTCaptions.automaticCompanionScope(for: project), .both)
+        XCTAssertEqual(SRTCaptions.companionOptions(for: project).map(\.scope), [.both, .independent, .cue])
+        XCTAssertEqual(SRTCaptions.companionOptions(for: project).map(\.captionCount), [2, 1, 1])
+        XCTAssertTrue(SRTCaptions.companionOptions(for: project).allSatisfy(\.isSelectable))
+        XCTAssertEqual(SRTCaptions.companionScope(.none, for: project), nil)
+        XCTAssertEqual(SRTCaptions.companionScope(.cue, for: project), .cue)
+
+        // Auto must not turn an unrepresentable caption into a failed MP4 export,
+        // while an explicit scope keeps reporting it.
+        project.subtitles[0].text = "Paragraph\n\nTwo"
+        XCTAssertNil(SRTCaptions.automaticCompanionScope(for: project))
+        XCTAssertEqual(SRTCaptions.companionScope(.independent, for: project), .independent)
+        let options = SRTCaptions.companionOptions(for: project)
+        XCTAssertEqual(options.map(\.isSelectable), [false, false, true])
+        XCTAssertNil(SRTCaptions.automaticCompanionScope(in: options))
+        XCTAssertNotNil(options[0].unavailableReason)
+        XCTAssertEqual(SRTCaptions.companionURL(forVideo: URL(fileURLWithPath: "/tmp/My demo.mp4")).path, "/tmp/My demo.srt")
+    }
+
     private func fixture() -> DemoProject {
         DemoProject(name: "Captions", recording: VideoRecordingAsset(filename: "video.mp4", duration: 4, width: 1280, height: 720))
     }

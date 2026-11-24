@@ -3,6 +3,13 @@
 이 문서는 sharing 카테고리의 주요 결정 변경 이력이다. 각 ADR 본문은 현재
 상태만 서술하고, 주요 전환의 시간축은 여기에 역순으로 쌓는다.
 
+## 2026-11-24 — MP4 출력에 같은 이름의 동반 SRT를 선택해 함께 만든다
+
+- **Current ADR**: [layered-video-export](./0001-layered-video-export.md)
+- **Change type**: requirement rule change
+- **What**: SRT는 MP4와 별도로만 요청하는 파일에서, MP4 출력이 자막이 있으면 전체 자막을 기본으로 같은 이름의 동반 SRT를 함께 만들고 범위를 바꾸거나 생략할 수 있는 출력으로 확장했다.
+- **Why**: 업로드 서비스와 플레이어가 영상과 자막을 함께 받도록 사용자가 MP4 출력에서 SRT를 바로 얻어야 한다.
+
 ## 2026-10-17 — 여러 소재·캔버스·가림·음성을 공통 시간축의 MP4와 명시적 SRT로 출력한다
 
 - **Current ADR**: [layered-video-export](./0001-layered-video-export.md)

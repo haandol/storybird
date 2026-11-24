@@ -65,6 +65,6 @@ extension AppStore {
             throw error
         }
         return SubtitleExportResult(path: destination.path, revision: project.revision,
-            caption_count: (scope == .cue ? 0 : project.subtitles.count) + (scope == .independent ? 0 : project.clicks.count), scope: scope)
+            caption_count: SRTCaptions.captionCount(project: project, scope: scope), scope: scope)
     }
 }

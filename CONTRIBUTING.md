@@ -321,7 +321,9 @@ steps using the matrix above; this is a catalog, not an all-changes checklist:
    duration, correct scene ownership, one saved revision, and one-step undo.
    Drop outside the project or into a conflicting effect and confirm unchanged timing.
 9. Export an MP4, play it locally, and confirm the overlays are burned in and
-   no audio track exists.
+   no audio track exists. With captions present, confirm **Subtitles (SRT)**
+   defaults to **All captions** and a same-name `.srt` appears beside the MP4
+   with the project's caption times. **No SRT** writes the MP4 alone.
 10. Import a synthetic narrated MP4 or MOV without granting capture permissions.
     Confirm it creates a new project, **Add Click** places a Cue at the selected
     playhead and frame position, and the external source remains unchanged.

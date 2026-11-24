@@ -221,7 +221,9 @@ and Cue captions together. Select rows to edit or apply selected style fields.
 Split an independent caption at a time and a Unicode character boundary, or merge
 adjacent captions with the combined text you choose. **Import SRT…** appends
 UTF-8 captions; **Export SRT** writes independent captions, Cue captions or both
-to a new file. Existing text and files remain intact after a failed operation.
+to a new file without rendering video. To get the SRT together with the video,
+use the subtitle menu in **Export**. Existing text and files remain intact after
+a failed operation.
 
 <img src="docs/images/caption-list.png" width="360" alt="Synthetic caption panel showing complete English and Korean text, Cue descriptions, times and editing actions" />
 
@@ -439,6 +441,14 @@ when audio is present. A recording without any audio layers exports without an a
 track. A native export replaces the chosen destination only after success.
 MCP exports create a uniquely named MP4 in the requested output folder and
 return its actual path without overwriting an existing file.
+
+The export panel's **Subtitles (SRT)** menu also writes the captions beside the
+MP4 under the same name, such as `demo.mp4` and `demo.srt`. When the project has
+captions, **All captions** is selected by default. You can choose independent
+captions, Cue captions or **No SRT** instead. Scopes without captions, or with
+text that SRT cannot represent, cannot be selected. A native export replaces an
+existing SRT of the same name only after the MP4 is saved. MCP exports choose a
+name that is free for both files.
 
 ## Use it with an AI agent
 

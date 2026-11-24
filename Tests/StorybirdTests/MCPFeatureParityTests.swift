@@ -76,6 +76,16 @@ final class MCPFeatureParityTests: XCTestCase {
         }
     }
 
+    func test_mp4ExportTools_advertiseOptionalCompanionSubtitleScope() throws {
+        let tools = StorybirdMCPService.toolDefinitions
+        for name in ["storybird_start_export", "storybird_export_project"] {
+            let schema = try XCTUnwrap(tools.first { $0.name == name }?.inputSchema.objectValue)
+            let subtitles = try XCTUnwrap(schema["properties"]?.objectValue?["subtitles"]?.objectValue, name)
+            XCTAssertEqual(subtitles["enum"]?.arrayValue?.compactMap(\.stringValue), SRTCompanionSelection.allCases.map(\.rawValue), name)
+            XCTAssertEqual(Set(schema["required"]?.arrayValue?.compactMap(\.stringValue) ?? []), ["project_id", "parent_directory"], name)
+        }
+    }
+
     func test_captionFilesCanvasAndDirectEffects_advertiseEveryRequiredInput() throws {
         let tools = StorybirdMCPService.toolDefinitions
         for (name, required) in [("storybird_import_subtitles", ["project_id", "expected_revision", "path"]),

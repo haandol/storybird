@@ -102,6 +102,18 @@ public enum SubtitleEditing {
 
 public enum SRTCaptionScope: String, Codable, CaseIterable, Sendable { case independent, cue, both }
 
+/// An MP4 export's companion-caption request. `auto` applies the shared default;
+/// `none` writes the MP4 alone.
+public enum SRTCompanionSelection: String, CaseIterable, Sendable { case auto, none, independent, cue, both }
+
+/// One caption scope offered beside an MP4 export.
+public struct SRTCompanionOption: Equatable, Sendable {
+    public let scope: SRTCaptionScope
+    public let captionCount: Int
+    public let unavailableReason: String?
+    public var isSelectable: Bool { captionCount > 0 && unavailableReason == nil }
+}
+
 public enum SRTError: LocalizedError, Equatable {
     case invalidUTF8, invalidBlock(Int), invalidTime(Int), unrepresentableText(UUID), collapsedInterval(UUID)
     public var errorDescription: String? {
@@ -163,6 +175,51 @@ public enum SRTCaptions {
             guard end > start else { throw SRTError.collapsedInterval(row.id) }
             return "\(index + 1)\n\(timestamp(start)) --> \(timestamp(end))\n\(row.text)\n"
         }.joined(separator: "\n")
+    }
+
+    public static func captionCount(project: DemoProject, scope: SRTCaptionScope) -> Int {
+        (scope == .cue ? 0 : project.subtitles.count) + (scope == .independent ? 0 : project.clicks.count)
+    }
+
+    /// UI and MCP share this default: every caption when at least one exists and
+    /// all of them are representable, otherwise the MP4 exports alone. An
+    /// unrepresentable caption therefore never blocks a default MP4 export.
+    public static func automaticCompanionScope(for project: DemoProject) -> SRTCaptionScope? {
+        automaticCompanionScope(in: companionOptions(for: project))
+    }
+
+    public static func automaticCompanionScope(in options: [SRTCompanionOption]) -> SRTCaptionScope? {
+        options.first { $0.scope == .both && $0.isSelectable }?.scope
+    }
+
+    public static func companionScope(_ selection: SRTCompanionSelection, for project: DemoProject) -> SRTCaptionScope? {
+        switch selection {
+        case .auto: automaticCompanionScope(for: project)
+        case .none: nil
+        case .independent: .independent
+        case .cue: .cue
+        case .both: .both
+        }
+    }
+
+    /// Export-panel scopes in display order: all, independent, then Cue. Each row
+    /// is validated alone, so a representable `.both` proves both subsets and
+    /// the common case encodes once.
+    public static func companionOptions(for project: DemoProject) -> [SRTCompanionOption] {
+        func option(_ scope: SRTCaptionScope, validate: Bool) -> SRTCompanionOption {
+            var reason: String?
+            if validate {
+                do { _ = try encode(project: project, scope: scope) } catch { reason = error.localizedDescription }
+            }
+            return SRTCompanionOption(scope: scope, captionCount: captionCount(project: project, scope: scope), unavailableReason: reason)
+        }
+        let all = option(.both, validate: true)
+        return [all, option(.independent, validate: all.unavailableReason != nil), option(.cue, validate: all.unavailableReason != nil)]
+    }
+
+    /// A shared basename lets players and upload services pair the files.
+    public static func companionURL(forVideo url: URL) -> URL {
+        url.deletingPathExtension().appendingPathExtension("srt")
     }
 
     private static func seconds(_ text: String, line: Int) throws -> Double {

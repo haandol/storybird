@@ -62,8 +62,9 @@ Start export and poll until completed, failed or cancelled; queued is not comple
 Preserve the project on failure and choose a bounded repair from the reported cause.
 
 Verify the MP4 exists and opens, check duration and audio presence with available
-media tools, and inspect playback or representative frames. Report the path,
-language, duration and any unverified listening or motion checks. Keep language
+media tools, and inspect playback or representative frames. Report the path
+(and the companion `subtitlePath` when one was written), language, duration and
+any unverified listening or motion checks. Keep language
 exports distinct.
 
 ## Respect the action boundary

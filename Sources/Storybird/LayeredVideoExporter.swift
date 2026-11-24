@@ -18,9 +18,15 @@ enum LayeredVideoExportError: LocalizedError {
     case incompleteClickCue([UUID])
     case exportFailed(String)
     case mediaFailure(stage: String, revision: Int, underlying: NSError)
+    /// `savedVideo` is set only when a replaced MP4 could not be rolled back.
+    case subtitleInstallFailed(savedVideo: URL?, underlying: NSError)
 
     var errorDescription: String? {
         switch self {
+        case let .subtitleInstallFailed(savedVideo?, underlying):
+            return "The MP4 was saved at \(savedVideo.path), but its SRT could not be saved: \(underlying.localizedDescription)"
+        case let .subtitleInstallFailed(nil, underlying):
+            return "The SRT could not be saved, so the new MP4 was removed: \(underlying.localizedDescription)"
         case .missingVideoTrack:
             return "The project recording has no video track."
         case .cannotReadVideo:
@@ -67,6 +73,13 @@ actor LayeredVideoExporter {
         options: [.cacheIntermediates: false]
     )
 
+    /// The installed outputs of one export; `subtitles` is set only when a
+    /// companion SRT was requested and installed.
+    struct ExportedFiles: Sendable {
+        let video: URL
+        let subtitles: URL?
+    }
+
     /// Burns the validated project timeline into a temporary H.264 MP4 before replacing the destination.
     func export(
         project: DemoProject,
@@ -75,15 +88,39 @@ actor LayeredVideoExporter {
         destinationPolicy: DestinationPolicy = .replaceExisting,
         progress: @escaping @Sendable (Double) -> Void = { _ in }
     ) async throws -> URL {
+        try await exportFiles(project: project, sourceURL: sourceURL, destinationURL: destinationURL,
+            destinationPolicy: destinationPolicy, subtitles: nil, progress: progress).video
+    }
+
+    /// Exports the MP4 and, for a requested scope, its companion SRT. The SRT is
+    /// encoded and staged before rendering and installed only after the MP4.
+    func exportFiles(
+        project: DemoProject,
+        sourceURL: URL,
+        destinationURL: URL,
+        destinationPolicy: DestinationPolicy = .replaceExisting,
+        subtitles: SRTCaptionScope?,
+        progress: @escaping @Sendable (Double) -> Void = { _ in }
+    ) async throws -> ExportedFiles {
         try Self.validateForExport(project)
+        let subtitleData = try subtitles.map { Data(try SRTCaptions.encode(project: project, scope: $0).utf8) }
         try Task.checkCancellation()
         let assetsDirectory = sourceURL.deletingLastPathComponent()
         let sourceFiles = Set(project.availableMediaAssets.map(\.filename) + project.audioAssets.map(\.filename)
             + project.narrations.map(\.filename) + project.narrationDrafts.map(\.filename))
-        let destination = destinationURL.resolvingSymlinksInPath().standardizedFileURL
-        let originals = [sourceURL] + sourceFiles.map { assetsDirectory.appendingPathComponent($0) }
-        guard !originals.contains(where: { $0.resolvingSymlinksInPath().standardizedFileURL == destination }) else {
+        let originals = Set(([sourceURL] + sourceFiles.map { assetsDirectory.appendingPathComponent($0) })
+            .map { $0.resolvingSymlinksInPath().standardizedFileURL })
+        let subtitleDestination = subtitleData.map { _ in SRTCaptions.companionURL(forVideo: destinationURL) }
+        let outputs = ([destinationURL] + (subtitleDestination.map { [$0] } ?? []))
+            .map { $0.resolvingSymlinksInPath().standardizedFileURL }
+        guard originals.isDisjoint(with: outputs), Set(outputs).count == outputs.count else {
             throw LayeredVideoExportError.invalidDestination
+        }
+        // A create-new export must not discover an occupied SRT name only
+        // after a long render; the exclusive rename still guards races.
+        if destinationPolicy == .createNew, let subtitleDestination,
+           FileManager.default.fileExists(atPath: subtitleDestination.path) {
+            throw POSIXError(.EEXIST)
         }
         let fileManager = FileManager.default
         let parent = destinationURL.deletingLastPathComponent()
@@ -97,6 +134,14 @@ actor LayeredVideoExporter {
         defer {
             try? fileManager.removeItem(at: temporaryURL)
         }
+        let temporarySubtitleURL = parent.appendingPathComponent(
+            ".storybird-export-\(UUID().uuidString).srt"
+        )
+        defer {
+            try? fileManager.removeItem(at: temporarySubtitleURL)
+        }
+        // Staging first surfaces a folder that cannot hold the SRT before rendering.
+        try subtitleData?.write(to: temporarySubtitleURL, options: .withoutOverwriting)
 
         let mediaSources = try await VideoMediaSources.load(project: project, sourceURL: sourceURL, audio: true)
         guard let primary = mediaSources[project.id] else { throw LayeredVideoExportError.missingVideoTrack }
@@ -342,8 +387,19 @@ actor LayeredVideoExporter {
             duration: duration, frameDuration: videoComposition.frameDuration, hasAudio: audioInput != nil)
         try Task.checkCancellation()
         try installCompletedFile(temporaryURL, at: destinationURL, fileManager: fileManager, policy: destinationPolicy)
+        if let subtitleDestination {
+            do {
+                try installCompletedFile(temporarySubtitleURL, at: subtitleDestination, fileManager: fileManager, policy: destinationPolicy)
+            } catch {
+                // A create-new MP4 is this export's own file, so removing it
+                // keeps the pair all-or-nothing. A replaced MP4 cannot be restored.
+                if destinationPolicy == .createNew { try? fileManager.removeItem(at: destinationURL) }
+                throw LayeredVideoExportError.subtitleInstallFailed(
+                    savedVideo: destinationPolicy == .createNew ? nil : destinationURL, underlying: error as NSError)
+            }
+        }
         progress(1)
-        return destinationURL
+        return ExportedFiles(video: destinationURL, subtitles: subtitleDestination)
     }
 
     /// Rejects invalid and incomplete projects before an export job or output file is created.

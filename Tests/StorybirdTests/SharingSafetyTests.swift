@@ -9,7 +9,10 @@ import XCTest
 @MainActor
 final class SharingSafetyTests: XCTestCase {
     private typealias Response = (content: [Tool.Content], isError: Bool?)
-    private struct Job: Decodable { let id: UUID; let state: String; let progress: Double; let outputPath: String?; let error: String? }
+    private struct Job: Decodable {
+        let id: UUID; let state: String; let progress: Double; let outputPath: String?; let error: String?
+        let subtitleScope: String; let subtitleCaptionCount: Int; let subtitlePath: String?
+    }
 
     func test_createNewPublication_rejectsDestinationAppearingDuringRender() async throws {
         let (root, _, project, source) = try await fixture(duration: 2)
@@ -23,6 +26,152 @@ final class SharingSafetyTests: XCTestCase {
             XCTAssertEqual(try Data(contentsOf: destination), sentinel)
             XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: root.path).contains { $0.hasPrefix(".storybird-export-") })
         }
+    }
+
+    func test_nativeCompanionSRT_rejectsUnrepresentableScopeThenReplacesStaleSidecarAfterMP4() async throws {
+        let (root, _, initial, source) = try await fixture(duration: 2)
+        defer { try? FileManager.default.removeItem(at: root) }
+        var project = initial
+        project.subtitles = [TimedSubtitle(startTime: 0.2, endTime: 0.8, text: "First"),
+            TimedSubtitle(startTime: 1, endTime: 1.6, text: "Paragraph\n\nTwo")]
+        let folder = root.appendingPathComponent("native-out")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let destination = folder.appendingPathComponent("demo.mp4"), sidecar = folder.appendingPathComponent("demo.srt")
+        let staleVideo = Data("Previous MP4".utf8), staleSRT = Data("1\n00:00:00,000 --> 00:00:01,000\nStale\n".utf8)
+        try staleVideo.write(to: destination)
+        try staleSRT.write(to: sidecar)
+        do {
+            _ = try await LayeredVideoExporter().exportFiles(project: project, sourceURL: source, destinationURL: destination, subtitles: .independent)
+            XCTFail("An explicit SRT scope that cannot be written must stop before rendering")
+        } catch let error as SRTError {
+            XCTAssertEqual(error, .unrepresentableText(project.subtitles[1].id))
+        }
+        XCTAssertEqual(try Data(contentsOf: destination), staleVideo)
+        XCTAssertEqual(try Data(contentsOf: sidecar), staleSRT)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted(), ["demo.mp4", "demo.srt"])
+
+        project.subtitles[1].text = "Second"
+        let result = try await LayeredVideoExporter().exportFiles(project: project, sourceURL: source, destinationURL: destination, subtitles: .both)
+        XCTAssertEqual(result.video, destination)
+        XCTAssertEqual(result.subtitles, sidecar)
+        XCTAssertEqual(String(decoding: try Data(contentsOf: sidecar), as: UTF8.self), try SRTCaptions.encode(project: project, scope: .both))
+        let tracks = try await AVURLAsset(url: destination).loadTracks(withMediaType: .video)
+        XCTAssertEqual(tracks.count, 1)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted(), ["demo.mp4", "demo.srt"])
+    }
+
+    func test_createNewCompanionSRT_takenDuringRender_removesOwnMP4AndKeepsOtherFile() async throws {
+        let (root, _, initial, source) = try await fixture(duration: 2)
+        defer { try? FileManager.default.removeItem(at: root) }
+        var project = initial
+        project.subtitles = [TimedSubtitle(startTime: 0.2, endTime: 0.8, text: "Caption")]
+        let destination = root.appendingPathComponent("pair.mp4"), sidecar = root.appendingPathComponent("pair.srt")
+        let sentinel = Data("Another writer".utf8)
+        do {
+            _ = try await LayeredVideoExporter().exportFiles(project: project, sourceURL: source, destinationURL: destination,
+                destinationPolicy: .createNew, subtitles: .both,
+                progress: { _ in try? sentinel.write(to: sidecar, options: .withoutOverwriting) })
+            XCTFail("An SRT name taken during rendering must not complete the pair")
+        } catch let LayeredVideoExportError.subtitleInstallFailed(savedVideo, _) {
+            XCTAssertNil(savedVideo)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+        XCTAssertEqual(try Data(contentsOf: sidecar), sentinel)
+        XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: root.path).contains { $0.hasPrefix(".storybird-export-") })
+    }
+
+    func test_exportSubtitleAccessory_defaultsToAllAndDisablesEmptyOrIncompatibleScopes() {
+        var project = DemoProject(name: "Accessory", recording: VideoRecordingAsset(filename: "video.mp4", duration: 4, width: 640, height: 360))
+        func enabledTitles(_ accessory: ExportSubtitleAccessory) -> [String] { accessory.popup.itemArray.filter(\.isEnabled).map(\.title) }
+        let empty = ExportSubtitleAccessory(project: project)
+        XCTAssertNil(empty.selectedScope)
+        XCTAssertEqual(empty.popup.titleOfSelectedItem, "No SRT")
+        project.subtitles = [TimedSubtitle(startTime: 0, endTime: 1, text: "Hello")]
+        let accessory = ExportSubtitleAccessory(project: project)
+        XCTAssertEqual(accessory.selectedScope, .both)
+        XCTAssertEqual(accessory.popup.itemTitles, ["All captions (1)", "Independent captions (1)", "Cue captions (0)", "No SRT"])
+        XCTAssertEqual(enabledTitles(accessory), ["All captions (1)", "Independent captions (1)", "No SRT"])
+        accessory.popup.selectItem(withTitle: "Independent captions (1)")
+        XCTAssertEqual(accessory.selectedScope, .independent)
+        accessory.popup.selectItem(withTitle: "No SRT")
+        XCTAssertNil(accessory.selectedScope)
+        project.subtitles[0].text = "Paragraph\n\nTwo"
+        let incompatible = ExportSubtitleAccessory(project: project)
+        XCTAssertNil(incompatible.selectedScope)
+        XCTAssertEqual(enabledTitles(incompatible), ["No SRT"])
+        XCTAssertEqual(incompatible.popup.itemTitles.first, "All captions (1, not SRT-compatible)")
+        XCTAssertNotNil(incompatible.popup.itemArray.first?.toolTip)
+    }
+
+    func test_mcpCompanionSRT_autoNoneInvalidAndOccupiedNamesStayAtomic() async throws {
+        let (root, store, initial, source) = try await fixture(duration: 2)
+        defer { try? FileManager.default.removeItem(at: root) }
+        var project = initial
+        project.subtitles = [TimedSubtitle(startTime: 0.2, endTime: 0.8, text: "Agent caption")]
+        project = try store.saveProject(project, expectedRevision: project.revision)
+        let parent = root.appendingPathComponent("mcp-out")
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        let occupied = parent.appendingPathComponent("safe-export.srt"), sentinel = Data("Unrelated captions".utf8)
+        try sentinel.write(to: occupied)
+        let id = Value.string(project.id.uuidString), folder = Value.string(parent.path)
+        try await withClient(store: store) { client in
+            let started: Job = try decode(await client.callTool(name: "storybird_start_export", arguments: [
+                "project_id": id, "parent_directory": folder]))
+            XCTAssertEqual(started.subtitleScope, "both")
+            XCTAssertNil(started.subtitlePath)
+            let automatic = try await terminal(client, id: started.id)
+            XCTAssertEqual(automatic.state, "completed", automatic.error ?? "")
+            XCTAssertEqual(automatic.outputPath, parent.appendingPathComponent("safe-export-2.mp4").path)
+            XCTAssertEqual(automatic.subtitlePath, parent.appendingPathComponent("safe-export-2.srt").path)
+            XCTAssertEqual(automatic.subtitleCaptionCount, 1)
+            XCTAssertEqual(String(decoding: try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(automatic.subtitlePath))), as: UTF8.self),
+                try SRTCaptions.encode(project: project, scope: .both))
+            XCTAssertEqual(try Data(contentsOf: occupied), sentinel)
+
+            let omitted: Job = try decode(await client.callTool(name: "storybird_start_export", arguments: [
+                "project_id": id, "parent_directory": folder, "subtitles": "none"]))
+            let none = try await terminal(client, id: omitted.id)
+            XCTAssertEqual(none.state, "completed", none.error ?? "")
+            XCTAssertEqual(none.subtitleScope, "none")
+            XCTAssertNil(none.subtitlePath)
+
+            let filesBefore = try FileManager.default.contentsOfDirectory(atPath: parent.path).sorted()
+            let invalid = try await client.callTool(name: "storybird_start_export", arguments: [
+                "project_id": id, "parent_directory": folder, "subtitles": "srt"])
+            XCTAssertEqual(invalid.isError, true)
+            XCTAssertFalse(store.isExportActive)
+
+            var blank = try XCTUnwrap(store.project(id: project.id))
+            blank.subtitles[0].text = "Paragraph\n\nTwo"
+            blank = try store.saveProject(blank, expectedRevision: blank.revision)
+            let rejected = try await client.callTool(name: "storybird_start_export", arguments: [
+                "project_id": id, "parent_directory": folder, "subtitles": "independent"])
+            XCTAssertEqual(rejected.isError, true)
+            XCTAssertTrue(text(rejected).contains(blank.subtitles[0].id.uuidString), text(rejected))
+            XCTAssertFalse(store.isExportActive)
+            XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: parent.path).sorted(), filesBefore)
+            let fallback: Job = try decode(await client.callTool(name: "storybird_start_export", arguments: [
+                "project_id": id, "parent_directory": folder]))
+            XCTAssertEqual(fallback.subtitleScope, "none", "auto exports the MP4 alone when SRT cannot represent a caption")
+            let completedFallback = try await terminal(client, id: fallback.id)
+            XCTAssertEqual(completedFallback.state, "completed", completedFallback.error ?? "")
+            XCTAssertNil(completedFallback.subtitlePath)
+
+            var restored = try XCTUnwrap(store.project(id: project.id))
+            restored.subtitles[0].text = "Synchronous caption"
+            restored = try store.saveProject(restored, expectedRevision: restored.revision)
+            let synchronous = try await client.callTool(name: "storybird_export_project", arguments: [
+                "project_id": id, "parent_directory": folder, "subtitles": "both"])
+            XCTAssertNotEqual(synchronous.isError, true)
+            let path = text(synchronous)
+            XCTAssertTrue(path.hasSuffix(".mp4"), path)
+            let companion = SRTCaptions.companionURL(forVideo: URL(fileURLWithPath: path))
+            XCTAssertEqual(String(decoding: try Data(contentsOf: companion), as: UTF8.self),
+                try SRTCaptions.encode(project: restored, scope: .both))
+            XCTAssertEqual(store.project(id: project.id), restored)
+            XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: parent.path).contains { $0.hasPrefix(".storybird-export-") })
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: source.path))
     }
 
     func test_exportCannotReplaceAnyOwnedSource_evenWhenPrimaryIsDifferent() async throws {
@@ -156,12 +305,16 @@ final class SharingSafetyTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(job.progress, 0); XCTAssertLessThanOrEqual(job.progress, 100)
             if ["completed", "failed", "cancelled"].contains(job.state) { return job }
             XCTAssertNil(job.outputPath)
+            XCTAssertNil(job.subtitlePath)
             try await Task.sleep(for: .milliseconds(10))
         }
         throw NSError(domain: "SharingSafetyTests", code: 1, userInfo: [NSLocalizedDescriptionKey: "Export did not reach a terminal state"])
     }
+    private func text(_ response: Response) -> String {
+        response.content.compactMap { if case let .text(value, _, _) = $0 { value } else { nil } }.joined()
+    }
     private func decode<T: Decodable>(_ response: Response) throws -> T {
-        let text = response.content.compactMap { if case let .text(value, _, _) = $0 { value } else { nil } }.joined()
+        let text = text(response)
         XCTAssertNotEqual(response.isError, true, text)
         return try JSONDecoder().decode(T.self, from: Data(text.utf8))
     }

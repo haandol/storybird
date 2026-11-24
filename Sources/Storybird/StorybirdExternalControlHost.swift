@@ -19,6 +19,11 @@ final class StorybirdExternalControlHost {
         var progress: Double
         var outputPath: String?
         var error: String?
+        /// Resolved companion scope (`none` when the MP4 exports alone); the
+        /// SRT path, like `outputPath`, appears only after completion.
+        var subtitleScope: String
+        var subtitleCaptionCount: Int
+        var subtitlePath: String?
     }
 
     private struct ProjectMutationResponse<Value: Encodable>: Encodable {
@@ -1031,6 +1036,7 @@ final class StorybirdExternalControlHost {
             do {
                 let project = try project(from: arguments)
                 try LayeredVideoExporter.validateForExport(project)
+                let subtitleScope = try Self.companionSubtitleScope(arguments, project: project)
                 let parent = URL(
                     fileURLWithPath: try Self.string(
                         "parent_directory",
@@ -1041,7 +1047,9 @@ final class StorybirdExternalControlHost {
                 exportJobs[jobID] = ExportJob(
                     id: jobID,
                     state: .validating,
-                    progress: 0
+                    progress: 0,
+                    subtitleScope: subtitleScope?.rawValue ?? SRTCompanionSelection.none.rawValue,
+                    subtitleCaptionCount: subtitleScope.map { SRTCaptions.captionCount(project: project, scope: $0) } ?? 0
                 )
                 let store = self.store
                 exportTasks[jobID] = Task { [weak self, store] in
@@ -1050,24 +1058,13 @@ final class StorybirdExternalControlHost {
                     }
                     guard let self else { return }
                     do {
-                        guard let recording = project.recording else {
-                            throw VideoProjectValidationError.missingRecording
-                        }
                         self.updateExport(jobID) {
                             $0.state = .rendering
                         }
-                        let destination = Self.uniqueVideoDestination(
-                            projectName: project.name,
-                            in: parent
-                        )
-                        let result = try await LayeredVideoExporter().export(
-                            project: project,
-                            sourceURL: store.repository.assetURL(
-                                projectID: project.id,
-                                filename: recording.filename
-                            ),
-                            destinationURL: destination,
-                            destinationPolicy: .createNew
+                        let result = try await self.renderMCPExport(
+                            project,
+                            in: parent,
+                            subtitles: subtitleScope
                         ) { progress in
                             Task { @MainActor [weak self] in
                                 self?.updateExport(jobID) {
@@ -1078,7 +1075,8 @@ final class StorybirdExternalControlHost {
                         self.updateExport(jobID) {
                             $0.state = .completed
                             $0.progress = 100
-                            $0.outputPath = result.path
+                            $0.outputPath = result.video.path
+                            $0.subtitlePath = result.subtitles?.path
                         }
                     } catch is CancellationError {
                         self.updateExport(jobID) {
@@ -1120,33 +1118,46 @@ final class StorybirdExternalControlHost {
                 store.endExport(exportID)
             }
             let project = try project(from: arguments)
+            let subtitleScope = try Self.companionSubtitleScope(arguments, project: project)
             let parent = URL(
                 fileURLWithPath: try Self.string(
                     "parent_directory",
                     in: arguments
                 )
             )
-            guard let recording = project.recording else {
-                throw VideoProjectValidationError.missingRecording
-            }
-            let destination = Self.uniqueVideoDestination(
-                projectName: project.name,
-                in: parent
-            )
-            let sourceURL = store.repository.assetURL(
-                projectID: project.id,
-                filename: recording.filename
-            )
-            let result = try await LayeredVideoExporter().export(
-                project: project,
-                sourceURL: sourceURL,
-                destinationURL: destination,
-                destinationPolicy: .createNew
-            )
-            return StorybirdControlResponse(text: result.path)
+            let result = try await renderMCPExport(project, in: parent, subtitles: subtitleScope)
+            // The text stays the MP4 path for existing clients; a companion
+            // SRT is always the same path with the `.srt` extension.
+            return StorybirdControlResponse(text: result.video.path)
         default:
             throw StorybirdControlWireError.invalidMessage
         }
+    }
+
+    /// Renders one create-new MCP export. Both export tools share naming,
+    /// companion SRT reservation and publication through this path.
+    private func renderMCPExport(
+        _ project: DemoProject,
+        in parent: URL,
+        subtitles: SRTCaptionScope?,
+        progress: @escaping @Sendable (Double) -> Void = { _ in }
+    ) async throws -> LayeredVideoExporter.ExportedFiles {
+        guard let recording = project.recording else {
+            throw VideoProjectValidationError.missingRecording
+        }
+        let destination = Self.uniqueVideoDestination(
+            projectName: project.name,
+            in: parent,
+            companionExtensions: subtitles == nil ? [] : ["srt"]
+        )
+        return try await LayeredVideoExporter().exportFiles(
+            project: project,
+            sourceURL: store.repository.assetURL(projectID: project.id, filename: recording.filename),
+            destinationURL: destination,
+            destinationPolicy: .createNew,
+            subtitles: subtitles,
+            progress: progress
+        )
     }
 
     /// Mutates one known export job without permitting terminal-state resurrection.
@@ -1416,10 +1427,31 @@ final class StorybirdExternalControlHost {
         return value
     }
 
+    /// Resolves the optional `subtitles` argument with the UI's automatic rule.
+    /// An explicit scope that SRT cannot represent fails before a job exists.
+    private static func companionSubtitleScope(
+        _ arguments: [String: Any],
+        project: DemoProject
+    ) throws -> SRTCaptionScope? {
+        let raw = try AgentEditArguments(values: arguments).text("subtitles", default: SRTCompanionSelection.auto.rawValue)
+        guard let selection = SRTCompanionSelection(rawValue: raw) else {
+            let allowed = SRTCompanionSelection.allCases.map(\.rawValue).joined(separator: ", ")
+            throw ProjectEditError(code: "invalid_value", targetID: project.id, property: "subtitles",
+                allowedRange: allowed, message: "subtitles must be one of \(allowed). No export was started.")
+        }
+        let scope = SRTCaptions.companionScope(selection, for: project)
+        // `auto` already proved its scope representable.
+        if selection != .auto, let scope { _ = try SRTCaptions.encode(project: project, scope: scope) }
+        return scope
+    }
+
     /// Chooses a unique local MP4 name without overwriting an earlier export.
+    /// The basename must also be free for every companion extension, so a
+    /// companion file never pairs with an unrelated existing one.
     private static func uniqueVideoDestination(
         projectName: String,
-        in parent: URL
+        in parent: URL,
+        companionExtensions: [String]
     ) -> URL {
         let allowed = CharacterSet.alphanumerics
         let slug = String(
@@ -1430,15 +1462,15 @@ final class StorybirdExternalControlHost {
             .joined(separator: "-")
         )
         let base = slug.isEmpty ? "storybird-video" : slug
-        var destination = parent.appendingPathComponent("\(base).mp4")
+        var name = base
         var suffix = 2
-        while FileManager.default.fileExists(atPath: destination.path) {
-            destination = parent.appendingPathComponent(
-                "\(base)-\(suffix).mp4"
-            )
+        while (["mp4"] + companionExtensions).contains(where: {
+            FileManager.default.fileExists(atPath: parent.appendingPathComponent(name).appendingPathExtension($0).path)
+        }) {
+            name = "\(base)-\(suffix)"
             suffix += 1
         }
-        return destination
+        return parent.appendingPathComponent(name).appendingPathExtension("mp4")
     }
 }
 

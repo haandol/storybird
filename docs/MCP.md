@@ -164,10 +164,10 @@ relevant tools so every unrelated call does not repeat those workflows.
 | `storybird_generate_narration` | Generates and places one local narration using a Base profile or a CustomVoice speaker with optional instructions |
 | `storybird_update_narration` | Changes timing or volume, or regenerates when text, speaker or instructions are supplied; speaker/instructions require an existing CustomVoice layer |
 | `storybird_edit_audio_layer` with `action: "delete"` | Removes a narration layer while preserving its WAV for undo |
-| `storybird_start_export` | Starts an asynchronous MP4 export and returns a job |
-| `storybird_get_export` | Returns export state and progress |
+| `storybird_start_export` | Starts an asynchronous MP4 export with an optional companion SRT and returns a job |
+| `storybird_get_export` | Returns export state, progress and, when completed, the MP4 and SRT paths |
 | `storybird_cancel_export` | Cancels an active export without replacing an existing output |
-| `storybird_export_project` | Renders H.264 MP4 with imported audio and generated narration mixed into AAC when present |
+| `storybird_export_project` | Renders H.264 MP4 with imported audio and generated narration mixed into AAC when present, plus an optional companion SRT |
 | `storybird_import_video` | Imports local MP4/MOV by absolute path into a new project without a picker; returns a job ID |
 | `storybird_import_audio` | Imports local WAV/MP3/M4A by absolute path into a reusable project audio asset without a picker |
 | `storybird_import_media` | Registers an additional local MP4/MOV or PNG/JPEG in the current video project without advancing revision |
@@ -699,6 +699,23 @@ SRT `path`, source `revision`, and `caption_count`, without changing the project
 or rendering MP4. Times round to nearest milliseconds, exact halves upward.
 Collapsed intervals and text containing SRT blank-line separators fail without
 altering text. Existing files are never overwritten.
+
+`storybird_start_export` and `storybird_export_project` accept an optional
+`subtitles` value of `auto`, `none`, `independent`, `cue` or `both`. They write
+the companion SRT beside the MP4, using the same basename with the `.srt`
+extension. The content, ordering and rounding match `storybird_export_subtitles`.
+`auto` is the default and matches the native export panel: it chooses `both`
+when the project has captions and all of them can be written as SRT; otherwise
+it chooses `none`. An explicit scope that SRT cannot represent is rejected
+before a job starts, and no file is created. The unique export name keeps both
+the MP4 and SRT names free. An existing file is never overwritten.
+
+Export jobs report the resolved `subtitleScope` (`none` when no SRT is written)
+and `subtitleCaptionCount`. A completed job returns `subtitlePath` next to
+`outputPath`. The SRT is installed only after the MP4. If the SRT cannot be
+installed, the job fails and the new MP4 is removed. `storybird_export_project`
+still returns only the MP4 path as text; its SRT is at the same path with the
+`.srt` extension.
 
 `storybird_preview_edits` and `storybird_apply_edits` accept the same
 `project_id`, `expected_revision` and nonempty `edits` array. Each edit has a

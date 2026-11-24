@@ -28,6 +28,10 @@ Cue captions remain Cue components. Import an existing UTF-8 SRT with
 it appends all entries atomically. Export SRT only when requested, with an explicit
 `scope` (`independent`, `cue`, `both`) and optional output directory. Read the
 returned new path; export leaves the project and existing files unchanged.
+MP4 export jobs also write a companion SRT by default when captions exist
+(`subtitles: auto`). Pass `subtitles: none` when the user wants no SRT, or an
+explicit scope when they name one. Report the completed job's `subtitlePath`
+together with `outputPath`.
 
 Read back the saved subtitles and compare their ordered text with the source,
 allowing only whitespace changes caused by wrapping/segmentation. Save the MCP

@@ -1,5 +1,6 @@
 import Foundation
 import MCP
+import StorybirdCore
 
 public struct StorybirdMCPService: Sendable {
     private let client: StorybirdAppIPCClient
@@ -743,11 +744,12 @@ public struct StorybirdMCPService: Sendable {
             Tool(
                 name: "storybird_start_export",
                 title: "Start an MP4 export job",
-                description: "Validate a project and start one asynchronous local MP4 export.",
+                description: "Validate a project and start one asynchronous local MP4 export. A companion SRT with the MP4's unique basename follows `subtitles`; the job reports subtitleScope and, when completed, subtitlePath.",
                 inputSchema: Self.objectSchema(
                     properties: [
                         "project_id": .object(["type": "string"]),
                         "parent_directory": .object(["type": "string"]),
+                        "subtitles": Self.companionSubtitleSchema,
                     ],
                     required: ["project_id", "parent_directory"]
                 ),
@@ -756,7 +758,7 @@ public struct StorybirdMCPService: Sendable {
             Tool(
                 name: "storybird_get_export",
                 title: "Get MP4 export status",
-                description: "Return validation, rendering, completion, failure, or cancellation state and 0-100 progress.",
+                description: "Return validation, rendering, completion, failure, or cancellation state and 0-100 progress. Completed jobs return outputPath and, when an SRT was requested, subtitlePath.",
                 inputSchema: Self.objectSchema(
                     properties: [
                         "job_id": .object(["type": "string"]),
@@ -780,11 +782,12 @@ public struct StorybirdMCPService: Sendable {
             Tool(
                 name: "storybird_export_project",
                 title: "Export a Storybird project",
-                description: "Render the original recording and timeline layers into a local H.264 MP4.",
+                description: "Render the original recording and timeline layers into a local H.264 MP4 and return its path. A companion SRT follows `subtitles` at the same path with the .srt extension.",
                 inputSchema: Self.objectSchema(
                     properties: [
                         "project_id": .object(["type": "string"]),
                         "parent_directory": .object(["type": "string"]),
+                        "subtitles": Self.companionSubtitleSchema,
                     ],
                     required: ["project_id", "parent_directory"]
                 ),
@@ -880,6 +883,13 @@ public struct StorybirdMCPService: Sendable {
     private static func toolError(_ message: String) -> CallTool.Result {
         .init(content: [.text(text: message, annotations: nil, _meta: nil)], isError: true)
     }
+
+    /// Companion SRT choice shared by both MP4 export tools and the native export panel.
+    static let companionSubtitleSchema: Value = .object([
+        "type": "string",
+        "enum": .array(SRTCompanionSelection.allCases.map { .string($0.rawValue) }),
+        "description": "Companion SRT beside the MP4. auto (default) writes both caption kinds when the project has captions that SRT can represent, otherwise none. An explicit scope that SRT cannot represent rejects the export before a job starts.",
+    ])
 
     /// Builds a closed JSON Schema object for MCP arguments.
     static func objectSchema(

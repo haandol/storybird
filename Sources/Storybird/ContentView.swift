@@ -114,7 +114,7 @@ struct ContentView: View {
                     Label("Export", systemImage: "square.and.arrow.up")
                 }
                 .disabled(!canExportVideo)
-                .help("Export an MP4 with click and subtitle layers")
+                .help("Export an MP4 with click and subtitle layers, plus an optional SRT")
             }
         }
         .sheet(isPresented: $recorder.isSourcePickerPresented) {
@@ -340,11 +340,14 @@ struct ContentView: View {
         panel.nameFieldStringValue = "\(slug(project.name)).mp4"
         panel.allowedContentTypes = [.mpeg4Movie]
         panel.canCreateDirectories = true
+        let subtitleChoice = ExportSubtitleAccessory(project: project)
+        panel.accessoryView = subtitleChoice.view
 
         guard panel.runModal() == .OK, let destinationURL = panel.url else {
             store.endExport(exportID)
             return
         }
+        let subtitleScope = subtitleChoice.selectedScope
         let sourceURL = store.repository.assetURL(
             projectID: project.id,
             filename: recording.filename
@@ -357,10 +360,11 @@ struct ContentView: View {
             }
             do {
                 let exporter = LayeredVideoExporter()
-                let result = try await exporter.export(
+                let result = try await exporter.exportFiles(
                     project: project,
                     sourceURL: sourceURL,
-                    destinationURL: destinationURL
+                    destinationURL: destinationURL,
+                    subtitles: subtitleScope
                 ) { progress in
                     Task { @MainActor in
                         exportProgress = progress
@@ -368,15 +372,21 @@ struct ContentView: View {
                 }
                 isExporting = false
                 exportTask = nil
-                NSWorkspace.shared.activateFileViewerSelecting([result])
+                NSWorkspace.shared.activateFileViewerSelecting([result.video] + (result.subtitles.map { [$0] } ?? []))
             } catch is CancellationError {
                 isExporting = false
                 exportTask = nil
             } catch {
                 isExporting = false
                 exportTask = nil
-                store.errorMessage =
-                    "The video could not be exported: \(error.localizedDescription)"
+                if case let .subtitleInstallFailed(savedVideo?, _)? = error as? LayeredVideoExportError {
+                    // Only a replaced MP4 survives a failed SRT install; show it and name the missing SRT.
+                    NSWorkspace.shared.activateFileViewerSelecting([savedVideo])
+                    store.errorMessage = error.localizedDescription
+                } else {
+                    store.errorMessage =
+                        "The video could not be exported: \(error.localizedDescription)"
+                }
             }
         }
     }
