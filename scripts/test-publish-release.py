@@ -48,21 +48,29 @@ elif a[:2] == ["release", "create"]:
         sys.exit("no new commits since the last release")
     if s: sys.exit("release already exists")
     if os.environ.get("TEST_CREATE_FAILURE"): sys.exit("simulated create failure")
+    files = []
+    for value in a[3:]:
+        if value.startswith("--"): break
+        files.append(pathlib.Path(value))
+    if os.environ.get("TEST_PARTIAL_UPLOAD"): files = files[:1]
+    assets = pathlib.Path(str(state) + ".assets")
+    assets.mkdir(exist_ok=True)
+    for path in files: shutil.copyfile(path, assets / path.name)
     s = {
         "tagName": a[2], "name": option("--title"),
         "body": pathlib.Path(option("--notes-file")).read_text(),
         "isDraft": True, "isPrerelease": False,
-        "assets": [{"name": pathlib.Path(a[3]).name}],
+        "assets": [{"name": path.name} for path in files],
         "url": "https://example.invalid/release",
     }
-    shutil.copyfile(a[3], str(state) + ".zip")
     save(s)
 elif a[:2] == ["release", "view"]:
     if not s: sys.exit("missing release")
     print(json.dumps(s))
 elif a[:2] == ["release", "download"]:
-    dest = pathlib.Path(option("--dir")) / option("--pattern")
-    shutil.copyfile(str(state) + ".zip", dest)
+    assets = pathlib.Path(str(state) + ".assets")
+    for name in [a[i + 1] for i, value in enumerate(a) if value == "--pattern"]:
+        shutil.copyfile(assets / name, pathlib.Path(option("--dir")) / name)
 elif a[:2] == ["release", "edit"]:
     if not s or not s["isDraft"]: sys.exit("not a draft")
     s["isDraft"] = False
@@ -129,12 +137,23 @@ class ReleaseFixture(unittest.TestCase):
             archive.writestr("Storybird.app/Contents/Info.plist", self.plist)
             archive.writestr("Storybird.app/Contents/MacOS/Storybird", b"synthetic")
         self.checksum = hashlib.sha256(self.archive.read_bytes()).hexdigest()
+        self.checksum_file = self.repo / f"build/Storybird-{self.version}.zip.sha256"
+        self.write_checksum_file()
         self.notes = self.repo / f"build/release-notes-{self.tag}.md"
         self.notes.write_text(f"# Storybird {self.version}\n\n테스트 릴리즈\n\nSHA-256: {self.checksum}\n")
 
     def git(self, *args):
         return subprocess.run([REAL_GIT, *args], cwd=self.repo, env=self.env,
                               text=True, capture_output=True, check=True)
+
+    def write_checksum_file(self):
+        self.checksum_file.write_text(f"{self.checksum}  {self.archive.name}\n")
+
+    def uploaded(self, name):
+        return Path(self.env["TEST_STATE"] + ".assets") / name
+
+    def remote_refs(self):
+        return self.git("--git-dir", str(self.remote), "for-each-ref").stdout
 
     def run_script(self, mode="--check", *, checksum=None, success=True):
         result = subprocess.run(
@@ -256,6 +275,7 @@ class PublishReleaseTests(ReleaseFixture):
         with zipfile.ZipFile(self.archive, "w") as archive:
             archive.writestr("Storybird.app/Contents/Info.plist", b"wrong bundle")
         self.checksum = hashlib.sha256(self.archive.read_bytes()).hexdigest()
+        self.write_checksum_file()
         self.notes.write_text(self.checksum)
         self.assertIn("metadata differs", self.run_script("--push", success=False).stderr)
 
@@ -272,8 +292,59 @@ class PublishReleaseTests(ReleaseFixture):
     def test_mismatched_uploaded_asset_prevents_publication(self):
         self.run_script("--push")
         self.run_script("--draft")
-        Path(self.env["TEST_STATE"] + ".zip").write_bytes(b"corrupt upload")
+        self.uploaded(self.archive.name).write_bytes(b"corrupt upload")
         self.assertIn("Uploaded ZIP", self.run_script("--publish", success=False).stderr)
+        self.assertTrue(self.state()["isDraft"])
+
+    def test_publication_uploads_zip_with_verifiable_checksum_file(self):
+        self.run_script("--push")
+        self.run_script("--publish")
+        self.assertEqual(sorted(asset["name"] for asset in self.state()["assets"]),
+                         sorted([self.archive.name, self.checksum_file.name]))
+        uploaded = self.uploaded(self.checksum_file.name)
+        self.assertEqual(uploaded.read_bytes(), self.checksum_file.read_bytes())
+        # Users verify the download with the standard tool in the download folder.
+        verified = subprocess.run(["sha256sum", "-c", uploaded.name], cwd=uploaded.parent,
+                                  env=self.env, text=True, capture_output=True)
+        self.assertEqual(verified.returncode, 0, verified.stdout + verified.stderr)
+        calls = [json.loads(line) for line in Path(self.env["TEST_LOG"]).read_text().splitlines()]
+        download = next(call for call in calls if call[:2] == ["release", "download"])
+        self.assertEqual([download[i + 1] for i, value in enumerate(download) if value == "--pattern"],
+                         [self.archive.name, self.checksum_file.name])
+
+    def test_missing_or_mismatched_checksum_file_prevents_push(self):
+        for content in [None, f"{'0' * 64}  {self.archive.name}\n",
+                        f"{self.checksum}  build/{self.archive.name}\n",
+                        f"{self.checksum}  {self.archive.name}\nextra line\n"]:
+            with self.subTest(content=content):
+                if content is None:
+                    self.checksum_file.unlink()
+                else:
+                    self.checksum_file.write_text(content)
+                result = self.run_script("--push", success=False)
+                self.assertIn(self.checksum_file.name, result.stderr)
+                self.assertEqual(self.remote_refs(), "")
+                self.assertFalse(Path(self.env["TEST_STATE"]).exists())
+
+    def test_partial_upload_without_checksum_file_stops_for_inspection(self):
+        self.run_script("--push")
+        self.env["TEST_PARTIAL_UPLOAD"] = "1"
+        self.assertIn("exactly the expected ZIP", self.run_script("--publish", success=False).stderr)
+        self.assertTrue(self.state()["isDraft"])
+        del self.env["TEST_PARTIAL_UPLOAD"]
+        # A retry inspects the existing draft instead of uploading into or publishing it.
+        self.assertIn("exactly the expected ZIP", self.run_script("--publish", success=False).stderr)
+        self.assertTrue(self.state()["isDraft"])
+        calls = [json.loads(line) for line in Path(self.env["TEST_LOG"]).read_text().splitlines()]
+        self.assertEqual(sum(call[:2] == ["release", "create"] for call in calls), 1)
+        self.assertFalse(any(call[:2] == ["release", "edit"] for call in calls))
+
+    def test_mismatched_uploaded_checksum_file_prevents_publication(self):
+        self.run_script("--push")
+        self.run_script("--draft")
+        self.uploaded(self.checksum_file.name).write_text(f"{'0' * 64}  {self.archive.name}\n")
+        result = self.run_script("--publish", success=False)
+        self.assertIn(f"Uploaded {self.checksum_file.name} mismatch", result.stderr)
         self.assertTrue(self.state()["isDraft"])
 
     def test_changed_notes_prevent_publication(self):
@@ -335,7 +406,7 @@ class PublishReleaseTests(ReleaseFixture):
         self.run_script("--push")
         self.run_script("--publish")
         before = self.state()
-        Path(self.env["TEST_STATE"] + ".zip").write_bytes(b"corrupt public asset")
+        self.uploaded(self.archive.name).write_bytes(b"corrupt public asset")
         self.assertIn("Uploaded ZIP", self.run_script("--publish", success=False).stderr)
         self.assertEqual(self.state(), before)
 
@@ -373,6 +444,7 @@ class PushVersionTests(ReleaseFixture):
         self.git("commit", "--allow-empty", "-m", "later tooling")
         (self.repo / "pending.txt").write_text("uncommitted local work")
         self.archive.unlink()
+        self.checksum_file.unlink()
         self.notes.unlink()
         (self.bin / "gh").write_text("#!/bin/sh\nexit 91\n")
         self.git("config", "push.followTags", "true")

@@ -19,7 +19,9 @@ Disclose unperformed native checks in the notes without claiming they passed.
 
 Required files, prepared and verified on macOS:
   build/Storybird-VERSION.zip
+  build/Storybird-VERSION.zip.sha256 ("<ZIP SHA-256>  Storybird-VERSION.zip")
   build/release-notes-vVERSION.md (must include the ZIP SHA-256)
+Both files are uploaded; the release must contain exactly these two assets.
 
 COMMIT_SHA must be the full commit used for the macOS release build.
 Only the legacy --push mode requires this commit at a clean, attached HEAD.
@@ -81,11 +83,17 @@ tag="v${version}"
 title="Storybird ${version}"
 archive="build/Storybird-${version}.zip"
 asset="${archive##*/}"
+# The companion names the ZIP by basename so `shasum -c` works in a download folder.
+checksum_file="${archive}.sha256"
+checksum_asset="${checksum_file##*/}"
 notes="build/release-notes-${tag}.md"
 [[ -s "$archive" && -s "$notes" ]] || fail "Missing ZIP or release notes; prepare on macOS first."
+[[ -s "$checksum_file" ]] || fail "Missing ${checksum_asset}; prepare it on macOS first."
 actual_checksum="$(checksum "$archive")"
 [[ "$actual_checksum" == "$expected_checksum" ]] || fail "ZIP SHA-256 mismatch."
 grep -Fq "$expected_checksum" "$notes" || fail "Release notes must contain the verified ZIP SHA-256."
+[[ "$(cat "$checksum_file")" == "${expected_checksum}  ${asset}" ]] ||
+    fail "${checksum_asset} must contain exactly: ${expected_checksum}  ${asset}"
 unzip -t "$archive" >/dev/null
 
 scratch="$(mktemp -d)"
@@ -144,14 +152,18 @@ verify_release() {
         and ((.body | gsub("\r\n"; "\n") | sub("\n+$"; ""))
              == ($notes | gsub("\r\n"; "\n") | sub("\n+$"; "")))
     ' "$scratch/release.json" >/dev/null || fail "Release metadata/notes mismatch."
-    jq -e --arg asset "$asset" '.assets | length == 1 and .[0].name == $asset' \
-        "$scratch/release.json" >/dev/null || fail "Release must contain exactly the expected ZIP."
+    jq -e --arg zip "$asset" --arg sum "$checksum_asset" \
+        '[.assets[].name] | sort == ([$zip, $sum] | sort)' "$scratch/release.json" >/dev/null ||
+        fail "Release must contain exactly the expected ZIP and ${checksum_asset}."
     # Verify actual uploaded bytes, including when resuming an existing draft.
     local download_dir
     download_dir="$(mktemp -d "$scratch/download.XXXXXX")"
-    gh release download "$tag" --repo "github.com/${repo}" --pattern "$asset" --dir "$download_dir"
+    gh release download "$tag" --repo "github.com/${repo}" \
+        --pattern "$asset" --pattern "$checksum_asset" --dir "$download_dir"
     [[ "$(checksum "$download_dir/$asset")" == "$expected_checksum" ]] ||
         fail "Uploaded ZIP SHA-256 mismatch."
+    cmp -s "$download_dir/$checksum_asset" "$checksum_file" ||
+        fail "Uploaded ${checksum_asset} mismatch."
 }
 if [[ "$count" == 1 ]]; then
     if [[ "$(jq -r '.[0].draft' "$scratch/matches.json")" == true ]]; then
@@ -166,8 +178,8 @@ if [[ "$count" == 1 ]]; then
     fi
 fi
 
-printf 'Repository: %s\nBranch: %s\nCommit: %s\nTitle: %s\nZIP: %s\nSHA-256: %s\nMode: %s\n\n' \
-    "$repo" "${branch:-(detached)}" "$target" "$title" "$archive" "$expected_checksum" "$mode"
+printf 'Repository: %s\nBranch: %s\nCommit: %s\nTitle: %s\nZIP: %s\nChecksum file: %s\nSHA-256: %s\nMode: %s\n\n' \
+    "$repo" "${branch:-(detached)}" "$target" "$title" "$archive" "$checksum_file" "$expected_checksum" "$mode"
 cat "$notes"
 printf '\n'
 if [[ "$mode" == "--check" ]]; then
@@ -195,7 +207,7 @@ fi
 if [[ "$count" == 0 ]]; then
     # The verified tag may be ahead of the default branch after a tag-only push.
     # Do not ask gh to infer new commits from default-branch release history.
-    gh release create "$tag" "$archive" --repo "github.com/${repo}" --draft \
+    gh release create "$tag" "$archive" "$checksum_file" --repo "github.com/${repo}" --draft \
         --verify-tag --target "$target" \
         --title "$title" --notes-file "$notes"
 fi

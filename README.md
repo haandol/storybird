@@ -136,7 +136,9 @@ be able to read the source file under its existing macOS permissions.
 Download the versioned `Storybird-X.Y.Z.zip` from
 [GitHub Releases](https://github.com/haandol/storybird/releases), verify its
 SHA-256 against the release notes, unzip it, and move `Storybird.app` to
-`/Applications`. If no published release is available, use the source build
+`/Applications`. Releases from 0.1.24 also include
+`Storybird-X.Y.Z.zip.sha256`; with both files in one folder, run
+`shasum -a 256 -c Storybird-X.Y.Z.zip.sha256`. If no published release is available, use the source build
 below. The prebuilt app requires an **Apple Silicon Mac running macOS 14 or later**.
 
 These builds are signed but **not notarized**. If macOS blocks the first launch:

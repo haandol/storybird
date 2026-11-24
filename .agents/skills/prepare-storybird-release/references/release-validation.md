@@ -19,7 +19,7 @@ Record the real Swift totals, skips and failures, and the Python suite result.
 Reuse a passing full suite for the same sources instead of repeating it.
 
 Require a real `Apple Development` or `Developer ID Application` signature with the
-same nonempty `TeamIdentifier` on the app and the MCP companion. The build script's
+same nonempty `TeamIdentifier` on the app and the MCP companion executable. The build script's
 ad-hoc fallback is not a releasable build: TCC permissions would not persist.
 Storybird is not notarized; follow the installation wording in the notes guide.
 
@@ -40,12 +40,17 @@ release_archive="build/Storybird-${release_version}.zip"
 test ! -e "$release_archive"
 ditto -c -k --sequesterRsrc --keepParent build/Storybird.app "$release_archive"
 unzip -t "$release_archive"
-shasum -a 256 "$release_archive"
+(cd build && shasum -a 256 "Storybird-${release_version}.zip" > "Storybird-${release_version}.zip.sha256")
+(cd build && shasum -a 256 -c "Storybird-${release_version}.zip.sha256")
 ```
 
+The `.sha256` companion names the ZIP by basename, so users can run
+`shasum -a 256 -c` in their download folder. `publish-release.sh` requires its
+exact `<sha256>  Storybird-X.Y.Z.zip` line and uploads both files.
+
 Extract the ZIP into a `mktemp -d` directory. Recheck the version, build number,
-strict signatures and `TeamIdentifier` of the app and the companion, then remove
-only that directory. The tag commit, bundle, file names, notes and checksum must
+strict signatures and `TeamIdentifier` of the app and the MCP companion, then
+remove only that directory. The tag commit, bundle, file names, notes and checksum must
 agree.
 
 Create the annotated tag locally on the exact release commit:

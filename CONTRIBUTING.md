@@ -91,9 +91,11 @@ Prepare the release on macOS using
 [the release skill](.agents/skills/prepare-storybird-release/SKILL.md): select the
 version, update both bundle version fields, commit the release sources, run tests
 and relevant native smoke checks, and build/sign the app from that commit. Package
-`build/Storybird-X.Y.Z.zip` and write `build/release-notes-vX.Y.Z.md`, including the
-verified ZIP SHA-256. These ignored files must be present in the shared workspace;
-they are uploaded as release assets/notes, never committed.
+`build/Storybird-X.Y.Z.zip`, its `build/Storybird-X.Y.Z.zip.sha256` companion
+(`<sha256>  Storybird-X.Y.Z.zip`, written from `build/`), and
+`build/release-notes-vX.Y.Z.md`, including the verified ZIP SHA-256. These
+ignored files must be present in the shared workspace; they are uploaded as
+release assets/notes, never committed.
 
 Use a draft as the final result only when the user explicitly asks for a draft.
 The tag-only container step needs Git and Bash, with no `gh` API authentication.
@@ -133,8 +135,9 @@ The publisher reads the specified release commit, even if HEAD has advanced or
 unrelated files are uncommitted. Only its legacy `--push` mode requires a clean
 working tree with the prepared commit at an attached HEAD. Both scripts require
 a single `origin` push URL for `haandol/storybird`. The publisher checks the
-ZIP checksum, committed/bundled metadata, tag commit, release title/notes and the
-downloaded asset before publication. It verifies an identical published release
+ZIP checksum and its companion file, committed/bundled metadata, tag commit,
+release title/notes and both downloaded assets before publication. A release
+must contain exactly the ZIP and its `.sha256` file. It verifies an identical published release
 without changing its body/assets or moving Latest. It refuses mismatched
 releases, tags/drafts, force pushes and asset replacement. A matching complete
 draft can be resumed with the same command; a partial upload or metadata mismatch

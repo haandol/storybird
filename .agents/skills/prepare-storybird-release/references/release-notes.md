@@ -106,6 +106,8 @@ A를 가장 먼저 쓰고 C가 더 중요한 내용을 묻지 않게 한다. C�
 
 Apple Silicon Mac과 macOS 14 이상이 필요합니다. `Storybird-X.Y.Z.zip`을 내려받아 아래
 SHA-256을 확인한 뒤, 압축을 풀고 `Storybird.app`을 응용 프로그램 폴더로 옮기세요.
+함께 올린 `Storybird-X.Y.Z.zip.sha256`을 같은 폴더에 받으면
+`shasum -a 256 -c Storybird-X.Y.Z.zip.sha256`으로 확인할 수 있습니다.
 
 ```text
 <ZIP SHA-256>
